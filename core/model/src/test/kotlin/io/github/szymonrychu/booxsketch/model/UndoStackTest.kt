@@ -14,22 +14,22 @@ class UndoStackTest {
         val added = stack.apply(notebook(), Command.AddStroke(stroke("a")))
         assertThat(added.pages[0].strokes.map { it.id }).containsExactly("a")
         assertThat(added.pages[0].changedSinceSend).isTrue()
-        assertThat(stack.canUndo).isTrue()
+        assertThat(stack.canUndo(added)).isTrue()
         val undone = stack.undo(added)
         assertThat(undone.pages[0].strokes).isEmpty()
-        assertThat(stack.canRedo).isTrue()
+        assertThat(stack.canRedo(undone)).isTrue()
         val redone = stack.redo(undone)
         assertThat(redone.pages[0].strokes.map { it.id }).containsExactly("a")
-        assertThat(stack.canRedo).isFalse()
+        assertThat(stack.canRedo(redone)).isFalse()
     }
 
     @Test
     fun new_command_clears_redo() {
         val stack = UndoStack()
         val n = stack.undo(stack.apply(notebook(), Command.AddStroke(stroke("a"))))
-        assertThat(stack.canRedo).isTrue()
+        assertThat(stack.canRedo(n)).isTrue()
         stack.apply(n, Command.AddStroke(stroke("b")))
-        assertThat(stack.canRedo).isFalse()
+        assertThat(stack.canRedo(n)).isFalse()
     }
 
     @Test
@@ -58,7 +58,7 @@ class UndoStackTest {
         var n = stack.apply(notebook().addPage().select(0), Command.AddStroke(stroke("a")))
         n = n.select(1)
         assertThat(stack.undo(n)).isEqualTo(n)
-        assertThat(stack.canUndo).isFalse()
+        assertThat(stack.canUndo(n)).isFalse()
         n = stack.apply(n, Command.AddStroke(stroke("b")))
         n = stack.undo(n)
         assertThat(n.pages[0].strokes.map { it.id }).containsExactly("a")
@@ -71,5 +71,38 @@ class UndoStackTest {
         val n = stack.apply(notebook().addPage().select(0), Command.AddStroke(stroke("a")))
         val deleted = n.deletePage(0)
         assertThat(stack.undo(deleted)).isEqualTo(deleted)
+    }
+
+    @Test
+    fun history_follows_page_on_delete() {
+        val stack = UndoStack()
+        var n = notebook().addPage().addPage().select(1)
+        n = stack.apply(n, Command.AddStroke(stroke("a")))
+        n = stack.apply(n, Command.Clear)
+        n = stack.deletePage(n, 0)
+        assertThat(n.current).isEqualTo(0)
+        n = stack.undo(n)
+        assertThat(n.pages[0].strokes.map { it.id }).containsExactly("a")
+        assertThat(n.pages[1].strokes).isEmpty()
+    }
+
+    @Test
+    fun deleting_page_with_history_does_not_restore_onto_shifted_page() {
+        val stack = UndoStack()
+        var n = stack.apply(notebook().addPage().select(0), Command.AddStroke(stroke("a")))
+        n = stack.apply(n, Command.Clear)
+        n = stack.deletePage(n, 0)
+        assertThat(stack.undo(n)).isEqualTo(n)
+        assertThat(stack.canUndo(n)).isFalse()
+    }
+
+    @Test
+    fun can_undo_reflects_selected_page() {
+        val stack = UndoStack()
+        var n = stack.apply(notebook().addPage().select(0), Command.AddStroke(stroke("a")))
+        assertThat(stack.canUndo(n)).isTrue()
+        n = n.select(1)
+        assertThat(stack.canUndo(n)).isFalse()
+        assertThat(stack.canRedo(n)).isFalse()
     }
 }

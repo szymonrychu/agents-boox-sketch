@@ -13,9 +13,9 @@ sealed interface Command {
 }
 
 /**
- * Undo/redo history kept per page index. An entry is only honoured while the page still holds
- * the strokes the entry produced, so history made stale by page deletion is ignored.
- * [canUndo] and [canRedo] describe the page of the most recent call.
+ * Undo/redo history kept per page index. Delete pages through [deletePage] so histories follow
+ * their page. An entry is only honoured while the page still holds the strokes the entry
+ * produced, as a second guard against stale history.
  */
 class UndoStack {
     private class Entry(
@@ -29,16 +29,37 @@ class UndoStack {
     )
 
     private val histories = mutableMapOf<Int, History>()
-    private var active = 0
 
-    val canUndo: Boolean get() = histories[active]?.undo?.isNotEmpty() == true
-    val canRedo: Boolean get() = histories[active]?.redo?.isNotEmpty() == true
+    /** True when the selected page of [n] has something to undo. */
+    fun canUndo(n: Notebook): Boolean = histories[n.current]?.undo?.isNotEmpty() == true
+
+    /** True when the selected page of [n] has something to redo. */
+    fun canRedo(n: Notebook): Boolean = histories[n.current]?.redo?.isNotEmpty() == true
+
+    /** Deletes page [i] of [n] and re-keys the histories so each follows its page. */
+    fun deletePage(
+        n: Notebook,
+        i: Int,
+    ): Notebook {
+        if (i !in n.pages.indices) return n
+        val moved = mutableMapOf<Int, History>()
+        if (n.pages.size > 1) {
+            for ((k, h) in histories) {
+                when {
+                    k < i -> moved[k] = h
+                    k > i -> moved[k - 1] = h
+                }
+            }
+        }
+        histories.clear()
+        histories.putAll(moved)
+        return n.deletePage(i)
+    }
 
     fun apply(
         n: Notebook,
         c: Command,
     ): Notebook {
-        active = n.current
         val before = n.pages[n.current].strokes
         val after =
             when (c) {
@@ -54,7 +75,6 @@ class UndoStack {
     }
 
     fun undo(n: Notebook): Notebook {
-        active = n.current
         val h = histories[n.current] ?: return n
         val e = h.undo.lastOrNull() ?: return n
         if (n.pages[n.current].strokes != e.after) {
@@ -68,7 +88,6 @@ class UndoStack {
     }
 
     fun redo(n: Notebook): Notebook {
-        active = n.current
         val h = histories[n.current] ?: return n
         val e = h.redo.lastOrNull() ?: return n
         if (n.pages[n.current].strokes != e.before) {
