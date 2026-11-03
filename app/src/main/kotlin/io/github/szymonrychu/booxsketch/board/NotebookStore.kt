@@ -21,10 +21,27 @@ class NotebookStore(
         }
     }
 
-    /** The saved notebook, or null when nothing was saved or the file is unreadable. */
+    /**
+     * The saved notebook, or null when nothing was saved or the file is unreadable;
+     * an unreadable file is kept as `<name>.corrupt` so the next save cannot destroy it.
+     */
     @Synchronized
     fun load(): Notebook? {
         if (!file.isFile) return null
-        return runCatching { json.decodeFromString(Notebook.serializer(), file.readText()) }.getOrNull()
+        return runCatching { json.decodeFromString(Notebook.serializer(), file.readText()) }
+            .getOrElse {
+                preserveUnreadable()
+                null
+            }
+    }
+
+    private fun preserveUnreadable() {
+        val kept = File(file.parentFile, file.name + CORRUPT_SUFFIX)
+        kept.delete()
+        file.renameTo(kept)
+    }
+
+    companion object {
+        const val CORRUPT_SUFFIX = ".corrupt"
     }
 }

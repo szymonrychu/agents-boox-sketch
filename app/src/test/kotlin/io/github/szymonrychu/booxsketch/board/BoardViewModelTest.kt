@@ -138,4 +138,45 @@ class BoardViewModelTest {
                     .strokes,
             ).hasSize(1)
         }
+
+    @Test
+    fun flush_persists_strokes_inside_the_debounce_window() =
+        runTest {
+            val v = vm()
+            v.onStroke(stroke("a"))
+            advanceTimeBy(100)
+            runCurrent()
+            assertThat(File(tmp.root, "notebook.json").exists()).isFalse()
+            v.flush()
+            assertThat(
+                NotebookStore(File(tmp.root, "notebook.json"))
+                    .load()
+                    ?.pages
+                    ?.get(0)
+                    ?.strokes
+                    ?.map { it.id },
+            ).containsExactly("a")
+        }
+
+    @Test
+    fun save_io_failure_is_surfaced_and_keeps_the_notebook() =
+        runTest {
+            val blocker = tmp.newFile("blocker")
+            val v =
+                BoardViewModel(
+                    NotebookStore(File(blocker, "notebook.json")),
+                    this,
+                    StandardTestDispatcher(testScheduler),
+                )
+            v.onStroke(stroke("a"))
+            advanceTimeBy(501)
+            runCurrent()
+            assertThat(v.saveError.value).isNotNull()
+            v.flush()
+            assertThat(v.saveError.value).isNotNull()
+            assertThat(
+                v.notebook.value.pages[0]
+                    .strokes,
+            ).hasSize(1)
+        }
 }

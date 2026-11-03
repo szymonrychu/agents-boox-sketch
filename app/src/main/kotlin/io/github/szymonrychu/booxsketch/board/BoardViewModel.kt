@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /** Board state: the notebook, pen settings and per-page undo. Autosaves 500 ms after the last change. */
 class BoardViewModel(
@@ -45,6 +46,11 @@ class BoardViewModel(
 
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    private val _saveError = MutableStateFlow<String?>(null)
+
+    /** Message of the last failed save, null once a save succeeded again. */
+    val saveError: StateFlow<String?> = _saveError.asStateFlow()
 
     fun setTool(tool: Tool) {
         _tool.value = tool
@@ -90,8 +96,18 @@ class BoardViewModel(
     /** Writes the notebook now, cancelling a pending debounced save. */
     suspend fun flush() {
         saveJob?.cancel()
+        persist()
+    }
+
+    /** Saves the current notebook; an IO failure is surfaced in [saveError] and the in-memory notebook is kept. */
+    private suspend fun persist() {
         val n = _notebook.value
-        withContext(ioDispatcher) { store.save(n) }
+        try {
+            withContext(ioDispatcher) { store.save(n) }
+            _saveError.value = null
+        } catch (e: IOException) {
+            _saveError.value = e.message ?: e.javaClass.simpleName
+        }
     }
 
     private fun update(change: (Notebook) -> Notebook) {
@@ -109,8 +125,7 @@ class BoardViewModel(
         saveJob =
             scope.launch {
                 delay(SAVE_DEBOUNCE_MS)
-                val n = _notebook.value
-                withContext(ioDispatcher) { store.save(n) }
+                persist()
             }
     }
 

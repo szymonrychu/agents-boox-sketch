@@ -50,4 +50,13 @@ class NotebookStoreTest {
         assertThat(store.load()?.current).isEqualTo(0)
         assertThat(tmp.root.list()?.toList()).containsExactly("notebook.json")
     }
+
+    @Test
+    fun unreadable_file_is_preserved_as_corrupt() {
+        val f = File(tmp.root, "notebook.json")
+        f.writeText("{not json")
+        assertThat(NotebookStore(f).load()).isNull()
+        assertThat(f.exists()).isFalse()
+        assertThat(File(tmp.root, "notebook.json.corrupt").readText()).isEqualTo("{not json")
+    }
 }
