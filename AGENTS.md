@@ -41,8 +41,8 @@ and commits the XML. On a rebase conflict in that file, regenerate it, never han
 This repository becomes public. No secrets, server origins, internal hostnames, registry or
 cluster names, and no personal data (real name, personal email, device serials) in any commit,
 ever. Commits are authored as `szymonrychu <ID+szymonrychu@users.noreply.github.com>`. Fixtures
-use `https://connector.example` and fake tokens only (`test-token`; never the word `Bearer`
-followed by a token-like string). No server URL or token is compiled into any build; debug may
+use `https://connector.example` and fake tokens only (`test-token`; build the auth header
+scheme word at runtime in tests, never as a literal next to a token-like string). No server URL or token is compiled into any build; debug may
 read `defaultOrigin` from the gitignored `local.properties`. Keystores and `.env*` files are
 gitignored and never committed.
 
