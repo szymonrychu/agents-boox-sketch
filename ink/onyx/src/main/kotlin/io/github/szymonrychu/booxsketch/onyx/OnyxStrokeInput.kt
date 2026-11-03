@@ -42,6 +42,8 @@ class OnyxStrokeInput(
     private var drawing: RawDrawing? = null
     private var host: View? = null
     private var paused = false
+    private var appliedLimit: Rect? = null
+    private var appliedExclude: List<Rect> = emptyList()
 
     @Volatile
     private var pressureMax = FALLBACK_MAX_PRESSURE
@@ -112,7 +114,11 @@ class OnyxStrokeInput(
     ) {
         val current = drawing
         if (current != null && host === view) {
-            current.setLimitRect(limit, exclude)
+            if (limit == appliedLimit && exclude == appliedExclude) return
+            // As in the vendor demo, new rects take effect through setLimitRect followed by openRawDrawing.
+            applyRects(current, limit, exclude)
+            current.open()
+            if (paused) current.setEnabled(false) else enable(current)
             return
         }
         current?.close()
@@ -120,10 +126,20 @@ class OnyxStrokeInput(
         val d = rawDrawing(view, callback)
         drawing = d
         host = view
-        d.setLimitRect(limit, exclude)
+        applyRects(d, limit, exclude)
         applyBrush(d)
         d.open()
         d.setEnabled(!paused)
+    }
+
+    private fun applyRects(
+        d: RawDrawing,
+        limit: Rect,
+        exclude: List<Rect>,
+    ) {
+        appliedLimit = Rect(limit)
+        appliedExclude = exclude.map { Rect(it) }
+        d.setLimitRect(limit, exclude)
     }
 
     private fun applyBrush(d: RawDrawing) {
@@ -170,6 +186,8 @@ class OnyxStrokeInput(
         drawing?.close()
         drawing = null
         host = null
+        appliedLimit = null
+        appliedExclude = emptyList()
     }
 
     companion object {

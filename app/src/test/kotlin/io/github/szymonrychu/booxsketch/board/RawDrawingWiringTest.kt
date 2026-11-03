@@ -125,4 +125,20 @@ class RawDrawingWiringTest {
         v.surfaceDestroyed(v.holder)
         assertThat(log).containsExactly("created", "focus:false", "destroyed").inOrder()
     }
+
+    @Test
+    fun input_is_only_started_while_the_surface_exists() {
+        val input = RecordingInput()
+        val v = BoardSurfaceView(ApplicationProvider.getApplicationContext())
+        v.layout(0, 0, 100, 100)
+        v.startInput(input, emptyList())
+        v.surfaceCreated(v.holder)
+        v.startInput(input, emptyList())
+        v.surfaceDestroyed(v.holder)
+        v.startInput(input, emptyList())
+        v.startInput(input, listOf(Rect(0, 0, 10, 10)))
+        v.surfaceCreated(v.holder)
+        v.startInput(input, emptyList())
+        assertThat(input.calls).containsExactly("start", "start").inOrder()
+    }
 }

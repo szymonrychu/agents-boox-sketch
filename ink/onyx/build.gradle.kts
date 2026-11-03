@@ -47,9 +47,8 @@ dependencies {
     testImplementation(libs.androidx.test.core.ktx)
 }
 
-// onyxsdk-base pulls the pre-AndroidX support libraries (24.2.1), which duplicate AndroidX classes,
-// and com.tencent:mmkv, used only by Onyx search-history helpers and shipping an unaligned x86_64 .so.
+// onyxsdk-base pulls the pre-AndroidX support libraries (24.2.1), which duplicate AndroidX classes.
+// com.tencent:mmkv stays: its runtime use by the Onyx pen/base SDK is unproven and losing it could silently kill pen input.
 configurations.configureEach {
     exclude(group = "com.android.support")
-    exclude(group = "com.tencent", module = "mmkv")
 }

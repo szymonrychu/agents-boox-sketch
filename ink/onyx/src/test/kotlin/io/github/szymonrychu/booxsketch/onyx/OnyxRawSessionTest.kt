@@ -5,7 +5,13 @@ import android.view.View
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.onyx.android.sdk.data.note.TouchPoint
+import com.onyx.android.sdk.pen.RawInputCallback
+import com.onyx.android.sdk.pen.data.TouchPointList
+import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.model.Tool
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -56,14 +62,61 @@ class OnyxRawSessionTest {
     private fun limit() = Rect(0, 0, 100, 100)
 
     @Test
-    fun repeated_layout_on_the_same_view_creates_one_helper_and_only_updates_rects() {
+    fun repeated_layout_on_the_same_view_creates_one_helper_and_unchanged_rects_do_nothing() {
+        input.start(view, limit(), listOf(Rect(0, 90, 100, 100)))
+        log.clear()
+        input.start(view, limit(), listOf(Rect(0, 90, 100, 100)))
+        assertThat(created).isEqualTo(1)
+        assertThat(log).isEmpty()
+    }
+
+    @Test
+    fun changed_rects_are_applied_and_raw_drawing_is_reopened_as_in_the_vendor_demo() {
         input.start(view, limit(), emptyList())
         log.clear()
         input.start(view, limit(), listOf(Rect(0, 90, 100, 100)))
         input.start(view, limit(), listOf(Rect(0, 90, 100, 100), Rect(0, 0, 10, 10)))
         assertThat(created).isEqualTo(1)
-        assertThat(log).containsExactly("limit1:1", "limit1:2").inOrder()
+        assertThat(log)
+            .containsExactly(
+                "limit1:1",
+                "open1",
+                "enabled1:true",
+                "brush1",
+                "limit1:2",
+                "open1",
+                "enabled1:true",
+                "brush1",
+            ).inOrder()
     }
+
+    @Test
+    fun changed_rects_while_paused_keep_raw_drawing_disabled() {
+        input.start(view, limit(), emptyList())
+        input.pause()
+        log.clear()
+        input.start(view, limit(), listOf(Rect(0, 0, 5, 5)))
+        assertThat(log.last()).isEqualTo("enabled1:false")
+    }
+
+    @Test
+    fun stop_then_start_then_stroke_delivers_the_stroke() =
+        runBlocking {
+            var cb: RawInputCallback? = null
+            val restartable =
+                OnyxStrokeInput(ctx, newId = { "s1" }, rawDrawing = { _, c ->
+                    cb = c
+                    FakeRawDrawing(log, ++created)
+                }, maxPressure = { 4096f })
+            restartable.start(view, limit(), emptyList())
+            restartable.stop()
+            restartable.start(view, limit(), emptyList())
+            assertThat(created).isEqualTo(2)
+            val list = TouchPointList().apply { add(TouchPoint(1f, 1f, 2048f, 1f, 0, 0, 0L)) }
+            cb!!.onRawDrawingTouchPointListReceived(list)
+            val ev = withTimeout(1_000) { restartable.events.first() }
+            assertThat((ev as StrokeEvent.Committed).stroke.id).isEqualTo("s1")
+        }
 
     @Test
     fun first_start_sets_rects_brush_opens_and_enables() {

@@ -114,6 +114,9 @@ class BoardSurfaceView(
     private var shownIndex: Int? = null
     private var ready = false
 
+    /** True between surfaceCreated and surfaceDestroyed; raw drawing may only be open then. */
+    val surfaceReady: Boolean get() = ready
+
     var refresher: (() -> Unit) -> Unit = { it() }
     var onSurfaceCreated: () -> Unit = {}
     var onSurfaceDestroyed: () -> Unit = {}
@@ -214,11 +217,7 @@ fun BoardView(
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { gate.setResumed(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { gate.setResumed(true) }
 
-    fun startOn(v: BoardSurfaceView) {
-        if (v.width <= 0 || v.height <= 0) return
-        val loc = IntArray(2).also { v.getLocationInWindow(it) }
-        input.start(v, Rect(0, 0, v.width, v.height), excludeRectsInView(loc[0], loc[1], v.width, v.height, excludeNow))
-    }
+    fun startOn(v: BoardSurfaceView) = v.startInput(input, excludeNow)
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -244,6 +243,20 @@ fun BoardView(
             }
         }
     }
+}
+
+/**
+ * (Re)starts [input] on this view with [exclude] window rects. Does nothing while the surface does
+ * not exist (a layout or exclude change after surfaceDestroyed must not reopen raw drawing) or the
+ * view has no size; surfaceCreated calls it again.
+ */
+internal fun BoardSurfaceView.startInput(
+    input: StrokeInput,
+    exclude: List<Rect>,
+) {
+    if (!surfaceReady || width <= 0 || height <= 0) return
+    val loc = IntArray(2).also { getLocationInWindow(it) }
+    input.start(this, Rect(0, 0, width, height), excludeRectsInView(loc[0], loc[1], width, height, exclude))
 }
 
 /** Non-surface rendering of a page for previews and screenshot tests, where a SurfaceView does not draw. */

@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.TestScope
@@ -29,7 +30,9 @@ private class BracketInput(
         view: View,
         limit: Rect,
         exclude: List<Rect>,
-    ) = Unit
+    ) {
+        log += "$name:start"
+    }
 
     override fun setTool(
         tool: Tool,
@@ -40,7 +43,9 @@ private class BracketInput(
 
     override fun resume() = Unit
 
-    override fun stop() = Unit
+    override fun stop() {
+        log += "$name:stop"
+    }
 
     override fun refresh(redraw: () -> Unit) {
         if (failRefresh) error("boom")
@@ -52,11 +57,14 @@ private class BracketInput(
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
+@OptIn(ExperimentalCoroutinesApi::class)
 class OnyxFallbackLifecycleTest {
     private val log = mutableListOf<String>()
 
     @Before
     fun reset() = InputSelector.resetForTest()
+
+    private val scope = TestScope()
 
     private fun select(onyx: StrokeInput): StrokeInput =
         InputSelector(
@@ -66,7 +74,7 @@ class OnyxFallbackLifecycleTest {
                     override val forceTouch = false
                 },
             diagnostics = { log += "diag" },
-            scope = TestScope(),
+            scope = scope,
             onyxFactory = { onyx },
             touchFactory = { BracketInput(log, "touch") },
             mainExecutor = Executor { it.run() },
@@ -76,6 +84,7 @@ class OnyxFallbackLifecycleTest {
     fun refresh_is_delegated_to_the_onyx_input() {
         val input = select(BracketInput(log, "onyx"))
         input.start(View(ApplicationProvider.getApplicationContext()), Rect(0, 0, 10, 10), emptyList())
+        log.clear()
         input.refresh { log += "redraw" }
         assertThat(log).containsExactly("onyx:off", "redraw", "onyx:on").inOrder()
     }
@@ -84,9 +93,12 @@ class OnyxFallbackLifecycleTest {
     fun a_failing_onyx_refresh_still_redraws_and_falls_back_to_touch() {
         val input = select(BracketInput(log, "onyx", failRefresh = true))
         input.start(View(ApplicationProvider.getApplicationContext()), Rect(0, 0, 10, 10), emptyList())
+        log.clear()
         input.refresh { log += "redraw" }
         input.refresh { log += "redraw2" }
-        assertThat(log).containsExactly("diag", "redraw", "touch:off", "redraw2", "touch:on").inOrder()
+        assertThat(log.filterNot { it.endsWith(":start") || it.endsWith(":stop") })
+            .containsExactly("diag", "redraw", "touch:off", "redraw2", "touch:on")
+            .inOrder()
     }
 
     @Test
@@ -99,5 +111,19 @@ class OnyxFallbackLifecycleTest {
         input.start(v, Rect(0, 0, 10, 10), emptyList())
         input.stop()
         assertThat(activity.window.callback).isSameInstanceAs(original)
+    }
+
+    @Test
+    fun stop_then_start_restarts_onyx_and_the_stylus_watchdog_is_live_again() {
+        val input = select(BracketInput(log, "onyx"))
+        val v = View(ApplicationProvider.getApplicationContext())
+        input.start(v, Rect(0, 0, 10, 10), emptyList())
+        input.stop()
+        input.start(v, Rect(0, 0, 10, 10), emptyList())
+        assertThat(log).containsExactly("onyx:start", "onyx:stop", "onyx:start").inOrder()
+        (input as StylusDownObserver).onStylusDown()
+        scope.testScheduler.advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+        scope.testScheduler.runCurrent()
+        assertThat(log).contains("diag")
     }
 }
