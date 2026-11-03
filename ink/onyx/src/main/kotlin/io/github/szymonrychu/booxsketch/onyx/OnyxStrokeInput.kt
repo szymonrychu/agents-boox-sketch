@@ -135,6 +135,19 @@ class OnyxStrokeInput(
         applyRects(d, limit, exclude)
         applyBrush(d)
         d.open()
+        // A new session (first start, or after the surface was re-created) must not freeze the
+        // panel before the window has drawn: enable only after the next frame, then full refresh.
+        // An outstanding hold (the UiRefresher's first-frame gate) already does the same.
+        if (holds == 0) {
+            holds++
+            afterNextDraw(
+                view,
+                Runnable {
+                    if (drawing === d) fullRefresh()
+                    releaseUi()
+                },
+            )
+        }
         d.setEnabled(active())
     }
 

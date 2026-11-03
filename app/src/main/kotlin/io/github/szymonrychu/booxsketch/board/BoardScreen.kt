@@ -46,11 +46,16 @@ fun BoardScreen(
     LaunchedEffect(eraser) { setEraser(eraser) }
     val scope = rememberCoroutineScope()
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { scope.launch { vm.flush() } }
-    DisposableEffect(input) { onDispose { input.stop() } }
     val view = LocalView.current
     // Created during composition so raw drawing is held off before the board first starts it.
     val ui = remember(input, view) { UiRefresher.forView(view, input) }
-    DisposableEffect(ui) { onDispose { (ui as? UiRefresher)?.close() } }
+    // Stop the input first: closing the refresher releases its holds, which must not re-enable a session about to close.
+    DisposableEffect(input, ui) {
+        onDispose {
+            input.stop()
+            (ui as? UiRefresher)?.close()
+        }
+    }
     var toolbar by remember { mutableStateOf<Rect?>(null) }
     Column(modifier.fillMaxSize()) {
         BoardView(

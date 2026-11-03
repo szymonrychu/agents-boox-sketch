@@ -130,11 +130,19 @@ internal fun View.afterNextDraw(
     main: Handler,
     action: Runnable,
 ) {
-    val observer = viewTreeObserver
-    observer.addOnPreDrawListener(
+    val first = viewTreeObserver
+    first.addOnPreDrawListener(
         object : ViewTreeObserver.OnPreDrawListener {
+            private var done = false
+
             override fun onPreDraw(): Boolean {
-                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                if (done) return true
+                done = true
+                // The observer may have been merged into the window's since registering: remove
+                // from both the captured and the current one.
+                if (first.isAlive) first.removeOnPreDrawListener(this)
+                val current = viewTreeObserver
+                if (current.isAlive) current.removeOnPreDrawListener(this)
                 main.post(action)
                 return true
             }
