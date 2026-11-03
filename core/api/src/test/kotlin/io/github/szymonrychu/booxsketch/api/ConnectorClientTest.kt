@@ -13,6 +13,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class ConnectorClientTest {
     private lateinit var server: MockWebServer
@@ -176,6 +177,15 @@ class ConnectorClientTest {
             assertThat(events[0].type).isEqualTo("message")
             assertThat(events[0].payload["text"]!!.jsonPrimitive.content).isEqualTo("hi")
             assertThat(events[0].payload).doesNotContainKey("cursor")
+        }
+
+    @Test
+    fun events_long_poll_outlives_the_shared_client_read_timeout() =
+        runTest {
+            val shortClient = OkHttpClient.Builder().readTimeout(200, TimeUnit.MILLISECONDS).build()
+            val slow = ConnectorClient(server.url("/").toString().trimEnd('/'), { "test-token" }, shortClient)
+            server.enqueue(json("""{"cursor":0,"events":[]}""").setBodyDelay(1, TimeUnit.SECONDS))
+            assertThat(slow.events(conv, after = 0, waitS = 1)).isEmpty()
         }
 
     @Test
