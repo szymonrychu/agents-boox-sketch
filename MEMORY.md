@@ -99,3 +99,12 @@ Lessons that outlive a session. Newest first.
   keystore password. Reproduced with a throwaway keystore.
 - Fix: Gradle `keyPassword` and the workflow read only `ANDROID_KEYSTORE_PASSWORD`;
   `ANDROID_KEY_PASSWORD` is no longer used (the secret may be deleted by the owner).
+
+## 2026-11-03 v0.1.0 shipped without the board wired
+
+- Release v0.1.0 showed only the app name: MainActivity was still the scaffold, the Task 17 board
+  and Task 18 InputSelector were never hosted. Why it slipped: both were tested in isolation only.
+- Hotfix (fix/host-board): MainActivity hosts BoardScreen full screen, input from InputSelector
+  (Onyx on BOOX, touch elsewhere; any probe or selection failure falls back to touch; finger
+  drawing is on only for touch). Robolectric test asserts the toolbar is present. Task 19 (split
+  layout, AppContainer) replaces this wiring.
