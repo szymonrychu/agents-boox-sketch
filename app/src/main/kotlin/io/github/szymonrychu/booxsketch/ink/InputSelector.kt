@@ -158,6 +158,8 @@ private class OnyxWithFallback(
 
     private fun installWindowCallback(context: Context) {
         val win = context.findActivity()?.window ?: return
+        // start() can run again (layout change, resume): keep exactly one wrapper installed.
+        if (synchronized(lock) { windowCallback != null && win.callback === windowCallback }) return
         val original = win.callback ?: return
         val wrapper =
             object : Window.Callback by original {
@@ -233,6 +235,20 @@ private class OnyxWithFallback(
             }
         restoreWindowCallback()
         if (fallen) touch.stop() else guarded { onyx.stop() }
+    }
+
+    /** Runs [redraw] inside the active input's refresh; a failing Onyx refresh falls back and still redraws. */
+    override fun refresh(redraw: () -> Unit) {
+        val fallen = synchronized(lock) { fellBack }
+        if (fallen) return touch.refresh(redraw)
+        var drawn = false
+        guarded {
+            onyx.refresh {
+                drawn = true
+                redraw()
+            }
+        }
+        if (!drawn) redraw()
     }
 
     @Suppress("TooGenericExceptionCaught")

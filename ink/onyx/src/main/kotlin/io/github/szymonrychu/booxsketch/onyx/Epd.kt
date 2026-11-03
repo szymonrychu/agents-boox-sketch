@@ -4,16 +4,27 @@ import android.view.View
 import com.onyx.android.sdk.api.device.epd.EpdController
 import com.onyx.android.sdk.api.device.epd.UpdateMode
 
-/** E-ink refresh helpers; every call is a no-op when the vendor controller is unavailable. */
+/** E-ink helpers; every call is a no-op (or 0) when the vendor controller is unavailable. */
 object Epd {
     /** Fast pen-friendly refresh while drawing. */
     fun handwritingMode(view: View) {
         safely { EpdController.setViewDefaultUpdateMode(view, UpdateMode.HAND_WRITING_REPAINT_MODE) }
     }
 
-    /** Full-quality refresh that clears ghosting. */
-    fun fullRefresh(view: View) {
-        safely { EpdController.refreshScreen(view, UpdateMode.GC) }
+    /**
+     * Full-quality GC refresh of the whole screen that clears ghosting, as in the vendor EPD demo
+     * (`repaintEveryThing(GC)`). While raw drawing is on the screen is frozen, so callers run this
+     * inside `StrokeInput.refresh`.
+     */
+    fun fullRefresh() {
+        safely { EpdController.repaintEveryThing(UpdateMode.GC) }
+    }
+
+    /** The device's maximum raw pen pressure, or 0 when unknown. */
+    fun maxTouchPressure(): Float {
+        var max = 0f
+        safely { max = EpdController.getMaxTouchPressure() }
+        return max
     }
 
     @Suppress("TooGenericExceptionCaught")
@@ -26,4 +37,25 @@ object Epd {
             // not an Onyx device
         }
     }
+}
+
+/**
+ * Collapses bursts of full-refresh requests (page switches, clears) into one [action] run
+ * [delayMs] after the last request. [post] and [cancel] schedule on the UI thread, for example
+ * `View.postDelayed` and `View.removeCallbacks`.
+ */
+class FullRefreshDebouncer(
+    private val delayMs: Long,
+    private val post: (Runnable, Long) -> Unit,
+    private val cancel: (Runnable) -> Unit,
+    private val action: () -> Unit,
+) {
+    private val run = Runnable { action() }
+
+    fun request() {
+        cancel(run)
+        post(run, delayMs)
+    }
+
+    fun cancel() = cancel(run)
 }

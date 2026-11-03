@@ -2,6 +2,41 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-03 Onyx device fixes (Note Air 6C, Android 16)
+
+- One raw drawing helper per host view, as in the vendor demo: `OnyxStrokeInput.start` on the
+  same view only calls `setLimitRect`; a new view closes the old helper first; `stop` closes it.
+  The SDK sits behind the `RawDrawing` interface so the session logic is tested with a fake.
+- Pressure is normalised by `EpdController.getMaxTouchPressure()` (fallback 4096, the Note Air 6C
+  level count) so Onyx and touch strokes share the 0..1 scale. Why: the vendor demos treat
+  `TouchPoint.pressure` as device units, passing the maximum separately.
+- Exclude rects (toolbar, `BoardScreen` overlays) are window rects offset by the board's
+  `getLocationInWindow` and clipped to the board, i.e. view-local, matching the demo's
+  `getRelativeRect`. Recomputed on every layout and every exclude change.
+- Every app-side redraw (undo, redo, erase, page switch, load) runs inside `StrokeInput.refresh`,
+  which for Onyx toggles `setRawDrawingEnabled(false)` -> redraw -> `true` and re-applies the brush
+  (an enable resets the firmware brush). A refresh while paused only redraws.
+- Full refresh is `EpdController.repaintEveryThing(GC)` (vendor EPD demo), debounced 300 ms,
+  after load, page switch and clear, inside the same refresh bracket.
+- Lifecycle: `InputGate` pauses raw drawing on ON_PAUSE or window focus loss and resumes when both
+  are back; `surfaceDestroyed` closes raw drawing (`stop`), `surfaceCreated` starts again.
+- `com.tencent:mmkv` is excluded: only the Onyx search-history helpers (`MMKVBuilder`) use it, not
+  the pen path, and it ships an unaligned x86_64 .so (vendor issue 132).
+
+### Device round 1 checklist (Note Air 6C)
+
+- Raw ink appears with the stylus; no stale stroke flashes after pause/resume (vendor issue 135).
+- Rotate and resize the split repeatedly: ink stays inside the board, no duplicate ink (one helper),
+  and the new limit applies without reopening (if not, reopen on limit change).
+- Toolbar and overlays: pen strokes over them draw nothing.
+- Pressure: a light and a hard stroke give visibly different widths; check the logged
+  `getMaxTouchPressure()` value and that stored pressures stay within 0..1.
+- Undo, redo, erase, page switch, clear: the screen updates immediately while the pen is enabled.
+- Page switch and clear end with one GC flash (debounced), not one per tap; if
+  `repaintEveryThing(GC)` has no effect (vendor issue 78), try `invalidate(view, GC)`.
+- Notification shade, dialog, app switch and back: pen is off while covered, back on afterwards.
+- No missing `com.tencent.mmkv` class at runtime with mmkv excluded.
+
 ## 2026-11-03 Onyx fast path (Task 18)
 
 - `org.lsposed.hiddenapibypass` is pinned at 6.1: 6.2 requires compileSdk 37 and the project is

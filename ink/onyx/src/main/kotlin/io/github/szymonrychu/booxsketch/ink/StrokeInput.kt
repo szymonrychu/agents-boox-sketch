@@ -39,5 +39,12 @@ interface StrokeInput {
 
     fun stop()
 
+    /**
+     * Runs [redraw], an app-side redraw of the board, so that it reaches the screen. Raw pen
+     * inputs freeze the screen while raw drawing is on, so they bracket [redraw] with a disable
+     * and enable; plain inputs just call it.
+     */
+    fun refresh(redraw: () -> Unit) = redraw()
+
     val events: Flow<StrokeEvent>
 }
