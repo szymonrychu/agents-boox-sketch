@@ -42,6 +42,7 @@ class OnyxStrokeInput(
     private var drawing: RawDrawing? = null
     private var host: View? = null
     private var paused = false
+    private var holds = 0
     private var appliedLimit: Rect? = null
     private var appliedExclude: List<Rect> = emptyList()
 
@@ -118,7 +119,7 @@ class OnyxStrokeInput(
             // As in the vendor demo, new rects take effect through setLimitRect followed by openRawDrawing.
             applyRects(current, limit, exclude)
             current.open()
-            if (paused) current.setEnabled(false) else enable(current)
+            if (active()) enable(current) else current.setEnabled(false)
             return
         }
         current?.close()
@@ -129,8 +130,11 @@ class OnyxStrokeInput(
         applyRects(d, limit, exclude)
         applyBrush(d)
         d.open()
-        d.setEnabled(!paused)
+        d.setEnabled(active())
     }
+
+    /** Raw drawing may be on: not paused and no [holdUi] outstanding. */
+    private fun active() = !paused && holds == 0
 
     private fun applyRects(
         d: RawDrawing,
@@ -163,12 +167,25 @@ class OnyxStrokeInput(
     /** Re-enables raw drawing; every enable resets the firmware brush, so it is applied again. */
     override fun resume() {
         paused = false
-        drawing?.let { enable(it) }
+        if (active()) drawing?.let { enable(it) }
+    }
+
+    override val freezesUi: Boolean get() = true
+
+    override fun holdUi() {
+        holds++
+        drawing?.setEnabled(false)
+    }
+
+    override fun releaseUi() {
+        if (holds == 0) return
+        holds--
+        if (active()) drawing?.let { enable(it) }
     }
 
     override fun refresh(redraw: () -> Unit) {
         val d = drawing
-        if (d == null || paused) return redraw()
+        if (d == null || !active()) return redraw()
         d.setEnabled(false)
         try {
             redraw()

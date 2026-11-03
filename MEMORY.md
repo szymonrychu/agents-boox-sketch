@@ -2,6 +2,24 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-03 Toolbar refresh while raw drawing is on (v0.1.1 device report)
+
+- On the Note Air 6C the pen drew and toolbar taps took effect, but the toolbar never visibly
+  changed: raw drawing freezes the EPD refresh of all UI, not only the board, and exclude rects
+  only stop ink there. Fix: `UiRefresher` (`:ink:onyx`) behind the `UiRefresh` interface that
+  `BoardToolbar` calls on every state change (tool, eraser, width, undo, redo, clear, pages,
+  caption, Send menu); the pen path never calls it, and non-freezing inputs get `UiRefresh.None`.
+- Each change: `holdUi` (raw off) -> wait for the next draw (pre-draw listener, then a main-thread
+  post, so it runs after that traversal drew Compose) -> `Epd.partialRefresh` (GU invalidate of the
+  window) -> `releaseUi` (raw on + brush). Width drags refresh at most every 150 ms with a
+  trailing run, and once on release (`onValueChangeFinished`). Holds nest in `OnyxStrokeInput`
+  with pause, so a paused input stays off.
+- Raw drawing is held off from composition until the first frame is drawn; then a GC full refresh
+  runs and only then is raw drawing enabled. The refresh runs before the enable (not after, as
+  first sketched) because a refresh issued while raw drawing is on is frozen too.
+- Known gap: pen-driven toolbar state (Undo enabling after a stroke) stays stale until the next
+  toolbar interaction, to keep the pen path free of toggles.
+
 ## 2026-11-03 Onyx device fixes (Note Air 6C, Android 16)
 
 - One raw drawing helper per host view, as in the vendor demo: `OnyxStrokeInput.start` on the
@@ -36,6 +54,12 @@ Lessons that outlive a session. Newest first.
   `repaintEveryThing(GC)` has no effect (vendor issue 78), try `invalidate(view, GC)`.
 - Notification shade, dialog, app switch and back: pen is off while covered, back on afterwards.
 - No missing `com.tencent.mmkv` class at runtime with mmkv excluded.
+- First launch: the toolbar is visible immediately (one GC flash), and the pen draws right after.
+- Tapping a tool, eraser, undo, redo, clear, page buttons: the toolbar shows the change within
+  about one frame, without a full flash; the pen keeps drawing with the new tool afterwards.
+- Dragging the width slider: the thumb follows in steps (about every 150 ms) and lands on the
+  final value on release. If GU leaves ghosting or does nothing, try `refreshScreenRegion` or GC.
+- Drawing strokes never flashes the toolbar (no raw drawing toggles on the pen path).
 
 ## 2026-11-03 Onyx fast path (Task 18)
 

@@ -46,5 +46,16 @@ interface StrokeInput {
      */
     fun refresh(redraw: () -> Unit) = redraw()
 
+    /** True when this input freezes the e-ink refresh of the rest of the UI while active (Onyx raw drawing). */
+    val freezesUi: Boolean get() = false
+
+    /**
+     * Lifts the screen freeze (raw drawing off) until a matching [releaseUi]; calls nest. Plain
+     * inputs ignore both. Used to let Compose UI changes and the first frame reach the panel.
+     */
+    fun holdUi() = Unit
+
+    fun releaseUi() = Unit
+
     val events: Flow<StrokeEvent>
 }

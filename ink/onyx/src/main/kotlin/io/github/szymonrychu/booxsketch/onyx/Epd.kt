@@ -20,6 +20,14 @@ object Epd {
         safely { EpdController.repaintEveryThing(UpdateMode.GC) }
     }
 
+    /**
+     * Non-flashing GU refresh of [view]'s window, for toolbar changes made while raw drawing is
+     * held off (see [UiRefresher]).
+     */
+    fun partialRefresh(view: View) {
+        safely { EpdController.invalidate(view.rootView, UpdateMode.GU) }
+    }
+
     /** The device's maximum raw pen pressure, or 0 when unknown. */
     fun maxTouchPressure(): Float {
         var max = 0f

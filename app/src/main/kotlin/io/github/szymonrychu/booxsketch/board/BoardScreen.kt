@@ -16,15 +16,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
+import io.github.szymonrychu.booxsketch.onyx.UiRefresher
 import kotlinx.coroutines.launch
 
 /**
  * Board above the toolbar. [setEraser] mirrors the eraser toggle into inputs that need it.
  * [overlays] are window-coordinate rects of anything drawn over the board; they and the toolbar
- * are excluded from raw pen input.
+ * are excluded from raw pen input. For inputs that freeze the e-ink panel, raw drawing starts only
+ * after the first frame and toolbar changes are refreshed through a [UiRefresher].
  */
 @Composable
 fun BoardScreen(
@@ -44,6 +47,10 @@ fun BoardScreen(
     val scope = rememberCoroutineScope()
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { scope.launch { vm.flush() } }
     DisposableEffect(input) { onDispose { input.stop() } }
+    val view = LocalView.current
+    // Created during composition so raw drawing is held off before the board first starts it.
+    val ui = remember(input, view) { UiRefresher.forView(view, input) }
+    DisposableEffect(ui) { onDispose { (ui as? UiRefresher)?.close() } }
     var toolbar by remember { mutableStateOf<Rect?>(null) }
     Column(modifier.fillMaxSize()) {
         BoardView(
@@ -60,7 +67,7 @@ fun BoardScreen(
                 toolbar = Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt())
             },
         ) {
-            BoardToolbar(vm, onSend = onSend)
+            BoardToolbar(vm, onSend = onSend, ui = ui)
         }
     }
 }
