@@ -79,3 +79,14 @@ Lessons that outlive a session. Newest first.
   the main thread. Why: in raw drawing the SDK may swallow stylus events before the view.
 - Device round 1 must confirm on a Boox that the watch actually arms (diagnostics shows the
   300 ms reason when the raw path is silent) and that TouchPoint tilt is populated.
+
+## 2026-11-03 Release keystore backup and restore test
+
+- The release keystore (PKCS12, RSA 4096, 30-year validity) was generated once, not rotated. The
+  four signing secrets live in the `release` GitHub environment, the signing certificate digest
+  in a repo variable, `PUBLIC_DENYLIST` as a repo secret. Why: the same key must sign every
+  update, so it is never regenerated.
+- A SOPS-encrypted backup of all of these lives in the agents-helmfile repo under
+  `backups/agents-boox-sketch/`. Restore test on 2026-11-03: decrypted into a temp dir, rebuilt
+  the keystore (byte-identical) and its certificate fingerprint matched the original. Temp files
+  were shredded. No values are recorded here.
