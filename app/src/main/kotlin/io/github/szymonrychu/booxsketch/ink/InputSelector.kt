@@ -30,7 +30,7 @@ fun interface OnyxDiagnostics {
     fun record(reason: String)
 }
 
-/** Implemented by the wrapper returned for the Onyx path so tests can inject a stylus down. */
+/** Implemented by the wrapper returned for the Onyx path so tests can inject a stylus down where raw input is expected. */
 interface StylusDownObserver {
     fun onStylusDown()
 }
@@ -88,7 +88,10 @@ class InputSelector(
  * Onyx input guarded by a runtime fallback: any exception, or a first stylus down that gets no
  * raw callback within [InputSelector.RAW_CALLBACK_TIMEOUT_MS], switches to touch for the process.
  * The stylus down is seen by a wrapped Activity window callback (it runs before any view, so it
- * works in raw mode too) and by a view touch listener; the first one wins. All view work of the
+ * works in raw mode too) and by a view touch listener; the first one wins. Only a stylus down that
+ * can get a raw callback arms the watch: inside the limit rect, outside every exclude rect, while
+ * raw drawing is on ([RawActivitySource.rawActive]). A pen tap on the toolbar, an overlay, or
+ * during a hold must not abandon the raw path (that lost live ink in v0.3.2). All view work of the
  * switch runs on [mainExecutor]; the state is guarded by [lock].
  */
 private class OnyxWithFallback(
@@ -146,7 +149,7 @@ private class OnyxWithFallback(
             }
         if (fallen) return touch.start(view, limit, exclude)
         view.setOnTouchListener { _, ev ->
-            if (isStylusDown(ev)) onStylusDown()
+            if (isStylusDown(ev)) onStylusDownInView(ev.x, ev.y)
             false
         }
         installWindowCallback(view.context)
@@ -164,7 +167,7 @@ private class OnyxWithFallback(
         val wrapper =
             object : Window.Callback by original {
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-                    if (isStylusDown(event)) onStylusDown()
+                    if (isStylusDown(event)) onStylusDownInWindow(event.x, event.y)
                     return original.dispatchTouchEvent(event)
                 }
             }
@@ -183,7 +186,28 @@ private class OnyxWithFallback(
 
     private fun inactive() = fellBack || stopped || confirmed
 
+    private fun onStylusDownInWindow(
+        x: Float,
+        y: Float,
+    ) {
+        val v = synchronized(lock) { view } ?: return
+        val loc = IntArray(2).also { v.getLocationInWindow(it) }
+        onStylusDownInView(x - loc[0], y - loc[1])
+    }
+
+    /** [x], [y] in the pixels of the started view, the space of [limit] and [exclude]. */
+    private fun onStylusDownInView(
+        x: Float,
+        y: Float,
+    ) {
+        val px = x.toInt()
+        val py = y.toInt()
+        val inRaw = synchronized(lock) { limit.contains(px, py) && exclude.none { it.contains(px, py) } }
+        if (inRaw) onStylusDown()
+    }
+
     override fun onStylusDown() {
+        if ((onyx as? RawActivitySource)?.rawActive == false) return
         synchronized(lock) {
             if (inactive() || watch != null) return
             watch =

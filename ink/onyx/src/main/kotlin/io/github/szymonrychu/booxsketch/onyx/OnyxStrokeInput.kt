@@ -161,6 +161,8 @@ class OnyxStrokeInput(
     /** Raw drawing may be on: not paused, no [holdUi] outstanding and no session awaiting its first draw. */
     private fun active() = !paused && holds == 0 && gated == null
 
+    override val rawActive: Boolean get() = drawing != null && active()
+
     private fun applyRects(
         d: RawDrawing,
         limit: Rect,
