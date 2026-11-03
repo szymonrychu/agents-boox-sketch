@@ -39,5 +39,23 @@ interface StrokeInput {
 
     fun stop()
 
+    /**
+     * Runs [redraw], an app-side redraw of the board, so that it reaches the screen. Raw pen
+     * inputs freeze the screen while raw drawing is on, so they bracket [redraw] with a disable
+     * and enable; plain inputs just call it.
+     */
+    fun refresh(redraw: () -> Unit) = redraw()
+
+    /** True when this input freezes the e-ink refresh of the rest of the UI while active (Onyx raw drawing). */
+    val freezesUi: Boolean get() = false
+
+    /**
+     * Lifts the screen freeze (raw drawing off) until a matching [releaseUi]; calls nest. Plain
+     * inputs ignore both. Used to let Compose UI changes and the first frame reach the panel.
+     */
+    fun holdUi() = Unit
+
+    fun releaseUi() = Unit
+
     val events: Flow<StrokeEvent>
 }

@@ -27,6 +27,7 @@ import kotlin.concurrent.thread
 private class FakeInput(
     val name: String,
     private val failOn: String? = null,
+    override val freezesUi: Boolean = false,
 ) : StrokeInput,
     RawActivitySource {
     val calls = mutableListOf<String>()
@@ -55,6 +56,10 @@ private class FakeInput(
     override fun resume() = call("resume")
 
     override fun stop() = call("stop")
+
+    override fun holdUi() = call("holdUi")
+
+    override fun releaseUi() = call("releaseUi")
 }
 
 private class FakeSettings(
@@ -74,7 +79,7 @@ private class FakeDiagnostics : OnyxDiagnostics {
 @Config(sdk = [35])
 class InputSelectorTest {
     private val view = View(ApplicationProvider.getApplicationContext())
-    private val onyx = FakeInput("onyx")
+    private val onyx = FakeInput("onyx", freezesUi = true)
     private val touch = FakeInput("touch")
     private val diag = FakeDiagnostics()
     private val settings = FakeSettings()
@@ -116,6 +121,21 @@ class InputSelectorTest {
         val t = SystemClock.uptimeMillis()
         return MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, 1, props, coords, 0, 0, 1f, 1f, 0, 0, 0, 0)
     }
+
+    @Test
+    fun ui_holds_reach_onyx_and_stop_after_the_fallback() =
+        runTest {
+            val picked = selector(this).select()
+            assertThat(picked.freezesUi).isTrue()
+            picked.start(view, Rect(0, 0, 10, 10), emptyList())
+            picked.holdUi()
+            picked.releaseUi()
+            assertThat(onyx.calls).containsAtLeast("holdUi", "releaseUi").inOrder()
+            onyx.onFailure!!(IllegalStateException("x"))
+            picked.holdUi()
+            assertThat(onyx.calls.count { it == "holdUi" }).isEqualTo(1)
+            assertThat(touch.calls).doesNotContain("holdUi")
+        }
 
     @Test
     fun selector_uses_touch_on_non_onyx() =

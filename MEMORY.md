@@ -2,6 +2,77 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-03 Toolbar refresh while raw drawing is on (v0.1.1 device report)
+
+- On the Note Air 6C the pen drew and toolbar taps took effect, but the toolbar never visibly
+  changed: raw drawing freezes the EPD refresh of all UI, not only the board, and exclude rects
+  only stop ink there. Fix: `UiRefresher` (`:ink:onyx`) behind the `UiRefresh` interface that
+  `BoardToolbar` calls on every state change (tool, eraser, width, undo, redo, clear, pages,
+  caption, Send menu); the pen path never calls it, and non-freezing inputs get `UiRefresh.None`.
+- Each change: `holdUi` (raw off) -> wait for the next draw (pre-draw listener, then a main-thread
+  post, so it runs after that traversal drew Compose) -> `Epd.partialRefresh` (GU invalidate of the
+  window) -> `releaseUi` (raw on + brush). Width drags refresh at most every 150 ms with a
+  trailing run, and once on release (`onValueChangeFinished`). Holds nest in `OnyxStrokeInput`
+  with pause, so a paused input stays off.
+- Raw drawing is held off from composition until the first frame is drawn; then a GC full refresh
+  runs and only then is raw drawing enabled. The refresh runs before the enable (not after, as
+  first sketched) because a refresh issued while raw drawing is on is frozen too.
+- Every new raw session (first start, or after the surface is re-created) is gated on its own
+  next draw, then a GC full refresh, then enable. The gate is per session (`gated`), separate from
+  the nested `holdUi` count: `stop()` clears it and a stale draw from a stopped or replaced session
+  does nothing. Why: a shared counter left a stop-then-start with no second gate (re-review 3).
+- 2026-11-03: Robolectric draws the first frame inside `setContent` (even with the compose clock
+  paused), so wiring tests that need an outstanding UiRefresher hold create it with a toolbar
+  change in the same main-thread task as leaving the board. Robolectric never creates the
+  SurfaceView surface, so tests of `StrokeInput.start` call `surfaceCreated` themselves (raw input
+  starts only while the surface exists). The AndroidView `onRelease` also stops the input before
+  BoardScreen's dispose closes the refresher.
+- `Epd.fullRefresh(view)` takes the view (Task 19 callers) but keeps the vendor demo's
+  whole-screen `repaintEveryThing(GC)`; the view is unused by the vendor call.
+- Known gap: pen-driven toolbar state (Undo enabling after a stroke) stays stale until the next
+  toolbar interaction, to keep the pen path free of toggles.
+
+## 2026-11-03 Onyx device fixes (Note Air 6C, Android 16)
+
+- One raw drawing helper per host view, as in the vendor demo: `OnyxStrokeInput.start` on the
+  same view only calls `setLimitRect`; a new view closes the old helper first; `stop` closes it.
+  The SDK sits behind the `RawDrawing` interface so the session logic is tested with a fake.
+- Pressure is normalised by `EpdController.getMaxTouchPressure()` (fallback 4096, the Note Air 6C
+  level count) so Onyx and touch strokes share the 0..1 scale. Why: the vendor demos treat
+  `TouchPoint.pressure` as device units, passing the maximum separately.
+- Exclude rects (toolbar, `BoardScreen` overlays) are window rects offset by the board's
+  `getLocationInWindow` and clipped to the board, i.e. view-local, matching the demo's
+  `getRelativeRect`. Recomputed on every layout and every exclude change.
+- Every app-side redraw (undo, redo, erase, page switch, load) runs inside `StrokeInput.refresh`,
+  which for Onyx toggles `setRawDrawingEnabled(false)` -> redraw -> `true` and re-applies the brush
+  (an enable resets the firmware brush). A refresh while paused only redraws.
+- Full refresh is `EpdController.repaintEveryThing(GC)` (vendor EPD demo), debounced 300 ms,
+  after load, page switch and clear, inside the same refresh bracket.
+- Lifecycle: `InputGate` pauses raw drawing on ON_PAUSE or window focus loss and resumes when both
+  are back; `surfaceDestroyed` closes raw drawing (`stop`), `surfaceCreated` starts again.
+- `com.tencent:mmkv` is excluded: only the Onyx search-history helpers (`MMKVBuilder`) use it, not
+  the pen path, and it ships an unaligned x86_64 .so (vendor issue 132).
+
+### Device round 1 checklist (Note Air 6C)
+
+- Raw ink appears with the stylus; no stale stroke flashes after pause/resume (vendor issue 135).
+- Rotate and resize the split repeatedly: ink stays inside the board, no duplicate ink (one helper),
+  and the new limit applies without reopening (if not, reopen on limit change).
+- Toolbar and overlays: pen strokes over them draw nothing.
+- Pressure: a light and a hard stroke give visibly different widths; check the logged
+  `getMaxTouchPressure()` value and that stored pressures stay within 0..1.
+- Undo, redo, erase, page switch, clear: the screen updates immediately while the pen is enabled.
+- Page switch and clear end with one GC flash (debounced), not one per tap; if
+  `repaintEveryThing(GC)` has no effect (vendor issue 78), try `invalidate(view, GC)`.
+- Notification shade, dialog, app switch and back: pen is off while covered, back on afterwards.
+- No missing `com.tencent.mmkv` class at runtime with mmkv excluded.
+- First launch: the toolbar is visible immediately (one GC flash), and the pen draws right after.
+- Tapping a tool, eraser, undo, redo, clear, page buttons: the toolbar shows the change within
+  about one frame, without a full flash; the pen keeps drawing with the new tool afterwards.
+- Dragging the width slider: the thumb follows in steps (about every 150 ms) and lands on the
+  final value on release. If GU leaves ghosting or does nothing, try `refreshScreenRegion` or GC.
+- Drawing strokes never flashes the toolbar (no raw drawing toggles on the pen path).
+
 ## 2026-11-03 Onyx fast path (Task 18)
 
 - `org.lsposed.hiddenapibypass` is pinned at 6.1: 6.2 requires compileSdk 37 and the project is

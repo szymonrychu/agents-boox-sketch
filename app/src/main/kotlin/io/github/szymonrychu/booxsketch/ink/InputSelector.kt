@@ -237,6 +237,30 @@ private class OnyxWithFallback(
         if (fallen) touch.stop() else guarded { onyx.stop() }
     }
 
+    override val freezesUi: Boolean get() = onyx.freezesUi
+
+    override fun holdUi() {
+        if (!synchronized(lock) { fellBack }) guarded { onyx.holdUi() }
+    }
+
+    override fun releaseUi() {
+        if (!synchronized(lock) { fellBack }) guarded { onyx.releaseUi() }
+    }
+
+    /** Runs [redraw] inside the active input's refresh; a failing Onyx refresh falls back and still redraws. */
+    override fun refresh(redraw: () -> Unit) {
+        val fallen = synchronized(lock) { fellBack }
+        if (fallen) return touch.refresh(redraw)
+        var drawn = false
+        guarded {
+            onyx.refresh {
+                drawn = true
+                redraw()
+            }
+        }
+        if (!drawn) redraw()
+    }
+
     @Suppress("TooGenericExceptionCaught")
     private inline fun guarded(block: () -> Unit) {
         try {
