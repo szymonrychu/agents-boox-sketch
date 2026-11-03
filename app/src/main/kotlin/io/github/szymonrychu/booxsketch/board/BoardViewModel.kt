@@ -24,9 +24,9 @@ class BoardViewModel(
     private val store: NotebookStore,
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher,
-    defaultCanvas: Canvas = DEFAULT_CANVAS,
+    private val defaultCanvas: Canvas = DEFAULT_CANVAS,
 ) {
-    private val undoStack = UndoStack()
+    private var undoStack = UndoStack()
     private var saveJob: Job? = null
 
     private val _notebook = MutableStateFlow(store.load() ?: Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0))
@@ -108,6 +108,15 @@ class BoardViewModel(
         } catch (e: IOException) {
             _saveError.value = e.message ?: e.javaClass.simpleName
         }
+    }
+
+    /** Drops the notebook and its undo history (after Unpair deleted the saved file); nothing is written. */
+    fun reset() {
+        saveJob?.cancel()
+        undoStack = UndoStack()
+        _notebook.value = Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
+        _canUndo.value = false
+        _canRedo.value = false
     }
 
     private fun update(change: (Notebook) -> Notebook) {
