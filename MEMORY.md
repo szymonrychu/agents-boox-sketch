@@ -108,3 +108,12 @@ Lessons that outlive a session. Newest first.
   (Onyx on BOOX, touch elsewhere; any probe or selection failure falls back to touch; finger
   drawing is on only for touch). Robolectric test asserts the toolbar is present. Task 19 (split
   layout, AppContainer) replaces this wiring.
+
+## 2026-11-03 Split layout and panel shell (Task 19)
+
+- Device dp for Note Air 6C screenshots: landscape `w1240dp-h930dp-land-xhdpi`, portrait
+  `w930dp-h1240dp-port-xhdpi`. Why: one fixed size keeps the Roborazzi goldens comparable.
+- `SplitState(ratio, collapsed)` lives in a Preferences DataStore file (`datastore/split.preferences_pb`);
+  ratio clamped to 0.3..0.8 on read and write. The divider is a 48 dp strip with the collapse button;
+  the board slot keeps its composition position so the SurfaceView survives a collapse.
+- `InputSelector.start()` installs one window-callback wrapper even when called twice.

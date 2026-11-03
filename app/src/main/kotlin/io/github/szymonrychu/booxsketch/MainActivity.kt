@@ -1,86 +1,51 @@
 package io.github.szymonrychu.booxsketch
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import io.github.szymonrychu.booxsketch.board.BoardScreen
-import io.github.szymonrychu.booxsketch.board.BoardViewModel
-import io.github.szymonrychu.booxsketch.board.NotebookStore
-import io.github.szymonrychu.booxsketch.ink.InputSelector
-import io.github.szymonrychu.booxsketch.ink.InputSettings
-import io.github.szymonrychu.booxsketch.ink.StrokeInput
-import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
-import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
-import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
-import io.github.szymonrychu.booxsketch.onyx.ProbeResult
-import kotlinx.coroutines.Dispatchers
-import java.io.File
+import io.github.szymonrychu.booxsketch.ui.EinkTheme
+import io.github.szymonrychu.booxsketch.ui.PanelShell
+import io.github.szymonrychu.booxsketch.ui.SplitLayout
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
-/** Hosts the full-screen board; Task 19 replaces this wiring with the split layout. */
+/** Hosts the split layout: the board (with its input) beside the panel shell. */
 class MainActivity : ComponentActivity() {
-    private val vm by lazy {
-        BoardViewModel(NotebookStore(File(filesDir, "notebook.json")), lifecycleScope, Dispatchers.IO)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val input = selectInput()
+        val container = (application as App).container
+        // One small preferences read, so the first frame already has the saved split.
+        val saved = runBlocking { container.splitStateStore.state.first() }
         setContent {
-            Box(Modifier.fillMaxSize().background(Color.White).windowInsetsPadding(WindowInsets.safeDrawing)) {
-                BoardScreen(vm, input)
+            EinkTheme {
+                var split by remember { mutableStateOf(saved) }
+                val scope = rememberCoroutineScope()
+                val input = remember { container.inputSelector.select() }
+                SplitLayout(
+                    board = {
+                        BoardScreen(
+                            vm = container.boardViewModel,
+                            input = input,
+                            setEraser = container::setEraser,
+                        )
+                    },
+                    panel = { PanelShell() },
+                    state = split,
+                    onStateChange = {
+                        split = it
+                        scope.launch { container.splitStateStore.save(it) }
+                    },
+                )
             }
         }
-    }
-
-    @Suppress("TooGenericExceptionCaught")
-    private fun selectInput(): StrokeInput {
-        // Finger drawing is only on when the pen path is not Onyx, where palms would draw.
-        var onyx = false
-        val touch = { TouchStrokeInput(fingerEnabled = { !onyx }) }
-        val selector =
-            InputSelector(
-                probe = {
-                    try {
-                        OnyxProbe.available().also { onyx = it.available }
-                    } catch (e: Throwable) {
-                        ProbeResult(false, "probe failed: $e")
-                    }
-                },
-                settings =
-                    object : InputSettings {
-                        override val forceTouch = false
-                    },
-                diagnostics = { Log.w(TAG, it) },
-                scope = lifecycleScope,
-                onyxFactory = { OnyxStrokeInput(this) },
-                touchFactory = touch,
-            )
-        return try {
-            selector.select()
-        } catch (e: Exception) {
-            Log.w(TAG, "input selection failed, using touch", e)
-            onyx = false
-            touch()
-        } catch (e: LinkageError) {
-            Log.w(TAG, "input selection failed, using touch", e)
-            onyx = false
-            touch()
-        }
-    }
-
-    private companion object {
-        const val TAG = "BooxSketch"
     }
 }
