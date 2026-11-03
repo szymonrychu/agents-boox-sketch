@@ -1,14 +1,13 @@
 package io.github.szymonrychu.booxsketch.data
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ConversationDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsert(entity: ConversationEntity)
 
     @Query("SELECT * FROM conversations WHERE localId = :localId")

@@ -116,4 +116,16 @@ class DatabaseTest {
             assertThat(threads.list("local-1")).isEmpty()
             assertThat(threads.list("local-2").map { it.id }).containsExactly("t3")
         }
+
+    @Test
+    fun reupserting_conversation_keeps_thread_items() =
+        runBlocking<Unit> {
+            val conversations = db.conversationDao()
+            val threads = db.threadDao()
+            conversations.upsert(ConversationEntity("local-1", null, "One", 1, 1))
+            threads.upsert(ThreadItemEntity("t1", "local-1", ThreadKind.SKETCH, "c1", null, 2, "/thumbs/t1", "sent", 10))
+            conversations.upsert(ConversationEntity("local-1", "srv-1", "Renamed", 1, 5))
+            assertThat(threads.list("local-1").map { it.id }).containsExactly("t1")
+            assertThat(conversations.get("local-1")?.title).isEqualTo("Renamed")
+        }
 }
