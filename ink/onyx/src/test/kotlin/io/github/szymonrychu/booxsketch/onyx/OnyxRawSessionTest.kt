@@ -132,7 +132,7 @@ class OnyxRawSessionTest {
     @Test
     fun first_start_sets_rects_brush_opens_and_enables_only_after_the_next_draw_with_a_full_refresh() {
         input.start(view, limit(), emptyList())
-        assertThat(log).containsExactly("limit1:0", "brush1", "open1", "enabled1:false").inOrder()
+        assertThat(log).containsExactly("limit1:1", "brush1", "open1", "enabled1:false").inOrder()
         log.clear()
         drawFrame()
         assertThat(log).containsExactly("full", "enabled1:true", "brush1").inOrder()
@@ -177,7 +177,7 @@ class OnyxRawSessionTest {
         input.start(view, limit(), emptyList())
         input.start(View(ctx), limit(), emptyList())
         assertThat(created).isEqualTo(2)
-        assertThat(log.indexOf("close1")).isLessThan(log.indexOf("limit2:0"))
+        assertThat(log.indexOf("close1")).isLessThan(log.indexOf("limit2:1"))
     }
 
     @Test

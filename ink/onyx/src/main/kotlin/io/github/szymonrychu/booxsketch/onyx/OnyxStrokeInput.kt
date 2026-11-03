@@ -170,7 +170,7 @@ class OnyxStrokeInput(
     ) {
         appliedLimit = Rect(limit)
         appliedExclude = exclude.map { Rect(it) }
-        d.setLimitRect(limit, exclude)
+        d.setLimitRect(limit, exclude.ifEmpty { listOf(Rect(NO_EXCLUDE)) })
     }
 
     private fun applyBrush(d: RawDrawing) {
@@ -238,6 +238,12 @@ class OnyxStrokeInput(
     companion object {
         private const val DEFAULT_WIDTH = 4f
         private const val MIN_ERASE_RADIUS = 8f
+
+        /**
+         * Sent instead of an empty exclude list, which the SDK ignores (the old exclude would stay
+         * active natively): one pixel just outside the host view, so nothing on the board is excluded.
+         */
+        internal val NO_EXCLUDE = Rect(-1, -1, 0, 0)
 
         /** Used when the device does not report its maximum pen pressure (Note Air 6C: 4096 levels). */
         const val FALLBACK_MAX_PRESSURE = 4096f

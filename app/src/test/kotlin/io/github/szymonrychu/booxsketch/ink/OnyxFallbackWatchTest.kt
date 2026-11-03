@@ -6,10 +6,13 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.model.Point
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -31,6 +34,7 @@ private class SilentRawInput(
     override var onRawActivity: (() -> Unit)? = null
     override var onFailure: ((Throwable) -> Unit)? = null
     override val events: Flow<StrokeEvent> = emptyFlow()
+    override val inProgress = MutableStateFlow<Stroke?>(null)
     override var rawActive = true
 
     override fun start(
@@ -66,6 +70,7 @@ private class SilentRawInput(
 class OnyxFallbackWatchTest {
     private val log = mutableListOf<String>()
     private val onyx = SilentRawInput(log, "onyx")
+    private val touch = SilentRawInput(log, "touch")
 
     /** Board 100x100 at the window origin; the tab bar overlay covers its top 10 px. */
     private val board = Rect(0, 0, 100, 100)
@@ -84,7 +89,7 @@ class OnyxFallbackWatchTest {
             diagnostics = { log += "diag" },
             scope = scope,
             onyxFactory = { onyx },
-            touchFactory = { SilentRawInput(log, "touch") },
+            touchFactory = { touch },
             mainExecutor = Executor { it.run() },
         ).select()
 
@@ -110,9 +115,14 @@ class OnyxFallbackWatchTest {
         return MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, 1, props, coords, 0, 0, 1f, 1f, 0, 0, 0, 0)
     }
 
+    private lateinit var input: StrokeInput
+    private lateinit var view: View
+
     private fun startOnActivity(scope: TestScope): Activity {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        select(scope).start(View(activity), board, listOf(tabBar))
+        view = View(activity)
+        input = select(scope)
+        input.start(view, board, listOf(tabBar))
         return activity
     }
 
@@ -152,5 +162,79 @@ class OnyxFallbackWatchTest {
             activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
             advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
             assertThat(log).containsAtLeast("diag", "onyx:stop", "touch:start").inOrder()
+        }
+
+    @Test
+    fun hold_while_the_watch_is_armed_keeps_onyx() =
+        runTest {
+            val activity = startOnActivity(this)
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            advanceTimeBy(100)
+            input.holdUi()
+            onyx.rawActive = false
+            advanceTimeBy(100)
+            onyx.rawActive = true
+            input.releaseUi()
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+        }
+
+    @Test
+    fun raw_going_inactive_before_the_watch_fires_keeps_onyx() =
+        runTest {
+            val activity = startOnActivity(this)
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            advanceTimeBy(100)
+            onyx.rawActive = false
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+        }
+
+    @Test
+    fun pause_while_the_watch_is_armed_keeps_onyx() =
+        runTest {
+            val activity = startOnActivity(this)
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            advanceTimeBy(100)
+            input.pause()
+            input.resume()
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+        }
+
+    @Test
+    fun restart_with_new_rects_while_the_watch_is_armed_keeps_onyx() =
+        runTest {
+            val activity = startOnActivity(this)
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            advanceTimeBy(100)
+            input.start(view, board, emptyList())
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+        }
+
+    @Test
+    fun a_silent_board_down_after_a_cancelled_watch_still_falls_back() =
+        runTest {
+            val activity = startOnActivity(this)
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            input.holdUi()
+            input.releaseUi()
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).containsAtLeast("diag", "onyx:stop", "touch:start").inOrder()
+        }
+
+    @Test
+    fun the_live_stroke_of_the_touch_fallback_reaches_the_board() =
+        runTest {
+            val activity = startOnActivity(this)
+            activity.window.callback.dispatchTouchEvent(stylusDown(50f, 50f))
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            val live = Stroke("live", Tool.BALLPOINT, 4f, listOf(Point(50f, 50f, 0.5f, 0L)))
+            touch.inProgress.value = live
+            assertThat(input.inProgress.value).isEqualTo(live)
         }
 }

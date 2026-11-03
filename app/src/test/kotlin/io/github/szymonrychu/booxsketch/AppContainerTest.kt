@@ -11,6 +11,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
+import io.github.szymonrychu.booxsketch.ui.PanelTabs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -65,6 +66,17 @@ class AppContainerTest {
         probe = { ProbeResult(available, "test") },
         onyxFactory = onyx,
     )
+
+    @Test
+    fun diagnostics_panel_tab_is_registered() {
+        PanelTabs.clearForTest()
+        try {
+            container(available = true)
+            assertThat(PanelTabs.tabs.map { it.id }).contains("diagnostics")
+        } finally {
+            PanelTabs.clearForTest()
+        }
+    }
 
     @Test
     fun finger_enabled_before_any_selection() {

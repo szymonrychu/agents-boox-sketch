@@ -2,6 +2,28 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-03 PR 33 review: watch disarm, native exclude, live touch ink, Diagnostics tab
+
+- An armed 300 ms watch is cancelled by anything that turns raw drawing off before it fires
+  (`holdUi`, `pause`, `refresh`, `stop`, a `start` with new rects, which re-opens raw drawing) and
+  re-checks `rawActive` when it fires; the next stylus down on the board arms it again. Why: a hold
+  or re-open inside the window gave a false fallback (review Important 1).
+- Empty exclude: `OnyxStrokeInput` sends `NO_EXCLUDE` (1 px at -1,-1, outside the view) instead of
+  an empty list, because `RawInputReader.setExcludeRect` skips an empty list (decompiled 1.5.8)
+  and the old native exclude (the tab bar) would stay while the app treats the area as board.
+  Chosen over closing and reopening the helper: no extra first-frame gate and GC flash on every
+  chrome hide, and `mapToRawTouchRect` maps a non-empty rect without its "Empty region" path.
+  Not yet confirmed on the device. `OnyxRawSessionTest` now expects one exclude rect for an empty
+  list (the sentinel). Test fakes model the SDK skipping empty lists.
+- Touch fallback draws ink live: `TouchStrokeInput.inProgress` publishes the stroke at every down
+  and move, `BoardSurfaceView.showLive` redraws page plus stroke (view pixels) per event, after
+  `Epd.handwritingMode` once; clearing waits for the committed redraw, so no blank frame. Defense
+  in depth because the v0.3.2 root cause is inferred, not confirmed on the device.
+- There was no Diagnostics screen before (the earlier entry claimed one): a "Diagnostics" panel tab
+  (`DiagnosticsPanel`, registered in `AppContainer.registerFeatures`) shows the input path
+  (Onyx raw or Touch fallback), whether raw drawing is enabled and the fallback reason, from
+  `InputSelector.status` and `rawEnabled()`.
+
 ## 2026-11-03 Live ink lost in v0.3.2 (strokes appeared only on pen lift)
 
 - Symptom (Note Air 6C, Android 16): toolbar worked, but ink showed up all at once on pen up.
@@ -21,7 +43,7 @@ Lessons that outlive a session. Newest first.
   flags and skips calls that match the cache; `openRawDrawing` resets the cache to off while the
   native pen state goes to PEN_START, so a disable right after an open is a no-op.
   `RawInputReader.setExcludeRect` ignores an empty list, so a cleared exclude keeps the old one.
-  Callbacks run on the reader thread. Diagnostics shows the fallback reason when it triggers.
+  Callbacks run on the reader thread.
 
 ## 2026-11-03 Toolbar refresh while raw drawing is on (v0.1.1 device report)
 

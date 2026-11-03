@@ -21,6 +21,9 @@ import io.github.szymonrychu.booxsketch.pairing.AndroidKeystoreKeyProvider
 import io.github.szymonrychu.booxsketch.pairing.KeyProvider
 import io.github.szymonrychu.booxsketch.pairing.PairingRepository
 import io.github.szymonrychu.booxsketch.pairing.TokenStore
+import io.github.szymonrychu.booxsketch.ui.DiagnosticsTab
+import io.github.szymonrychu.booxsketch.ui.PanelTab
+import io.github.szymonrychu.booxsketch.ui.PanelTabs
 import io.github.szymonrychu.booxsketch.ui.SplitStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -139,9 +142,11 @@ class AppContainer(
 
     private fun registerFeatures() {
         // One line per feature, added by its task.
+        PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
     }
 
     private companion object {
         const val TAG = "BooxSketch"
+        const val DIAGNOSTICS_ORDER = 900
     }
 }

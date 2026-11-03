@@ -9,7 +9,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Keeps the state a raw drawing helper ends up in. */
+/**
+ * Keeps the state a raw drawing helper ends up in. Like the SDK (`RawInputReader.setExcludeRect`,
+ * onyxsdk-pen 1.5.8) an empty exclude list is ignored, so the previous native exclude stays.
+ */
 private class StateRawDrawing : RawDrawing {
     var on = false
     var limit: Rect? = null
@@ -20,7 +23,7 @@ private class StateRawDrawing : RawDrawing {
         exclude: List<Rect>,
     ) {
         this.limit = Rect(limit)
-        this.exclude = exclude.map { Rect(it) }
+        if (exclude.isNotEmpty()) this.exclude = exclude.map { Rect(it) }
     }
 
     override fun open() = Unit
@@ -130,5 +133,15 @@ class OnyxLiveInkTest {
         assertLive()
         input.stop()
         assertThat(input.rawActive).isFalse()
+    }
+
+    @Test
+    fun native_exclude_stops_covering_the_board_when_the_chrome_hides() {
+        input.start(view, board, listOf(tabBar))
+        drawFrames()
+        assertThat(raw.exclude).containsExactly(tabBar)
+        input.start(view, board, emptyList())
+        assertLive()
+        assertThat(raw.exclude.none { Rect.intersects(it, board) }).isTrue()
     }
 }

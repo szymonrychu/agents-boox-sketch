@@ -5,6 +5,9 @@ import android.view.View
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** Events produced by a pen input; coordinates are in the pixels of the view passed to [StrokeInput.start]. */
 sealed interface StrokeEvent {
@@ -58,4 +61,15 @@ interface StrokeInput {
     fun releaseUi() = Unit
 
     val events: Flow<StrokeEvent>
+
+    /**
+     * The stroke being drawn, in view pixels, for an input whose ink the app must draw itself
+     * while the pen moves (touch); null between strokes. Raw pen inputs render their own ink and
+     * keep it null.
+     */
+    val inProgress: StateFlow<Stroke?> get() = NO_STROKE
+
+    private companion object {
+        val NO_STROKE: StateFlow<Stroke?> = MutableStateFlow<Stroke?>(null).asStateFlow()
+    }
 }
