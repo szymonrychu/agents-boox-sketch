@@ -1,5 +1,7 @@
 package io.github.szymonrychu.booxsketch.ui
 
+import android.graphics.Rect
+import android.view.View
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
@@ -17,9 +19,17 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.board.BoardView
+import io.github.szymonrychu.booxsketch.ink.StrokeEvent
+import io.github.szymonrychu.booxsketch.ink.StrokeInput
+import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -153,4 +163,63 @@ class SplitLayoutTest {
             assertThat(it.bottom).isAtMost(root.bottom - 48f)
         }
     }
+
+    @Test
+    fun board_bounds_passed_to_stroke_input_do_not_overlap_system_bar_insets() {
+        val input = BoundsRecordingInput()
+        val bar = WindowInsets(left = 40, top = 24, right = 10, bottom = 48)
+        compose.setContent {
+            SplitLayout(
+                board = {
+                    BoardView(
+                        canvas = Canvas(100, 200, 300f),
+                        page = Page(emptyList(), false),
+                        input = input,
+                        onStroke = {},
+                        onErase = { _, _, _ -> },
+                        modifier = Modifier.fillMaxSize().testTag("board"),
+                    )
+                },
+                panel = { PanelShell() },
+                state = SplitState(0.6f, false),
+                insets = bar,
+            )
+        }
+        compose.waitForIdle()
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val board = compose.onNodeWithTag("board").fetchSemanticsNode().boundsInRoot
+        val limit = checkNotNull(input.limit) { "StrokeInput.start was never called" }
+        // The limit is the board's own bounds in view pixels, with no extra bar arithmetic.
+        assertThat(limit.width()).isEqualTo(board.width.toInt())
+        assertThat(limit.height()).isEqualTo(board.height.toInt())
+        // In window coordinates the board, and so the limit, stays clear of every bar.
+        assertThat(board.left).isAtLeast(40f)
+        assertThat(board.top).isAtLeast(24f)
+        assertThat(board.right).isAtMost(root.right - 10f)
+        assertThat(board.bottom).isAtMost(root.bottom - 48f)
+    }
+}
+
+private class BoundsRecordingInput : StrokeInput {
+    var limit: Rect? = null
+    override val events: Flow<StrokeEvent> = emptyFlow()
+
+    override fun start(
+        view: View,
+        limit: Rect,
+        exclude: List<Rect>,
+    ) {
+        this.limit = Rect(limit)
+    }
+
+    override fun setTool(
+        tool: Tool,
+        width: Float,
+    ) = Unit
+
+    override fun pause() = Unit
+
+    override fun resume() = Unit
+
+    override fun stop() = Unit
 }
