@@ -2,6 +2,17 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-03 Onyx fast path (Task 18)
+
+- `org.lsposed.hiddenapibypass` is pinned at 6.1: 6.2 requires compileSdk 37 and the project is
+  fixed at compileSdk 36 (Q2). Bump together with compileSdk.
+- Fallback lives in `InputSelector` (`:app`): it wraps `OnyxStrokeInput` so any exception, or a
+  first stylus ACTION_DOWN without a raw callback within 300 ms, switches to touch and disables
+  Onyx for the process (reason goes to `OnyxDiagnostics`, wired to Diagnostics in Task 19).
+- Tilt comes from the raw `TouchPoint.tiltX/tiltY` (nonzero only). `Device.getStrokeParameters`
+  returns brush tuning, not tilt, so it is not used. Why: avoids a second hidden-API path.
+- Raw ink, latency and the 300 ms rule are verified on device only (device round 1).
+
 ## 2026-11-03 scaffold (Task 2)
 
 - Pinned versions: AGP 9.5.0, Gradle 9.8.2, JDK temurin 17, Kotlin 2.4.21, Compose 1.12.1,
