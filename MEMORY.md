@@ -21,6 +21,12 @@ Lessons that outlive a session. Newest first.
   next draw, then a GC full refresh, then enable. The gate is per session (`gated`), separate from
   the nested `holdUi` count: `stop()` clears it and a stale draw from a stopped or replaced session
   does nothing. Why: a shared counter left a stop-then-start with no second gate (re-review 3).
+- 2026-11-03: Robolectric draws the first frame inside `setContent` (even with the compose clock
+  paused), so wiring tests that need an outstanding UiRefresher hold create it with a toolbar
+  change in the same main-thread task as leaving the board. Robolectric never creates the
+  SurfaceView surface, so tests of `StrokeInput.start` call `surfaceCreated` themselves (raw input
+  starts only while the surface exists). The AndroidView `onRelease` also stops the input before
+  BoardScreen's dispose closes the refresher.
 - `Epd.fullRefresh(view)` takes the view (Task 19 callers) but keeps the vendor demo's
   whole-screen `repaintEveryThing(GC)`; the view is unused by the vendor call.
 - Known gap: pen-driven toolbar state (Undo enabling after a stroke) stays stale until the next

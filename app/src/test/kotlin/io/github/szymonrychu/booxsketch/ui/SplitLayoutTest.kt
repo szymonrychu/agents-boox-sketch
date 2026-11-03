@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.ui
 
 import android.graphics.Rect
 import android.view.View
+import android.view.ViewGroup
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
@@ -9,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -19,6 +21,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.board.BoardSurfaceView
 import io.github.szymonrychu.booxsketch.board.BoardView
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
@@ -170,7 +173,9 @@ class SplitLayoutTest {
     fun board_bounds_passed_to_stroke_input_do_not_overlap_system_bar_insets() {
         val input = BoundsRecordingInput()
         val bar = WindowInsets(left = 40, top = 24, right = 10, bottom = 48)
+        var host: View? = null
         compose.setContent {
+            host = LocalView.current
             SplitLayout(
                 board = {
                     BoardView(
@@ -187,6 +192,11 @@ class SplitLayoutTest {
             )
         }
         compose.waitForIdle()
+        // Robolectric never creates the SurfaceView's surface; raw input starts only once it exists.
+        compose.runOnIdle {
+            val surface = checkNotNull(host).findSurface()
+            surface.surfaceCreated(surface.holder)
+        }
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         val board = compose.onNodeWithTag("board").fetchSemanticsNode().boundsInRoot
         val limit = checkNotNull(input.limit) { "StrokeInput.start was never called" }
@@ -200,6 +210,13 @@ class SplitLayoutTest {
         assertThat(board.bottom).isAtMost(root.bottom - 48f)
     }
 }
+
+private fun View.findSurface(): BoardSurfaceView =
+    when (this) {
+        is BoardSurfaceView -> this
+        is ViewGroup -> (0 until childCount).firstNotNullOf { runCatching { getChildAt(it).findSurface() }.getOrNull() }
+        else -> error("no BoardSurfaceView")
+    }
 
 private class BoundsRecordingInput : StrokeInput {
     var limit: Rect? = null

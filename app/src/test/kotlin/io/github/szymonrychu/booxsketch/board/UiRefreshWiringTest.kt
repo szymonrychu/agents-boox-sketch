@@ -132,14 +132,24 @@ class UiRefreshWiringTest {
         val input = FreezingInput()
         val vm = vm()
         var shown by mutableStateOf(true)
-        compose.mainClock.autoAdvance = false
+        var atDispose = -1
         compose.setContent { if (shown) BoardScreen(vm, input) }
-        assertThat(input.log).containsExactly("hold")
-        compose.runOnIdle { shown = false }
-        compose.mainClock.advanceTimeByFrame()
-        assertThat(input.log.indexOf("stop")).isAtLeast(0)
-        val releasesAfterDispose = input.log.filterIndexed { i, e -> e == "release" && i < input.log.indexOf("stop") }
-        assertThat(releasesAfterDispose).isEmpty()
+        compose.waitForIdle()
+        // Robolectric draws the first frame during setContent, so a toolbar change provides the
+        // outstanding hold: the click and leaving the board run in one main-thread task, before
+        // that change's frame is drawn.
+        val click = compose.onNodeWithText(Tool.entries.first().wire).fetchSemanticsNode().config[SemanticsActions.OnClick]
+        compose.runOnUiThread {
+            click.action?.invoke()
+            assertThat(input.log.count { it == "hold" }).isGreaterThan(input.log.count { it == "release" })
+            atDispose = input.log.size
+            shown = false
+        }
+        compose.waitForIdle()
+        val stop = input.log.indexOf("stop")
+        assertThat(stop).isAtLeast(atDispose)
+        assertThat(input.log.subList(atDispose, stop)).doesNotContain("release")
+        assertThat(input.log.subList(stop, input.log.size)).contains("release")
     }
 
     @Test
