@@ -71,6 +71,11 @@ android {
         }
     }
 
+    tasks.withType<Test>().configureEach {
+        maxHeapSize = "1g"
+        maxParallelForks = 1
+    }
+
     lint {
         abortOnError = true
     }

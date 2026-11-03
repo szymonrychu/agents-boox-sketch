@@ -117,3 +117,9 @@ Lessons that outlive a session. Newest first.
   ratio clamped to 0.3..0.8 on read and write. The divider is a 48 dp strip with the collapse button;
   the board slot keeps its composition position so the SurfaceView survives a collapse.
 - `InputSelector.start()` installs one window-callback wrapper even when called twice.
+
+## 2026-11-03 Gradle memory caps
+
+- Agent pods (8Gi limit) were OOMKilled by Gradle builds (-Xmx3g plus Kotlin daemon plus test JVMs).
+  Now: `org.gradle.jvmargs=-Xmx1536m`, `kotlin.daemon.jvmargs=-Xmx1g`, `org.gradle.daemon=false`,
+  test tasks `maxHeapSize=1g`, `maxParallelForks=1`. Why: keep total peak well under 4 GiB.
