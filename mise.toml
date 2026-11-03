@@ -61,6 +61,10 @@ run = "./gradlew assembleDebug"
 description = "Regenerate gradle/verification-metadata.xml over every CI task type"
 run = "./gradlew --write-verification-metadata sha256 help ktlintCheck detekt lint test verifyRoborazziDebug assembleDebug assembleRelease assembleDebugAndroidTest"
 
+[tasks."api:refresh"]
+description = "Copy the connector openapi.json into the :core:api contract test resources (usage: mise run api:refresh <path>)"
+run = 'cp "{{arg(name="path")}}" core/api/src/test/resources/openapi.json'
+
 [tasks.fmt]
 description = "Format Kotlin sources"
 run = "./gradlew ktlintFormat"
