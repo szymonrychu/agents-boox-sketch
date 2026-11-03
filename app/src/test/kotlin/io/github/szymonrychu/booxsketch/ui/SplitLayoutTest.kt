@@ -28,6 +28,7 @@ import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
@@ -61,10 +62,10 @@ class SplitLayoutTest {
         runBlocking {
             val job1 = Job()
             store(CoroutineScope(job1 + Dispatchers.IO)).save(SplitState(0.45f, true))
-            job1.cancel()
+            job1.cancelAndJoin()
             val job2 = Job()
             val loaded = store(CoroutineScope(job2 + Dispatchers.IO)).load()
-            job2.cancel()
+            job2.cancelAndJoin()
             assertThat(loaded).isEqualTo(SplitState(0.45f, true))
         }
 
