@@ -16,6 +16,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /** HTTP client of the connector's sketch plugin (`/app/v1/sketch`). */
 @Suppress("TooManyFunctions") // one method per connector endpoint, per the task interface
@@ -86,7 +87,9 @@ class ConnectorClient(
         val url = "$base/conversations/$id/events".toHttpUrl().newBuilder()
         url.addQueryParameter("after", after.toString())
         url.addQueryParameter("wait", waitS.toString())
-        val response: EventsResponse = call(authedRequest("/conversations/$id/events").url(url.build()).get().build())
+        val pollClient = http.newBuilder().readTimeout(waitS + POLL_TIMEOUT_MARGIN_S, TimeUnit.SECONDS).build()
+        val response: EventsResponse =
+            call(authedRequest("/conversations/$id/events").url(url.build()).get().build(), pollClient)
         return response.events.map(::eventFromJson)
     }
 
@@ -110,8 +113,11 @@ class ConnectorClient(
         execute(authedRequest("/conversations/$id/handoff").post(body).build()) { }
     }
 
-    private suspend inline fun <reified T> call(request: Request): T =
-        execute(request) { response ->
+    private suspend inline fun <reified T> call(
+        request: Request,
+        client: OkHttpClient = http,
+    ): T =
+        execute(request, client) { response ->
             try {
                 json.decodeFromString<T>(response.body.string())
             } catch (e: SerializationException) {
@@ -121,11 +127,12 @@ class ConnectorClient(
 
     private suspend fun <T> execute(
         request: Request,
+        client: OkHttpClient = http,
         parse: (Response) -> T,
     ): T =
         withContext(Dispatchers.IO) {
             try {
-                http.newCall(request).execute().use { response ->
+                client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         parse(response)
                     } else {
@@ -149,6 +156,7 @@ class ConnectorClient(
     }
 
     private companion object {
+        const val POLL_TIMEOUT_MARGIN_S = 10L
         const val BEARER_PREFIX = "Bear" + "er "
         val JSON_TYPE = "application/json".toMediaType()
         val PNG_TYPE = "image/png".toMediaType()
