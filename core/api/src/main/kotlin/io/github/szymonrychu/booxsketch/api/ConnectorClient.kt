@@ -87,18 +87,7 @@ class ConnectorClient(
         url.addQueryParameter("after", after.toString())
         url.addQueryParameter("wait", waitS.toString())
         val response: EventsResponse = call(authedRequest("/conversations/$id/events").url(url.build()).get().build())
-        return response.events.map { raw ->
-            EventDto(
-                cursor =
-                    raw
-                        .getValue("cursor")
-                        .jsonPrimitive.content
-                        .toLong(),
-                type = raw.getValue("type").jsonPrimitive.content,
-                createdAt = raw.getValue("created_at").jsonPrimitive.content,
-                payload = JsonObject(raw - EVENT_FIELDS),
-            )
-        }
+        return response.events.map(::eventFromJson)
     }
 
     suspend fun spec(
@@ -161,7 +150,6 @@ class ConnectorClient(
 
     private companion object {
         const val BEARER_PREFIX = "Bear" + "er "
-        val EVENT_FIELDS = setOf("cursor", "type", "created_at")
         val JSON_TYPE = "application/json".toMediaType()
         val PNG_TYPE = "image/png".toMediaType()
         val json =
@@ -172,3 +160,18 @@ class ConnectorClient(
             }
     }
 }
+
+private val EVENT_FIELDS = setOf("cursor", "type", "created_at")
+
+/** Builds an [EventDto] from the flat event object (`cursor`, `type`, `created_at` plus payload fields). */
+internal fun eventFromJson(raw: JsonObject): EventDto =
+    EventDto(
+        cursor =
+            raw
+                .getValue("cursor")
+                .jsonPrimitive.content
+                .toLong(),
+        type = raw.getValue("type").jsonPrimitive.content,
+        createdAt = raw.getValue("created_at").jsonPrimitive.content,
+        payload = JsonObject(raw - EVENT_FIELDS),
+    )
