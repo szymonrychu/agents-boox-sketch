@@ -32,6 +32,16 @@ android {
         buildConfig = true
     }
 
+    val keystoreFile: String? = System.getenv("ANDROID_KEYSTORE_FILE")
+    if (!keystoreFile.isNullOrEmpty()) {
+        signingConfigs.create("release") {
+            storeFile = file(keystoreFile)
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "DEFAULT_ORIGIN", "\"${debugDefaultOrigin.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
@@ -41,6 +51,7 @@ android {
             isMinifyEnabled = false
             buildConfigField("String", "DEFAULT_ORIGIN", "\"\"")
             ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
