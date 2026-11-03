@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(application = PairedApp::class, sdk = [35])
 class MainActivityBoardTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 

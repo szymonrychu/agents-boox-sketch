@@ -8,7 +8,7 @@ import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(application = PairedApp::class, sdk = [35])
 class AppStartTest {
     @Test
     fun mainActivityLaunches() {

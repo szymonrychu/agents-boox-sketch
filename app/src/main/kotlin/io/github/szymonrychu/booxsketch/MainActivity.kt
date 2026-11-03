@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.github.szymonrychu.booxsketch.board.BoardScreen
+import io.github.szymonrychu.booxsketch.pairing.PairingScreen
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
 import io.github.szymonrychu.booxsketch.ui.PanelShell
 import io.github.szymonrychu.booxsketch.ui.SplitLayout
@@ -25,6 +26,19 @@ class MainActivity : ComponentActivity() {
         val container = (application as App).container
         setContent {
             EinkTheme {
+                val loaded by container.tokenStore.loaded.collectAsState()
+                val token by container.tokenStore.tokenFlow.collectAsState()
+                val knownOrigin by container.tokenStore.originFlow.collectAsState()
+                // Blank until the stored token is known, so a paired start never flashes the gate.
+                if (!loaded) return@EinkTheme
+                if (token == null) {
+                    PairingScreen(
+                        pair = container.pairingRepository::pair,
+                        onPaired = container.onRepaired,
+                        initialOrigin = knownOrigin.orEmpty(),
+                    )
+                    return@EinkTheme
+                }
                 // Read off the main thread; the default shows until the saved split arrives.
                 val stored by container.splitStateStore.state.collectAsState(initial = SplitState())
                 var edited by remember { mutableStateOf<SplitState?>(null) }

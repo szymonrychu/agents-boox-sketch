@@ -12,7 +12,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], qualifiers = "w1240dp-h930dp-land-xhdpi")
+@Config(application = PairedApp::class, sdk = [35], qualifiers = "w1240dp-h930dp-land-xhdpi")
 class MainActivityEraserTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
