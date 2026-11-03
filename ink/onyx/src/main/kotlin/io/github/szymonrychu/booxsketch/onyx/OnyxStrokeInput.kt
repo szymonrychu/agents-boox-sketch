@@ -36,7 +36,7 @@ class OnyxStrokeInput(
     private val rawDrawing: (View, RawInputCallback) -> RawDrawing = TouchHelperRawDrawing::create,
     private val maxPressure: () -> Float = Epd::maxTouchPressure,
     private val afterNextDraw: (View, Runnable) -> Unit = { v, r -> v.afterNextDraw(Handler(Looper.getMainLooper()), r) },
-    private val fullRefresh: () -> Unit = Epd::fullRefresh,
+    private val fullRefresh: (View) -> Unit = Epd::fullRefresh,
 ) : StrokeInput,
     RawActivitySource {
     private val channel = Channel<StrokeEvent>(Channel.UNLIMITED)
@@ -48,6 +48,9 @@ class OnyxStrokeInput(
     private var host: View? = null
     private var paused = false
     private var holds = 0
+
+    /** The session waiting for its first draw before raw drawing may be enabled, if any. */
+    private var gated: RawDrawing? = null
     private var appliedLimit: Rect? = null
     private var appliedExclude: List<Rect> = emptyList()
 
@@ -137,22 +140,26 @@ class OnyxStrokeInput(
         d.open()
         // A new session (first start, or after the surface was re-created) must not freeze the
         // panel before the window has drawn: enable only after the next frame, then full refresh.
-        // An outstanding hold (the UiRefresher's first-frame gate) already does the same.
+        // An outstanding hold (the UiRefresher's first-frame gate) already does the same. Only the
+        // current session's draw releases its gate; a stale one (stopped or replaced) does nothing.
         if (holds == 0) {
-            holds++
+            gated = d
             afterNextDraw(
                 view,
                 Runnable {
-                    if (drawing === d) fullRefresh()
-                    releaseUi()
+                    if (gated === d) {
+                        gated = null
+                        fullRefresh(view)
+                        if (active()) enable(d)
+                    }
                 },
             )
         }
         d.setEnabled(active())
     }
 
-    /** Raw drawing may be on: not paused and no [holdUi] outstanding. */
-    private fun active() = !paused && holds == 0
+    /** Raw drawing may be on: not paused, no [holdUi] outstanding and no session awaiting its first draw. */
+    private fun active() = !paused && holds == 0 && gated == null
 
     private fun applyRects(
         d: RawDrawing,
@@ -221,6 +228,7 @@ class OnyxStrokeInput(
         drawing?.close()
         drawing = null
         host = null
+        gated = null
         appliedLimit = null
         appliedExclude = emptyList()
     }

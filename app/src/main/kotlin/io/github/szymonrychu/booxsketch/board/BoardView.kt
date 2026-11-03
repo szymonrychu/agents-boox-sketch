@@ -125,7 +125,7 @@ class BoardSurfaceView(
     private val main = Handler(Looper.getMainLooper())
     private val fullRefresh =
         FullRefreshDebouncer(FULL_REFRESH_DELAY_MS, { r, d -> main.postDelayed(r, d) }, { main.removeCallbacks(it) }) {
-            refresher { Epd.fullRefresh() }
+            refresher { Epd.fullRefresh(this) }
         }
 
     init {

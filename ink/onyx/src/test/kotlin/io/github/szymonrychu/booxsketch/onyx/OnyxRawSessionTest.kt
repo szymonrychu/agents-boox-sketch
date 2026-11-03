@@ -193,6 +193,7 @@ class OnyxRawSessionTest {
     @Test
     fun pause_disables_and_resume_enables_and_reapplies_brush() {
         input.start(view, limit(), emptyList())
+        drawFrame()
         log.clear()
         input.pause()
         input.resume()
@@ -209,6 +210,7 @@ class OnyxRawSessionTest {
     @Test
     fun refresh_toggles_raw_drawing_off_around_the_redraw() {
         input.start(view, limit(), emptyList())
+        drawFrame()
         log.clear()
         input.refresh { log += "redraw" }
         assertThat(log).containsExactly("enabled1:false", "redraw", "enabled1:true", "brush1").inOrder()
@@ -217,6 +219,7 @@ class OnyxRawSessionTest {
     @Test
     fun refresh_re_enables_even_when_the_redraw_throws() {
         input.start(view, limit(), emptyList())
+        drawFrame()
         log.clear()
         runCatching { input.refresh { error("boom") } }
         assertThat(log).contains("enabled1:true")

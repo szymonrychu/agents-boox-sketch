@@ -14,9 +14,11 @@ object Epd {
     /**
      * Full-quality GC refresh of the whole screen that clears ghosting, as in the vendor EPD demo
      * (`repaintEveryThing(GC)`). While raw drawing is on the screen is frozen, so callers run this
-     * inside `StrokeInput.refresh`.
+     * inside `StrokeInput.refresh`. [view] is the caller's view; the GC repaint covers the whole
+     * screen, so it is not needed for the vendor call.
      */
-    fun fullRefresh() {
+    @Suppress("UnusedParameter", "UNUSED_PARAMETER")
+    fun fullRefresh(view: View) {
         safely { EpdController.repaintEveryThing(UpdateMode.GC) }
     }
 

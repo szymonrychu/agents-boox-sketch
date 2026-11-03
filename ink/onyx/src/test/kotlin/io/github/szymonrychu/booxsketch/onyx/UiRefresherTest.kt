@@ -182,7 +182,11 @@ class UiRefresherTest {
 
     @Test
     fun after_next_draw_listener_is_removed_even_when_its_observer_was_merged_into_the_window() {
-        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val activity =
+            org.robolectric.Robolectric
+                .buildActivity(android.app.Activity::class.java)
+                .setup()
+                .get()
         val v = View(activity)
         var runs = 0
         val main = android.os.Handler(android.os.Looper.getMainLooper())
@@ -192,7 +196,8 @@ class UiRefresherTest {
         observer.dispatchOnPreDraw()
         observer.dispatchOnPreDraw()
         observer.dispatchOnPreDraw()
-        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        org.robolectric.shadows.ShadowLooper
+            .idleMainLooper()
         assertThat(runs).isEqualTo(1)
     }
 }

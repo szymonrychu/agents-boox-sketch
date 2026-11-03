@@ -115,7 +115,7 @@ class UiRefresher(
                 cancel = { main.removeCallbacks(it) },
                 now = { android.os.SystemClock.uptimeMillis() },
                 partialRefresh = { Epd.partialRefresh(view) },
-                fullRefresh = Epd::fullRefresh,
+                fullRefresh = { Epd.fullRefresh(view) },
             )
         }
     }

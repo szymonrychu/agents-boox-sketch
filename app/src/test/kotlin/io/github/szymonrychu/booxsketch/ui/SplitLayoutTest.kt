@@ -23,6 +23,7 @@ import io.github.szymonrychu.booxsketch.board.BoardView
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.CoroutineScope
@@ -173,8 +174,7 @@ class SplitLayoutTest {
             SplitLayout(
                 board = {
                     BoardView(
-                        canvas = Canvas(100, 200, 300f),
-                        page = Page(emptyList(), false),
+                        notebook = Notebook(Canvas(100, 200, 300f), listOf(Page(emptyList(), false)), 0),
                         input = input,
                         onStroke = {},
                         onErase = { _, _, _ -> },

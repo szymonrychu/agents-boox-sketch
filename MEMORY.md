@@ -17,6 +17,12 @@ Lessons that outlive a session. Newest first.
 - Raw drawing is held off from composition until the first frame is drawn; then a GC full refresh
   runs and only then is raw drawing enabled. The refresh runs before the enable (not after, as
   first sketched) because a refresh issued while raw drawing is on is frozen too.
+- Every new raw session (first start, or after the surface is re-created) is gated on its own
+  next draw, then a GC full refresh, then enable. The gate is per session (`gated`), separate from
+  the nested `holdUi` count: `stop()` clears it and a stale draw from a stopped or replaced session
+  does nothing. Why: a shared counter left a stop-then-start with no second gate (re-review 3).
+- `Epd.fullRefresh(view)` takes the view (Task 19 callers) but keeps the vendor demo's
+  whole-screen `repaintEveryThing(GC)`; the view is unused by the vendor call.
 - Known gap: pen-driven toolbar state (Undo enabling after a stroke) stays stale until the next
   toolbar interaction, to keep the pen path free of toggles.
 
