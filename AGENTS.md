@@ -23,7 +23,7 @@ Use the mise tasks, never raw tool invocations.
 | `mise run deps:verify-update` | regenerates `gradle/verification-metadata.xml` over every CI task type |
 | `mise run fmt` | `./gradlew ktlintFormat` |
 
-Gradle runs with `-Xmx3g` and `org.gradle.workers.max=2` (see `gradle.properties`). Dependency
+Gradle runs with `-Xmx1536m`, no daemon, Kotlin daemon `-Xmx1g`, test JVMs `1g` x 1 fork, and `org.gradle.workers.max=2` (see `gradle.properties`). Dependency
 verification is strict on CI: every change to a dependency re-runs `mise run deps:verify-update`
 and commits the XML. On a rebase conflict in that file, regenerate it, never hand-merge.
 
