@@ -5,13 +5,15 @@ Lessons that outlive a session. Newest first.
 ## 2026-11-03 scaffold (Task 2)
 
 - Pinned versions: AGP 9.5.0, Gradle 9.8.2, JDK temurin 17, Kotlin 2.4.21, Compose 1.12.1,
-  kotlinx-serialization 1.12.0, kotlinx-coroutines 1.11.0, OkHttp and MockWebServer 5.5.1,
+  kotlinx-serialization 1.12.0, kotlinx-coroutines 1.11.0, OkHttp and MockWebServer 5.3.2,
   Room 2.8.5, KSP 2.3.13, WorkManager 2.12.0, activity-compose 1.13.0, lifecycle 2.11.0,
   datastore 1.3.0, core-ktx 1.19.1, multiplatform-markdown-renderer 0.46.0, Robolectric 4.17,
   Roborazzi 1.77.0, ktlint-gradle 14.2.0 with ktlint 1.8.0, detekt 1.23.8, Onyx pen 1.5.8 /
   device 1.3.6 / base 1.8.9. All in `gradle/libs.versions.toml`.
 - Compose is 1.11.4 and core-ktx 1.18.0, not the planned 1.12.1 / 1.19.1: those require
   compileSdk 37, while decision Q2 fixes compileSdk 36. Revisit when compileSdk moves.
+- 2026-11-03: OkHttp is 5.3.2, not 5.5.1: okhttp-android 5.5.1 requires compileSdk 37 (AAR metadata
+  check failed on CI), same Q2 constraint.
 - onyxsdk-base drags in pre-AndroidX support libraries (24.2.1) that duplicate AndroidX classes;
   they are excluded in `:app` and `:ink:onyx` (jetifier failed on duplicate namespaces). If the
   device rounds show a missing `android.support.*` class at runtime, revisit this exclusion.

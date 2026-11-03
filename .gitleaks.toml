@@ -1,0 +1,12 @@
+title = "agents-boox-sketch"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Files that legitimately contain scanner patterns"
+paths = [
+  '''scripts/public_check\.sh''',
+  '''\.gitleaks\.toml''',
+  '''scripts/tests/test_public_check\.py''',
+]
