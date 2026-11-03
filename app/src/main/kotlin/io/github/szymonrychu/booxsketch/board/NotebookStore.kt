@@ -35,6 +35,13 @@ class NotebookStore(
             }
     }
 
+    /** Removes the notebook and any kept corrupt copy. */
+    @Synchronized
+    fun delete() {
+        file.delete()
+        File(file.parentFile, file.name + CORRUPT_SUFFIX).delete()
+    }
+
     private fun preserveUnreadable() {
         val kept = File(file.parentFile, file.name + CORRUPT_SUFFIX)
         kept.delete()

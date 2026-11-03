@@ -2,6 +2,8 @@ package io.github.szymonrychu.booxsketch
 
 import android.app.Application
 import android.util.Log
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.board.BoardViewModel
 import io.github.szymonrychu.booxsketch.board.NotebookStore
 import io.github.szymonrychu.booxsketch.data.AppDatabase
@@ -13,12 +15,17 @@ import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
+import io.github.szymonrychu.booxsketch.pairing.AndroidKeystoreKeyProvider
+import io.github.szymonrychu.booxsketch.pairing.KeyProvider
+import io.github.szymonrychu.booxsketch.pairing.PairingRepository
+import io.github.szymonrychu.booxsketch.pairing.TokenStore
 import io.github.szymonrychu.booxsketch.ui.SplitStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
 
@@ -31,6 +38,7 @@ class AppContainer(
     private val dir: File = app.filesDir,
     private val probe: () -> ProbeResult = OnyxProbe::available,
     private val onyxFactory: () -> StrokeInput = { OnyxStrokeInput(app) },
+    private val keyProvider: KeyProvider = AndroidKeystoreKeyProvider(),
 ) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -42,6 +50,28 @@ class AppContainer(
     val splitStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val splitStateStore: SplitStateStore by lazy {
         SplitStateStore.create(splitStoreScope, File(dir, "datastore/split.preferences_pb"))
+    }
+
+    val tokenStore: TokenStore by lazy {
+        TokenStore(
+            PreferenceDataStoreFactory.create(scope = splitStoreScope) {
+                File(dir, "datastore/token.preferences_pb")
+            },
+            keyProvider,
+        )
+    }
+    val pairingRepository: PairingRepository by lazy {
+        PairingRepository(tokenStore, { origin, token -> ConnectorClient(origin, token, okHttpClient) })
+    }
+
+    /** Clears the token, every Room table and the notebook. Called by Unpair. */
+    suspend fun unpair() {
+        withContext(Dispatchers.IO) {
+            tokenStore.clear()
+            database.clearAllTables()
+            notebookStore.delete()
+        }
+        boardViewModel.reset()
     }
 
     val boardViewModel: BoardViewModel by lazy { BoardViewModel(notebookStore, appScope, Dispatchers.IO) }
