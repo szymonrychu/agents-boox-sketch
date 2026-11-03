@@ -164,6 +164,11 @@ class ConnectorClient(
         val EVENT_FIELDS = setOf("cursor", "type", "created_at")
         val JSON_TYPE = "application/json".toMediaType()
         val PNG_TYPE = "image/png".toMediaType()
-        val json = Json { ignoreUnknownKeys = true }
+        val json =
+            Json {
+                ignoreUnknownKeys = true
+                encodeDefaults = true
+                explicitNulls = false
+            }
     }
 }

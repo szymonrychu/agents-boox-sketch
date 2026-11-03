@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.model.Canvas
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -83,6 +84,21 @@ class ConnectorClientTest {
             assertThat(body).contains("\"pages\":[{\"page\":0")
             assertThat(result.conversationId).isEqualTo(conv)
             assertThat(result.status).isEqualTo("queued")
+        }
+
+    @Test
+    fun uploadSketch_meta_encodes_defaults_and_omits_absent_optionals() =
+        runTest {
+            server.enqueue(json("""{"sketch_id":"$cid","conversation_id":"$conv","status":"queued"}""", 202))
+            val meta = SketchMetaDto(clientId = cid, pages = listOf(PageMetaDto(0, Canvas(1, 1, 300f))))
+            client.uploadSketch(meta, listOf(byteArrayOf(1)), listOf(null))
+            val body = server.takeRequest().body.readUtf8()
+            val metaJson = body.lineSequence().first { it.startsWith("{\"client_id\"") }
+            val obj = Json.parseToJsonElement(metaJson).jsonObject
+            assertThat(obj["conversation"]?.jsonPrimitive?.content).isEqualTo("current")
+            assertThat(obj.keys).containsExactly("client_id", "conversation", "pages")
+            val canvas = obj["pages"]!!.jsonArray[0].jsonObject["canvas"]!!.jsonObject
+            assertThat(canvas.keys).containsExactly("w", "h", "dpi")
         }
 
     @Test
