@@ -29,6 +29,8 @@ kotlin {
 }
 
 dependencies {
+    api(project(":core:model"))
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.onyx.pen)
     implementation(libs.onyx.device)
     implementation(libs.onyx.base)

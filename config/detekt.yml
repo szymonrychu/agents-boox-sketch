@@ -10,3 +10,8 @@ complexity:
   LongParameterList:
     functionThreshold: 8
     constructorThreshold: 10
+  TooManyFunctions:
+    thresholdInClasses: 20
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']

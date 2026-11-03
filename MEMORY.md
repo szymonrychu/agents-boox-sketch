@@ -2,6 +2,17 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-03 Onyx fast path (Task 18)
+
+- `org.lsposed.hiddenapibypass` is pinned at 6.1: 6.2 requires compileSdk 37 and the project is
+  fixed at compileSdk 36 (Q2). Bump together with compileSdk.
+- Fallback lives in `InputSelector` (`:app`): it wraps `OnyxStrokeInput` so any exception, or a
+  first stylus ACTION_DOWN without a raw callback within 300 ms, switches to touch and disables
+  Onyx for the process (reason goes to `OnyxDiagnostics`, wired to Diagnostics in Task 19).
+- Tilt comes from the raw `TouchPoint.tiltX/tiltY` (nonzero only). `Device.getStrokeParameters`
+  returns brush tuning, not tilt, so it is not used. Why: avoids a second hidden-API path.
+- Raw ink, latency and the 300 ms rule are verified on device only (device round 1).
+
 ## 2026-11-03 scaffold (Task 2)
 
 - Pinned versions: AGP 9.5.0, Gradle 9.8.2, JDK temurin 17, Kotlin 2.4.21, Compose 1.12.1,
@@ -59,3 +70,23 @@ Lessons that outlive a session. Newest first.
   `strokes.json` version 1, no ids, no tilt, a per-page file. Why: the connector contract is
   fixed and minimal, while local autosave must round-trip everything needed to edit and undo.
 - `UndoStack` keeps history per page index and ignores entries made stale by page deletion.
+
+## 2026-11-03 Onyx fallback watch source
+
+- The 300 ms no-raw-callback watch is armed from a wrapped Activity window callback
+  (`dispatchTouchEvent`, stylus ACTION_DOWN), which sees events before views even in raw mode;
+  the view touch listener stays as a second source (first wins). Switching to touch is posted to
+  the main thread. Why: in raw drawing the SDK may swallow stylus events before the view.
+- Device round 1 must confirm on a Boox that the watch actually arms (diagnostics shows the
+  300 ms reason when the raw path is silent) and that TouchPoint tilt is populated.
+
+## 2026-11-03 Release keystore backup and restore test
+
+- The release keystore (PKCS12, RSA 4096, 30-year validity) was generated once, not rotated. The
+  four signing secrets live in the `release` GitHub environment, the signing certificate digest
+  in a repo variable, `PUBLIC_DENYLIST` as a repo secret. Why: the same key must sign every
+  update, so it is never regenerated.
+- A SOPS-encrypted backup of all of these lives in the agents-helmfile repo under
+  `backups/agents-boox-sketch/`. Restore test on 2026-11-03: decrypted into a temp dir, rebuilt
+  the keystore (byte-identical) and its certificate fingerprint matched the original. Temp files
+  were shredded. No values are recorded here.
