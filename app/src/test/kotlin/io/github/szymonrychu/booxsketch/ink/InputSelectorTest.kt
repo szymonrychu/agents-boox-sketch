@@ -191,6 +191,21 @@ class InputSelectorTest {
         }
 
     @Test
+    fun two_starts_install_one_window_wrapper() =
+        runTest {
+            val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+            val original = activity.window.callback
+            val input = selector(this).select()
+            input.start(View(activity), Rect(0, 0, 10, 10), emptyList())
+            val first = activity.window.callback
+            input.start(View(activity), Rect(0, 0, 20, 20), emptyList())
+            assertThat(activity.window.callback).isSameInstanceAs(first)
+            assertThat(first).isNotSameInstanceAs(original)
+            input.stop()
+            assertThat(activity.window.callback).isSameInstanceAs(original)
+        }
+
+    @Test
     fun failure_from_background_thread_starts_touch_once_on_main_executor() =
         runTest {
             val queued = mutableListOf<Runnable>()

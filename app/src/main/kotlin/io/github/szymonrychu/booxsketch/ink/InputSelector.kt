@@ -158,6 +158,8 @@ private class OnyxWithFallback(
 
     private fun installWindowCallback(context: Context) {
         val win = context.findActivity()?.window ?: return
+        // start() can run again (layout change, resume): keep exactly one wrapper installed.
+        if (synchronized(lock) { windowCallback != null && win.callback === windowCallback }) return
         val original = win.callback ?: return
         val wrapper =
             object : Window.Callback by original {

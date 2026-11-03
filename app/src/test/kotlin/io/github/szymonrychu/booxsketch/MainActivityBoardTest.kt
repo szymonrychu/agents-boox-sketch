@@ -1,6 +1,5 @@
 package io.github.szymonrychu.booxsketch
 
-import android.app.Application
 import android.graphics.Insets
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -17,7 +16,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35], application = Application::class)
+@Config(sdk = [35])
 class MainActivityBoardTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
