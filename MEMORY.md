@@ -90,3 +90,12 @@ Lessons that outlive a session. Newest first.
   `backups/agents-boox-sketch/`. Restore test on 2026-11-03: decrypted into a temp dir, rebuilt
   the keystore (byte-identical) and its certificate fingerprint matched the original. Temp files
   were shredded. No values are recorded here.
+
+## 2026-11-03 PKCS12 has one password
+
+- Release run 41640174670 failed in `:app:packageRelease` with "Given final block not properly
+  padded". Why: the keystore was generated as PKCS12 with different store and key passwords, but
+  PKCS12 supports only one (keytool warns and ignores `-keypass`), so the key password is the
+  keystore password. Reproduced with a throwaway keystore.
+- Fix: Gradle `keyPassword` and the workflow read only `ANDROID_KEYSTORE_PASSWORD`;
+  `ANDROID_KEY_PASSWORD` is no longer used (the secret may be deleted by the owner).

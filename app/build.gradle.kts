@@ -38,7 +38,8 @@ android {
             storeFile = file(keystoreFile)
             storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
             keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            // PKCS12 has a single password: the key password is the keystore password
+            keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
         }
     }
 
