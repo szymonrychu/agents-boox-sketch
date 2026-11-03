@@ -1,11 +1,16 @@
 package io.github.szymonrychu.booxsketch
 
 import android.app.Application
+import android.graphics.Insets
+import android.view.ViewGroup
+import android.view.WindowInsets
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.szymonrychu.booxsketch.board.TAG_PAGE_LABEL
 import io.github.szymonrychu.booxsketch.board.TAG_SEND
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,5 +25,32 @@ class MainActivityBoardTest {
     fun launchingShowsTheBoardToolbar() {
         compose.onNodeWithTag(TAG_SEND).assertExists()
         compose.onNodeWithTag(TAG_PAGE_LABEL).assertExists()
+    }
+
+    @Test
+    fun toolbarIsNotDrawnUnderTheNavigationBar() {
+        val bar = 96
+        compose.runOnUiThread {
+            val host = compose.activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as ViewGroup
+            val insets =
+                WindowInsets
+                    .Builder()
+                    .setInsets(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, bar))
+                    .setVisible(WindowInsets.Type.navigationBars(), true)
+                    .build()
+            host.getChildAt(0).dispatchApplyWindowInsets(insets)
+        }
+        compose.waitForIdle()
+        val height =
+            compose
+                .onRoot()
+                .fetchSemanticsNode()
+                .boundsInRoot.height
+        val bottom =
+            compose
+                .onNodeWithTag(TAG_SEND)
+                .fetchSemanticsNode()
+                .boundsInRoot.bottom
+        assertTrue("toolbar bottom $bottom is under the $bar px nav bar (height $height)", bottom <= height - bar)
     }
 }
