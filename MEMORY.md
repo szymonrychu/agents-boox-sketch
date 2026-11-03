@@ -70,3 +70,12 @@ Lessons that outlive a session. Newest first.
   `strokes.json` version 1, no ids, no tilt, a per-page file. Why: the connector contract is
   fixed and minimal, while local autosave must round-trip everything needed to edit and undo.
 - `UndoStack` keeps history per page index and ignores entries made stale by page deletion.
+
+## 2026-11-03 Onyx fallback watch source
+
+- The 300 ms no-raw-callback watch is armed from a wrapped Activity window callback
+  (`dispatchTouchEvent`, stylus ACTION_DOWN), which sees events before views even in raw mode;
+  the view touch listener stays as a second source (first wins). Switching to touch is posted to
+  the main thread. Why: in raw drawing the SDK may swallow stylus events before the view.
+- Device round 1 must confirm on a Boox that the watch actually arms (diagnostics shows the
+  300 ms reason when the raw path is silent) and that TouchPoint tilt is populated.

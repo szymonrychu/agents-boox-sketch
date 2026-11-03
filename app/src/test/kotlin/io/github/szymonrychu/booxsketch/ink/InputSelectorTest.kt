@@ -1,6 +1,9 @@
 package io.github.szymonrychu.booxsketch.ink
 
+import android.app.Activity
 import android.graphics.Rect
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
@@ -15,8 +18,11 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
+import kotlin.concurrent.thread
 
 private class FakeInput(
     val name: String,
@@ -87,7 +93,29 @@ class InputSelectorTest {
         scope = scope,
         onyxFactory = { onyxInput },
         touchFactory = { touch },
+        mainExecutor = mainExecutor,
     )
+
+    private val mainExecutor = Executor { it.run() }
+
+    private fun stylusDown(): MotionEvent {
+        val props =
+            arrayOf(
+                MotionEvent.PointerProperties().apply {
+                    id = 0
+                    toolType = MotionEvent.TOOL_TYPE_STYLUS
+                },
+            )
+        val coords =
+            arrayOf(
+                MotionEvent.PointerCoords().apply {
+                    x = 1f
+                    y = 1f
+                },
+            )
+        val t = SystemClock.uptimeMillis()
+        return MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, 1, props, coords, 0, 0, 1f, 1f, 0, 0, 0, 0)
+    }
 
     @Test
     fun selector_uses_touch_on_non_onyx() =
@@ -146,6 +174,57 @@ class InputSelectorTest {
             advanceTimeBy(100)
             onyx.onRawActivity!!.invoke()
             advanceTimeBy(1000)
+            assertThat(touch.calls).isEmpty()
+            assertThat(diag.reasons).isEmpty()
+        }
+
+    @Test
+    fun stylus_down_through_window_callback_arms_the_watch() =
+        runTest {
+            val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+            val input = selector(this).select()
+            input.start(View(activity), Rect(0, 0, 10, 10), emptyList())
+            activity.window.callback.dispatchTouchEvent(stylusDown())
+            advanceTimeBy(301)
+            assertThat(touch.calls).contains("start")
+            assertThat(diag.reasons).hasSize(1)
+        }
+
+    @Test
+    fun failure_from_background_thread_starts_touch_once_on_main_executor() =
+        runTest {
+            val queued = mutableListOf<Runnable>()
+            val sel =
+                InputSelector({ ProbeResult(true, "ok") }, settings, diag, this, { onyx }, { touch }, { queued += it })
+            val input = sel.select()
+            input.start(view, Rect(0, 0, 10, 10), emptyList())
+            thread { onyx.onFailure!!.invoke(IllegalStateException("bg")) }.join()
+            thread { onyx.onFailure!!.invoke(IllegalStateException("bg2")) }.join()
+            assertThat(touch.calls).isEmpty()
+            queued.forEach { it.run() }
+            assertThat(queued).hasSize(1)
+            assertThat(touch.calls.filter { it == "start" }).hasSize(1)
+        }
+
+    @Test
+    fun linkage_error_from_factory_falls_back_to_touch() =
+        runTest {
+            val sel =
+                InputSelector({ ProbeResult(true, "ok") }, settings, diag, this, { throw NoClassDefFoundError("x/Y") }, { touch })
+            assertThat(sel.select()).isSameInstanceAs(touch)
+            assertThat(diag.reasons.single()).contains("NoClassDefFoundError")
+            assertThat(selector(this).select()).isSameInstanceAs(touch)
+        }
+
+    @Test
+    fun late_failure_and_watch_after_stop_do_nothing() =
+        runTest {
+            val input = selector(this).select()
+            input.start(view, Rect(0, 0, 10, 10), emptyList())
+            (input as StylusDownObserver).onStylusDown()
+            input.stop()
+            advanceTimeBy(1000)
+            onyx.onFailure!!.invoke(IllegalStateException("late"))
             assertThat(touch.calls).isEmpty()
             assertThat(diag.reasons).isEmpty()
         }

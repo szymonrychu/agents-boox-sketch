@@ -1,9 +1,15 @@
 package io.github.szymonrychu.booxsketch.ink
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.Window
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executor
 
 /** User-facing input settings; [forceTouch] is the "Force touch input" switch. */
 interface InputSettings {
@@ -39,13 +46,17 @@ class InputSelector(
     private val scope: CoroutineScope,
     private val onyxFactory: () -> StrokeInput,
     private val touchFactory: () -> StrokeInput,
+    private val mainExecutor: Executor = Executor { Handler(Looper.getMainLooper()).post(it) },
 ) {
     @Suppress("TooGenericExceptionCaught")
     fun select(): StrokeInput {
         if (settings.forceTouch || onyxDisabled || !probe().available) return touchFactory()
         return try {
-            OnyxWithFallback(onyxFactory(), touchFactory(), diagnostics, scope)
+            OnyxWithFallback(onyxFactory(), touchFactory(), diagnostics, scope, mainExecutor)
         } catch (e: RuntimeException) {
+            disable(e.describe(), diagnostics)
+            touchFactory()
+        } catch (e: LinkageError) {
             disable(e.describe(), diagnostics)
             touchFactory()
         }
@@ -76,16 +87,21 @@ class InputSelector(
 /**
  * Onyx input guarded by a runtime fallback: any exception, or a first stylus down that gets no
  * raw callback within [InputSelector.RAW_CALLBACK_TIMEOUT_MS], switches to touch for the process.
+ * The stylus down is seen by a wrapped Activity window callback (it runs before any view, so it
+ * works in raw mode too) and by a view touch listener; the first one wins. All view work of the
+ * switch runs on [mainExecutor]; the state is guarded by [lock].
  */
 private class OnyxWithFallback(
     private val onyx: StrokeInput,
     private val touch: StrokeInput,
     private val diagnostics: OnyxDiagnostics,
     private val scope: CoroutineScope,
+    private val mainExecutor: Executor,
 ) : StrokeInput,
     StylusDownObserver {
     override val events: Flow<StrokeEvent> = merge(onyx.events, touch.events)
 
+    private val lock = Any()
     private var view: View? = null
     private var limit = Rect()
     private var exclude: List<Rect> = emptyList()
@@ -93,8 +109,12 @@ private class OnyxWithFallback(
     private var width = 4f
     private var paused = false
     private var fellBack = false
+    private var stopped = false
     private var confirmed = false
     private var watch: Job? = null
+    private var window: Window? = null
+    private var windowCallback: Window.Callback? = null
+    private var originalCallback: Window.Callback? = null
 
     init {
         (onyx as? RawActivitySource)?.let { src ->
@@ -103,12 +123,12 @@ private class OnyxWithFallback(
         }
     }
 
-    @Synchronized
-    private fun confirm() {
-        confirmed = true
-        watch?.cancel()
-        watch = null
-    }
+    private fun confirm() =
+        synchronized(lock) {
+            confirmed = true
+            watch?.cancel()
+            watch = null
+        }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun start(
@@ -116,49 +136,103 @@ private class OnyxWithFallback(
         limit: Rect,
         exclude: List<Rect>,
     ) {
-        this.view = view
-        this.limit = limit
-        this.exclude = exclude
-        if (fellBack) return touch.start(view, limit, exclude)
+        val fallen =
+            synchronized(lock) {
+                stopped = false
+                this.view = view
+                this.limit = limit
+                this.exclude = exclude
+                fellBack
+            }
+        if (fallen) return touch.start(view, limit, exclude)
         view.setOnTouchListener { _, ev ->
-            if (ev.actionMasked == MotionEvent.ACTION_DOWN && ev.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) onStylusDown()
+            if (isStylusDown(ev)) onStylusDown()
             false
         }
+        installWindowCallback(view.context)
         guarded { onyx.start(view, limit, exclude) }
     }
 
-    @Synchronized
-    override fun onStylusDown() {
-        if (fellBack || confirmed || watch != null) return
-        watch =
-            scope.launch {
-                delay(InputSelector.RAW_CALLBACK_TIMEOUT_MS)
-                switchToTouch("Onyx input disabled: no raw pen callback within ${InputSelector.RAW_CALLBACK_TIMEOUT_MS} ms")
+    private fun isStylusDown(ev: MotionEvent) =
+        ev.actionMasked == MotionEvent.ACTION_DOWN && ev.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
+
+    private fun installWindowCallback(context: Context) {
+        val win = context.findActivity()?.window ?: return
+        val original = win.callback ?: return
+        val wrapper =
+            object : Window.Callback by original {
+                override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                    if (isStylusDown(event)) onStylusDown()
+                    return original.dispatchTouchEvent(event)
+                }
             }
+        synchronized(lock) {
+            window = win
+            windowCallback = wrapper
+            originalCallback = original
+        }
+        win.callback = wrapper
+    }
+
+    private fun restoreWindowCallback() {
+        val (win, wrapper, original) = synchronized(lock) { Triple(window, windowCallback, originalCallback) }
+        if (win != null && win.callback === wrapper) win.callback = original
+    }
+
+    private fun inactive() = fellBack || stopped || confirmed
+
+    override fun onStylusDown() {
+        synchronized(lock) {
+            if (inactive() || watch != null) return
+            watch =
+                scope.launch {
+                    delay(InputSelector.RAW_CALLBACK_TIMEOUT_MS)
+                    switchToTouch("Onyx input disabled: no raw pen callback within ${InputSelector.RAW_CALLBACK_TIMEOUT_MS} ms")
+                }
+        }
     }
 
     override fun setTool(
         tool: Tool,
         width: Float,
     ) {
-        this.tool = tool
-        this.width = width
-        if (fellBack) touch.setTool(tool, width) else guarded { onyx.setTool(tool, width) }
+        val fallen =
+            synchronized(lock) {
+                this.tool = tool
+                this.width = width
+                fellBack
+            }
+        if (fallen) touch.setTool(tool, width) else guarded { onyx.setTool(tool, width) }
     }
 
     override fun pause() {
-        paused = true
-        if (fellBack) touch.pause() else guarded { onyx.pause() }
+        val fallen =
+            synchronized(lock) {
+                paused = true
+                fellBack
+            }
+        if (fallen) touch.pause() else guarded { onyx.pause() }
     }
 
     override fun resume() {
-        paused = false
-        if (fellBack) touch.resume() else guarded { onyx.resume() }
+        val fallen =
+            synchronized(lock) {
+                paused = false
+                fellBack
+            }
+        if (fallen) touch.resume() else guarded { onyx.resume() }
     }
 
     override fun stop() {
-        watch?.cancel()
-        if (fellBack) touch.stop() else guarded { onyx.stop() }
+        val fallen =
+            synchronized(lock) {
+                stopped = true
+                watch?.cancel()
+                watch = null
+                fellBack
+            }
+        restoreWindowCallback()
+        if (fallen) touch.stop() else guarded { onyx.stop() }
     }
 
     @Suppress("TooGenericExceptionCaught")
@@ -172,13 +246,21 @@ private class OnyxWithFallback(
         }
     }
 
-    @Synchronized
-    @Suppress("TooGenericExceptionCaught")
+    /** Atomic transition; callable from any thread. The touch start runs on the main executor. */
     private fun switchToTouch(reason: String) {
-        if (fellBack) return
-        fellBack = true
-        watch?.cancel()
+        synchronized(lock) {
+            if (fellBack || stopped) return
+            fellBack = true
+            watch?.cancel()
+            watch = null
+        }
         InputSelector.disable(reason, diagnostics)
+        mainExecutor.execute { startTouchOnMain() }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun startTouchOnMain() {
+        synchronized(lock) { if (stopped) return }
         try {
             onyx.stop()
         } catch (_: RuntimeException) {
@@ -186,9 +268,18 @@ private class OnyxWithFallback(
         } catch (_: LinkageError) {
             // already broken; touch takes over
         }
-        val v = view ?: return
-        touch.start(v, limit, exclude)
-        touch.setTool(tool, width)
-        if (paused) touch.pause()
+        val (v, lim, exc) = synchronized(lock) { Triple(view, limit, exclude) }
+        if (v == null) return
+        val (t, w, p) = synchronized(lock) { Triple(tool, width, paused) }
+        touch.start(v, lim, exc)
+        touch.setTool(t, w)
+        if (p) touch.pause()
     }
 }
+
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
