@@ -93,6 +93,27 @@ class PublicCheckTest(unittest.TestCase):
         result = self.run_check()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_public_check_allows_squash_author_display_name(self):
+        commit(
+            self.repo,
+            "a.txt",
+            "x\n",
+            author=("Szymon Richert", "1+szymonrychu@users.noreply.github.com"),
+            committer=("GitHub", "noreply@github.com"),
+        )
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_public_check_flags_display_name_without_github_committer(self):
+        commit(
+            self.repo,
+            "a.txt",
+            "x\n",
+            author=("Szymon Richert", "1+szymonrychu@users.noreply.github.com"),
+        )
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+
     def test_public_check_allows_bot_author(self):
         commit(
             self.repo,

@@ -85,7 +85,11 @@ bad="$(git log --all --format='%H|%an|%ae|%cn|%ce' | awk -F'|' '
     if (email ~ /@users\.noreply\.github\.com$/ && name == "szymonrychu") return 1
     return 0
   }
-  !ok($2, $3) { print $1 " author"; next }
+  # GitHub squash merges take the author name from the GitHub profile display name.
+  function squash_author(name, email, cname, cemail) {
+    return name == "Szymon Richert" && email ~ /@users\.noreply\.github\.com$/ && cname == "GitHub" && cemail == "noreply@github.com"
+  }
+  !ok($2, $3) && !squash_author($2, $3, $4, $5) { print $1 " author"; next }
   !(ok($4, $5) || ($4 == "GitHub" && $5 == "noreply@github.com")) { print $1 " committer" }
 ')"
 if [ -n "$bad" ]; then
