@@ -8,6 +8,6 @@ import org.junit.Test
 class ApiSmokeTest {
     @Test
     fun describesCanvas() {
-        assertEquals("100x200@300", ApiInfo.describe(Canvas(w = 100, h = 200, dpi = 300)))
+        assertEquals("100x200@300.0", ApiInfo.describe(Canvas(w = 100, h = 200, dpi = 300f)))
     }
 }

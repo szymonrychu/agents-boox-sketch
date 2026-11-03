@@ -49,3 +49,11 @@ Lessons that outlive a session. Newest first.
 
 - Kotlin is allowed as an explicit exception to the project's Python-only rule, because the
   Onyx pen SDK is an Android library. Why: low-latency e-ink drawing needs the vendor SDK.
+
+## 2026-11-03 Two stroke formats
+
+- `:core:model` is `@Serializable` and is the local notebook format (Task 17 `NotebookStore`): it
+  keeps stroke ids and pen tilt. The upload format is the separate `StrokesCodec` (Task 8):
+  `strokes.json` version 1, no ids, no tilt, a per-page file. Why: the connector contract is
+  fixed and minimal, while local autosave must round-trip everything needed to edit and undo.
+- `UndoStack` keeps history per page index and ignores entries made stale by page deletion.
