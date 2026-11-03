@@ -39,7 +39,18 @@ if ls .github/workflows/*.y*ml >/dev/null 2>&1; then actionlint; fi
 
 [tasks.test]
 description = "JVM unit and Robolectric tests"
-run = "./gradlew test"
+run = """
+./gradlew test
+python3 -m unittest discover scripts/tests
+"""
+
+[tasks."test:scripts"]
+description = "Unit tests of the helper scripts"
+run = "python3 -m unittest discover scripts/tests -v"
+
+[tasks.public-check]
+description = "Scan the full history for secrets, private hosts and personal identity"
+run = "bash scripts/public_check.sh"
 
 [tasks."test:screenshot"]
 description = "Verify Roborazzi screenshots"
