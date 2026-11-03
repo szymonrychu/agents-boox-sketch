@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
@@ -36,6 +37,7 @@ abstract class SplitLayoutShots {
     protected fun shoot(
         state: SplitState,
         name: String,
+        insets: WindowInsets = WindowInsets(0, 0, 0, 0),
     ) {
         compose.setContent {
             EinkTheme {
@@ -43,6 +45,7 @@ abstract class SplitLayoutShots {
                     board = { Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Board") } },
                     panel = { PanelShell() },
                     state = state,
+                    insets = insets,
                 )
             }
         }
@@ -56,6 +59,10 @@ class SplitLayoutLandscapeShots : SplitLayoutShots() {
     fun landscape() = shoot(SplitState(0.6f, false), "split_landscape")
 
     @Test
+    fun landscape_insets() =
+        shoot(SplitState(0.6f, false), "split_landscape_insets", WindowInsets(left = 40, top = 24, right = 0, bottom = 48))
+
+    @Test
     fun landscape_collapsed() = shoot(SplitState(0.6f, true), "split_landscape_collapsed")
 }
 
@@ -63,4 +70,8 @@ class SplitLayoutLandscapeShots : SplitLayoutShots() {
 class SplitLayoutPortraitShots : SplitLayoutShots() {
     @Test
     fun portrait() = shoot(SplitState(0.6f, false), "split_portrait")
+
+    @Test
+    fun portrait_insets() =
+        shoot(SplitState(0.6f, false), "split_portrait_insets", WindowInsets(left = 0, top = 24, right = 0, bottom = 48))
 }

@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
@@ -15,6 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Page
@@ -39,6 +43,21 @@ class BoardGeometry(
             width = stroke.width / scale,
             points = stroke.points.map { it.copy(x = (it.x - dx) / scale, y = (it.y - dy) / scale) },
         )
+}
+
+/** Limit rect of [v] in view pixels, excluding system bar and display cutout areas of its window. */
+internal fun safeLimit(v: View): Rect {
+    val loc = IntArray(2)
+    v.getLocationInWindow(loc)
+    val root = v.rootView
+    val i =
+        ViewCompat.getRootWindowInsets(v)?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            ?: Insets.NONE
+    return BoardLimit.compute(
+        Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height),
+        Rect(0, 0, root.width, root.height),
+        Rect(i.left, i.top, i.right, i.bottom),
+    )
 }
 
 /** Surface the page strokes are drawn on, behind the toolbar. */
@@ -116,7 +135,7 @@ fun BoardView(
         factory = { ctx ->
             BoardSurfaceView(ctx).also { v ->
                 surface = v
-                v.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ -> input.start(v, Rect(0, 0, r - l, b - t), emptyList()) }
+                v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> input.start(v, safeLimit(v), emptyList()) }
             }
         },
         update = { it.show(canvas, page.strokes) },

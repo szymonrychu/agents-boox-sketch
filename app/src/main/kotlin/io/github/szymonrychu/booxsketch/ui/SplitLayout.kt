@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -102,7 +105,8 @@ internal const val EXPAND_LABEL = "Show panel"
  * [SplitState.MIN_RATIO]..[SplitState.MAX_RATIO]; its button collapses the panel so the board
  * takes the whole screen but the strip. The board slot never changes composition position, so the
  * board view survives a collapse. The board view limits itself to its own bounds, which exclude
- * the divider and the panel.
+ * the divider and the panel. The whole layout is inset by [insets] (system bars and display cutout
+ * by default), so nothing interactive is drawn under them.
  */
 @Composable
 fun SplitLayout(
@@ -111,8 +115,9 @@ fun SplitLayout(
     state: SplitState,
     onStateChange: (SplitState) -> Unit = {},
     modifier: Modifier = Modifier,
+    insets: WindowInsets = WindowInsets.safeDrawing,
 ) {
-    BoxWithConstraints(modifier.fillMaxSize().background(Color.White)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(Color.White).windowInsetsPadding(insets)) {
         val landscape = maxWidth > maxHeight
         val total = with(LocalDensity.current) { (if (landscape) maxWidth else maxHeight).toPx() }
         val view = LocalView.current

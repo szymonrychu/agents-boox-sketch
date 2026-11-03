@@ -1,15 +1,18 @@
 package io.github.szymonrychu.booxsketch.ui
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
@@ -127,5 +130,27 @@ class SplitLayoutTest {
         compose.setContent { PanelShell() }
         compose.onNodeWithTag(TAG_CONVERSATION).performClick()
         assertThat(opened).isEqualTo(1)
+    }
+
+    @Test
+    fun content_stays_inside_system_bar_and_cutout_insets() {
+        compose.setContent {
+            SplitLayout(
+                board = { Text("Board", Modifier.testTag("board")) },
+                panel = { PanelShell() },
+                state = SplitState(0.6f, false),
+                insets = WindowInsets(left = 40, top = 24, right = 10, bottom = 48),
+            )
+        }
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val board = compose.onNodeWithTag("board").fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag(TAG_PANEL).fetchSemanticsNode().boundsInRoot
+        val divider = compose.onNodeWithTag(TAG_DIVIDER).fetchSemanticsNode().boundsInRoot
+        listOf(board, panel, divider).forEach {
+            assertThat(it.left).isAtLeast(40f)
+            assertThat(it.top).isAtLeast(24f)
+            assertThat(it.right).isAtMost(root.right - 10f)
+            assertThat(it.bottom).isAtMost(root.bottom - 48f)
+        }
     }
 }
