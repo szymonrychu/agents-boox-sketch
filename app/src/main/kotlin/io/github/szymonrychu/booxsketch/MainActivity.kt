@@ -28,10 +28,15 @@ class MainActivity : ComponentActivity() {
             EinkTheme {
                 val loaded by container.tokenStore.loaded.collectAsState()
                 val token by container.tokenStore.tokenFlow.collectAsState()
+                val knownOrigin by container.tokenStore.originFlow.collectAsState()
                 // Blank until the stored token is known, so a paired start never flashes the gate.
                 if (!loaded) return@EinkTheme
                 if (token == null) {
-                    PairingScreen(pair = container.pairingRepository::pair, onPaired = {})
+                    PairingScreen(
+                        pair = container.pairingRepository::pair,
+                        onPaired = container.onRepaired,
+                        initialOrigin = knownOrigin.orEmpty(),
+                    )
                     return@EinkTheme
                 }
                 // Read off the main thread; the default shows until the saved split arrives.

@@ -125,4 +125,30 @@ class PairingRepositoryTest {
             assertThat(requests.single()).isEqualTo("https://connector.example/app/v1/sketch/config")
             assertThat(auth.single()).isEqualTo("Bear" + "er test-token")
         }
+
+    @Test
+    fun storage_failure_gives_storage_failed_not_a_throw() =
+        runBlocking {
+            val failing =
+                object : KeyProvider {
+                    override fun key(): javax.crypto.SecretKey = throw java.security.GeneralSecurityException("keystore gone")
+                }
+            val s = TokenStore(PreferenceDataStoreFactory.create(scope = scope) { File(tmp.root, "f.preferences_pb") }, failing)
+            val r = repo(s) { answer(it, 200, configJson) }
+            val result = r.pair("https://connector.example", "test-token")
+            assertThat(result).isInstanceOf(PairResult.StorageFailed::class.java)
+            assertThat(pairingErrorText(result)).isNotNull()
+            assertThat(s.token()).isNull()
+        }
+
+    @Test
+    fun reject_token_delegates_to_store() =
+        runBlocking {
+            val s = store()
+            val r = repo(s) { answer(it, 200, configJson) }
+            r.pair("https://connector.example", "test-token")
+            r.rejectToken()
+            assertThat(s.token()).isNull()
+            assertThat(s.originFlow.value).isEqualTo("https://connector.example")
+        }
 }

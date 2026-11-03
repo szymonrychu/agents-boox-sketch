@@ -6,10 +6,14 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.util.Base64
@@ -51,57 +55,83 @@ class AndroidKeystoreKeyProvider : KeyProvider {
 /**
  * The paired origin (plain) and device token (AES-GCM ciphertext and IV) in DataStore. [token] is
  * non-suspend because OkHttp threads call it: it serves a decrypted in-memory cache that [load],
- * [save] and [clear] keep current.
+ * [save], [rejectToken] and [clear] keep current. A null [tokenFlow] value means pairing is needed.
+ * Keystore crypto runs on [io], never on the caller's (possibly Main) thread.
  */
 class TokenStore(
     private val dataStore: DataStore<Preferences>,
     private val keyProvider: KeyProvider,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val log: (String) -> Unit = {},
 ) {
     private val cache = MutableStateFlow<String?>(null)
+    private val originCache = MutableStateFlow<String?>(null)
     private val _loaded = MutableStateFlow(false)
 
     /** True once [load] has finished (or a save or clear made the state known). */
     val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
 
-    /** The cached token; null while unpaired. Thread-safe. */
+    /** The cached token; null while unpaired or after [rejectToken]. Thread-safe. */
     val tokenFlow: StateFlow<String?> = cache.asStateFlow()
 
-    /** Reads and decrypts the stored token into the cache. An unreadable one (lost key) counts as unpaired. */
-    @Suppress("SwallowedException") // an unreadable token means unpaired
+    /** The stored origin, kept after [rejectToken] so the pairing screen can prefill it. */
+    val originFlow: StateFlow<String?> = originCache.asStateFlow()
+
+    /**
+     * Reads and decrypts the stored token into the cache. An unreadable one (lost key, corrupt
+     * file) counts as unpaired: the bad entry is cleared and the cause logged, never thrown.
+     */
     suspend fun load() {
-        val prefs = dataStore.data.first()
-        val sealed = prefs[CIPHERTEXT]
-        val iv = prefs[IV]
-        val token =
-            if (sealed == null || iv == null) {
-                null
-            } else {
-                try {
-                    decrypt(Base64.getDecoder().decode(sealed), Base64.getDecoder().decode(iv))
-                } catch (e: GeneralSecurityException) {
-                    clear()
-                    return
-                } catch (e: IllegalArgumentException) {
-                    clear()
-                    return
+        try {
+            val prefs = dataStore.data.first()
+            val sealed = prefs[CIPHERTEXT]
+            val iv = prefs[IV]
+            originCache.value = prefs[ORIGIN]
+            cache.value =
+                if (sealed == null || iv == null) {
+                    null
+                } else {
+                    withContext(io) {
+                        decrypt(Base64.getDecoder().decode(sealed), Base64.getDecoder().decode(iv))
+                    }
                 }
-            }
-        cache.value = token
+        } catch (e: GeneralSecurityException) {
+            discardUnreadable(e)
+        } catch (e: IllegalArgumentException) {
+            discardUnreadable(e)
+        } catch (e: IOException) {
+            discardUnreadable(e)
+        }
         _loaded.value = true
+    }
+
+    private suspend fun discardUnreadable(e: Exception) {
+        log("stored token unreadable, treating as unpaired: $e")
+        cache.value = null
+        originCache.value = null
+        try {
+            dataStore.edit { it.clear() }
+        } catch (second: IOException) {
+            log("could not clear the unreadable token store: $second")
+        }
     }
 
     suspend fun save(
         origin: String,
         token: String,
     ) {
-        val cipher = Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, keyProvider.key()) }
-        val sealed = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
+        val (sealed, iv) =
+            withContext(io) {
+                val cipher = Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, keyProvider.key()) }
+                cipher.doFinal(token.toByteArray(Charsets.UTF_8)) to cipher.iv
+            }
         dataStore.edit {
             it[ORIGIN] = origin
             it[CIPHERTEXT] = Base64.getEncoder().encodeToString(sealed)
-            it[IV] = Base64.getEncoder().encodeToString(cipher.iv)
+            it[IV] = Base64.getEncoder().encodeToString(iv)
         }
         cache.value = token
+        originCache.value = origin
         _loaded.value = true
     }
 
@@ -109,9 +139,20 @@ class TokenStore(
 
     fun token(): String? = cache.value
 
+    /** The server refused the token at runtime: drop it, keep the origin, flip to needs-pairing. */
+    suspend fun rejectToken() {
+        dataStore.edit {
+            it.remove(CIPHERTEXT)
+            it.remove(IV)
+        }
+        cache.value = null
+        _loaded.value = true
+    }
+
     suspend fun clear() {
         dataStore.edit { it.clear() }
         cache.value = null
+        originCache.value = null
         _loaded.value = true
     }
 

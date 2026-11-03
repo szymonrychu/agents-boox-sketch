@@ -2,7 +2,9 @@ package io.github.szymonrychu.booxsketch
 
 import android.app.Application
 import android.util.Log
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.emptyPreferences
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.board.BoardViewModel
 import io.github.szymonrychu.booxsketch.board.NotebookStore
@@ -39,12 +41,15 @@ class AppContainer(
     private val probe: () -> ProbeResult = OnyxProbe::available,
     private val onyxFactory: () -> StrokeInput = { OnyxStrokeInput(app) },
     private val keyProvider: KeyProvider = AndroidKeystoreKeyProvider(),
+    private val httpFactory: () -> OkHttpClient = { OkHttpClient() },
+    /** Runs after a successful (re)pairing; Task 21 wires it to the outbox runner's resume. */
+    val onRepaired: () -> Unit = {},
 ) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val database: AppDatabase by lazy { AppDatabase.open(app) }
     val notebookStore: NotebookStore by lazy { NotebookStore(File(dir, "notebook.json")) }
-    val okHttpClient: OkHttpClient by lazy { OkHttpClient() }
+    val okHttpClient: OkHttpClient by lazy { httpFactory() }
 
     /** Own IO scope, so DataStore file reads and writes never touch the main thread. */
     val splitStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -54,22 +59,27 @@ class AppContainer(
 
     val tokenStore: TokenStore by lazy {
         TokenStore(
-            PreferenceDataStoreFactory.create(scope = splitStoreScope) {
-                File(dir, "datastore/token.preferences_pb")
-            },
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+                scope = splitStoreScope,
+            ) { File(dir, "datastore/token.preferences_pb") },
             keyProvider,
+            log = { Log.w(TAG, it) },
         )
     }
     val pairingRepository: PairingRepository by lazy {
         PairingRepository(tokenStore, { origin, token -> ConnectorClient(origin, token, okHttpClient) })
     }
 
-    /** Clears the token, every Room table and the notebook. Called by Unpair. */
+    /**
+     * Clears every Room table and the notebook, then the token last, so a crash midway cannot
+     * leave data behind under a signed-out state. Called by Unpair.
+     */
     suspend fun unpair() {
         withContext(Dispatchers.IO) {
-            tokenStore.clear()
             database.clearAllTables()
             notebookStore.delete()
+            tokenStore.clear()
         }
         boardViewModel.reset()
     }

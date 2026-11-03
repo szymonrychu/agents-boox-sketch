@@ -36,6 +36,7 @@ fun pairingErrorText(result: PairResult): String? =
         is PairResult.Ok -> null
         PairResult.InvalidOrigin -> "Enter an https:// origin without a path, such as https://connector.example"
         PairResult.TokenRejected -> "The server rejected this token"
+        is PairResult.StorageFailed -> "Cannot store the token on this device: ${result.message}"
         is PairResult.Unreachable -> "Cannot reach the server: ${result.message}"
     }
 
@@ -44,8 +45,9 @@ fun pairingErrorText(result: PairResult): String? =
 fun PairingScreen(
     pair: suspend (origin: String, token: String) -> PairResult,
     onPaired: () -> Unit,
+    initialOrigin: String = "",
 ) {
-    var origin by remember { mutableStateOf("") }
+    var origin by remember { mutableStateOf(initialOrigin) }
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -61,10 +63,13 @@ fun PairingScreen(
             busy = true
             error = null
             scope.launch {
-                val result = pair(origin, token)
-                busy = false
-                error = pairingErrorText(result)
-                if (result is PairResult.Ok) onPaired()
+                try {
+                    val result = pair(origin, token)
+                    error = pairingErrorText(result)
+                    if (result is PairResult.Ok) onPaired()
+                } finally {
+                    busy = false
+                }
             }
         },
     )
@@ -127,8 +132,11 @@ fun PairingSettings(
             onClick = {
                 busy = true
                 scope.launch {
-                    onUnpair()
-                    busy = false
+                    try {
+                        onUnpair()
+                    } finally {
+                        busy = false
+                    }
                 }
             },
             enabled = !busy,

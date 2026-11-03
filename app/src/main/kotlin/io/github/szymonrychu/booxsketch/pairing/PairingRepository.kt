@@ -4,8 +4,10 @@ import io.github.szymonrychu.booxsketch.BuildConfig
 import io.github.szymonrychu.booxsketch.api.ApiError
 import io.github.szymonrychu.booxsketch.api.ConfigDto
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import java.io.IOException
 import java.net.URI
 import java.net.URISyntaxException
+import java.security.GeneralSecurityException
 
 sealed interface PairResult {
     data class Ok(
@@ -15,6 +17,10 @@ sealed interface PairResult {
     data object InvalidOrigin : PairResult
 
     data object TokenRejected : PairResult
+
+    data class StorageFailed(
+        val message: String,
+    ) : PairResult
 
     data class Unreachable(
         val message: String,
@@ -37,16 +43,26 @@ class PairingRepository(
         token: String,
     ): PairResult {
         val normalized = normalizeOrigin(origin) ?: return PairResult.InvalidOrigin
+        val config =
+            try {
+                clientFactory(normalized) { token }.config()
+            } catch (e: ApiError.Unauthorized) {
+                return PairResult.TokenRejected
+            } catch (e: ApiError) {
+                return PairResult.Unreachable(e.message ?: e.javaClass.simpleName)
+            }
         return try {
-            val config = clientFactory(normalized) { token }.config()
             store.save(normalized, token)
             PairResult.Ok(config)
-        } catch (e: ApiError.Unauthorized) {
-            PairResult.TokenRejected
-        } catch (e: ApiError) {
-            PairResult.Unreachable(e.message ?: e.javaClass.simpleName)
+        } catch (e: GeneralSecurityException) {
+            PairResult.StorageFailed(e.message ?: e.javaClass.simpleName)
+        } catch (e: IOException) {
+            PairResult.StorageFailed(e.message ?: e.javaClass.simpleName)
         }
     }
+
+    /** A request was refused with 401 while paired: drop the token and show the pairing screen again. */
+    suspend fun rejectToken() = store.rejectToken()
 
     /** `scheme://host[:port]` without a trailing slash, or null when the origin is not acceptable. */
     @Suppress("SwallowedException") // unparsable means invalid

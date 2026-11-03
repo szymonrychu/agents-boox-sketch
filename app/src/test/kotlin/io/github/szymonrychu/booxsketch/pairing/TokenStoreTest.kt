@@ -1,8 +1,10 @@
 package io.github.szymonrychu.booxsketch.pairing
 
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,5 +86,70 @@ class TokenStoreTest {
             store.clear()
             assertThat(store.token()).isNull()
             assertThat(store.origin()).isNull()
+        }
+
+    @Test
+    fun reject_token_keeps_origin_and_flips_to_needs_pairing() =
+        runBlocking {
+            val ds = dataStore()
+            val store = TokenStore(ds, keys)
+            store.save("https://connector.example", "test-token")
+            assertThat(store.tokenFlow.value).isEqualTo("test-token")
+            store.rejectToken()
+            assertThat(store.tokenFlow.value).isNull()
+            assertThat(store.token()).isNull()
+            assertThat(store.originFlow.value).isEqualTo("https://connector.example")
+            assertThat(store.origin()).isEqualTo("https://connector.example")
+            assertThat(store.loaded.value).isTrue()
+            val fresh = TokenStore(ds, keys)
+            fresh.load()
+            assertThat(fresh.token()).isNull()
+            assertThat(fresh.originFlow.value).isEqualTo("https://connector.example")
+        }
+
+    @Test
+    fun load_with_undecryptable_ciphertext_is_unpaired_and_clears_entry() =
+        runBlocking {
+            val ds = dataStore()
+            TokenStore(ds, keys).save("https://connector.example", "test-token")
+            val logs = mutableListOf<String>()
+            val lostKey = TokenStore(ds, FakeKeyProvider(), log = { logs += it })
+            lostKey.load()
+            assertThat(lostKey.token()).isNull()
+            assertThat(lostKey.loaded.value).isTrue()
+            assertThat(logs).hasSize(1)
+            assertThat(ds.data.first()[TokenStore.CIPHERTEXT]).isNull()
+        }
+
+    @Test
+    fun load_with_corrupt_file_is_unpaired() =
+        runBlocking {
+            val file = File(tmp.root, "bad.preferences_pb")
+            file.writeBytes(ByteArray(64) { 0x7f })
+            val logs = mutableListOf<String>()
+            val ds =
+                PreferenceDataStoreFactory.create(
+                    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+                    scope = scope,
+                ) { file }
+            val store = TokenStore(ds, keys, log = { logs += it })
+            store.load()
+            assertThat(store.token()).isNull()
+            assertThat(store.loaded.value).isTrue()
+            store.save("https://connector.example", "test-token")
+            assertThat(store.token()).isEqualTo("test-token")
+        }
+
+    @Test
+    fun load_with_corrupt_file_and_no_handler_does_not_throw() =
+        runBlocking {
+            val file = File(tmp.root, "bad2.preferences_pb")
+            file.writeBytes(ByteArray(64) { 0x7f })
+            val logs = mutableListOf<String>()
+            val store = TokenStore(dataStore(file), keys, log = { logs += it })
+            store.load()
+            assertThat(store.token()).isNull()
+            assertThat(store.loaded.value).isTrue()
+            assertThat(logs).isNotEmpty()
         }
 }
