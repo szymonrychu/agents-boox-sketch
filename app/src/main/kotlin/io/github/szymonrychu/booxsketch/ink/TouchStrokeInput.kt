@@ -9,13 +9,18 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import java.util.UUID
 
 /**
  * Plain Android touch input. Only the stylus (and its eraser end) draws; a finger is ignored
  * unless [fingerEnabled] says otherwise. Historical points of batched MOVE events are kept, and
- * AXIS_TILT is stored as [Point.tiltX].
+ * AXIS_TILT is stored as [Point.tiltX]. Touch has no vendor ink, so the stroke being drawn is
+ * published on [inProgress] at every down and move for the board to draw live; it is committed
+ * on lift.
  */
 class TouchStrokeInput(
     private val fingerEnabled: () -> Boolean = { false },
@@ -23,6 +28,8 @@ class TouchStrokeInput(
 ) : StrokeInput {
     private val channel = Channel<StrokeEvent>(Channel.UNLIMITED)
     override val events: Flow<StrokeEvent> = channel.receiveAsFlow()
+    private val live = MutableStateFlow<Stroke?>(null)
+    override val inProgress: StateFlow<Stroke?> = live.asStateFlow()
 
     private var tool = Tool.BALLPOINT
     private var width = DEFAULT_WIDTH
@@ -59,7 +66,7 @@ class TouchStrokeInput(
 
     override fun pause() {
         paused = true
-        current = null
+        drop()
     }
 
     override fun resume() {
@@ -70,7 +77,12 @@ class TouchStrokeInput(
     override fun stop() {
         view?.setOnTouchListener(null)
         view = null
+        drop()
+    }
+
+    private fun drop() {
         current = null
+        live.value = null
     }
 
     private fun accepts(ev: MotionEvent): Boolean =
@@ -93,10 +105,12 @@ class TouchStrokeInput(
                 erasing = eraserMode || ev.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
                 current = if (erasing) null else mutableListOf()
                 collect(ev, includeHistory = false)
+                publish()
             }
 
             MotionEvent.ACTION_MOVE -> {
                 collect(ev, includeHistory = true)
+                publish()
             }
 
             MotionEvent.ACTION_UP -> {
@@ -105,7 +119,7 @@ class TouchStrokeInput(
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                current = null
+                drop()
             }
 
             else -> {
@@ -151,14 +165,19 @@ class TouchStrokeInput(
         current?.add(Point(x, y, pressure, (time - ev.downTime).coerceAtLeast(0L), tilt.takeIf { it != 0f }))
     }
 
+    private fun publish() {
+        live.value = current?.takeIf { it.isNotEmpty() }?.let { Stroke(LIVE_ID, tool, width, it.toList()) }
+    }
+
     private fun commit() {
-        val pts = current ?: return
-        current = null
-        if (pts.isNotEmpty()) channel.trySend(StrokeEvent.Committed(Stroke(newId(), tool, width, pts.toList())))
+        val pts = current
+        drop()
+        if (!pts.isNullOrEmpty()) channel.trySend(StrokeEvent.Committed(Stroke(newId(), tool, width, pts.toList())))
     }
 
     private companion object {
         const val DEFAULT_WIDTH = 4f
         const val MIN_ERASE_RADIUS = 8f
+        const val LIVE_ID = "in-progress"
     }
 }

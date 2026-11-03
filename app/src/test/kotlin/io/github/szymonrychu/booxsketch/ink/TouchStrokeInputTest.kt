@@ -115,4 +115,41 @@ class TouchStrokeInputTest {
         view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 100L, coords(5f, 6f)))
         assertThat(next(j)).isEqualTo(StrokeEvent.Erase(5f, 6f, 8f))
     }
+
+    @Test
+    fun stroke_in_progress_is_visible_before_lift() {
+        val i = input()
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        assertThat(i.inProgress.value).isNull()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, stylus, 100L, coords(10f, 10f)))
+        assertThat(
+            i.inProgress.value
+                ?.points
+                ?.map { it.x },
+        ).containsExactly(10f)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_MOVE, stylus, 110L, coords(20f, 20f)))
+        val live = i.inProgress.value!!
+        assertThat(live.points.map { it.x }).containsExactly(10f, 20f).inOrder()
+        assertThat(live.tool).isEqualTo(Tool.MARKER)
+        assertThat(live.width).isEqualTo(6f)
+        assertThat(next(i)).isNull()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_UP, stylus, 120L, coords(30f, 30f)))
+        assertThat(i.inProgress.value).isNull()
+        assertThat(next(i)).isInstanceOf(StrokeEvent.Committed::class.java)
+    }
+
+    @Test
+    fun cancel_pause_and_eraser_show_no_stroke_in_progress() {
+        val i = input()
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, stylus, 100L, coords(10f, 10f)))
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, stylus, 110L, coords(10f, 10f)))
+        assertThat(i.inProgress.value).isNull()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, stylus, 120L, coords(10f, 10f)))
+        i.pause()
+        assertThat(i.inProgress.value).isNull()
+        i.resume()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_ERASER, 130L, coords(10f, 10f)))
+        assertThat(i.inProgress.value).isNull()
+    }
 }

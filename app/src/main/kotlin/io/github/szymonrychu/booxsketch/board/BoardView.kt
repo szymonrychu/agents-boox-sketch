@@ -30,6 +30,7 @@ import io.github.szymonrychu.booxsketch.onyx.FullRefreshDebouncer
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.StrokeRenderer
 import kotlin.math.min
+import android.graphics.Canvas as AndroidCanvas
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
 
 /** Maps between view pixels and page-canvas pixels: the page is fitted and centred in the view. */
@@ -102,7 +103,9 @@ class InputGate(
 /**
  * Surface the page strokes are drawn on. Every redraw runs inside [refresher] (the input's
  * refresh, which lifts the raw-drawing screen freeze), and a load, page switch or clear also
- * schedules a debounced GC full refresh.
+ * schedules a debounced GC full refresh. [showLive] draws the stroke in progress of an input
+ * without vendor ink (touch) on top of the page while the pen moves, in the e-ink handwriting
+ * update mode; no animation, one frame per input event.
  */
 class BoardSurfaceView(
     context: Context,
@@ -113,6 +116,11 @@ class BoardSurfaceView(
     private var page: PageCanvas = PageCanvas(1, 1, 1f)
     private var shownIndex: Int? = null
     private var ready = false
+    private var live: Stroke? = null
+    private var handwriting = false
+
+    /** Where frames are drawn; tests swap it because a Robolectric surface has no canvas. */
+    internal var canvasSource: (SurfaceHolder) -> AndroidCanvas? = { it.lockCanvas() }
 
     /** True between surfaceCreated and surfaceDestroyed; raw drawing may only be open then. */
     val surfaceReady: Boolean get() = ready
@@ -148,17 +156,33 @@ class BoardSurfaceView(
         if (full) fullRefresh.request()
     }
 
+    /**
+     * Shows [stroke] (view pixels) over the page right away. Null only forgets it: the stroke is
+     * committed into the page next, and that redraw replaces it without a blank frame; a
+     * cancelled stroke disappears with the next redraw.
+     */
+    fun showLive(stroke: Stroke?) {
+        live = stroke
+        if (stroke == null) return
+        if (!handwriting) {
+            handwriting = true
+            Epd.handwritingMode(this)
+        }
+        redraw()
+    }
+
     private fun redraw() {
         if (!ready) return
         refresher { draw() }
     }
 
     private fun draw() {
-        val canvas = holder.lockCanvas() ?: return
+        val canvas = canvasSource(holder) ?: return
         try {
             canvas.drawColor(Color.WHITE)
             val g = geometry()
             renderer.draw(canvas, strokes, g.scale, g.dx, g.dy)
+            live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }
@@ -234,6 +258,7 @@ fun BoardView(
         onRelease = { input.stop() },
     )
     LaunchedEffect(exclude) { surface[0]?.let { startOn(it) } }
+    LaunchedEffect(input) { input.inProgress.collect { surface[0]?.showLive(it) } }
     LaunchedEffect(input) {
         input.events.collect { ev ->
             val g = surface[0]?.geometry() ?: return@collect

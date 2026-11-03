@@ -10,12 +10,16 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.Window
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
@@ -30,7 +34,21 @@ fun interface OnyxDiagnostics {
     fun record(reason: String)
 }
 
-/** Implemented by the wrapper returned for the Onyx path so tests can inject a stylus down. */
+/** The pen input path in use, as the Diagnostics screen names it. */
+enum class InputPath(
+    val label: String,
+) {
+    ONYX_RAW("Onyx raw"),
+    TOUCH_FALLBACK("Touch fallback"),
+}
+
+/** The selected [path] (null before the first selection) and why touch was chosen, if it was. */
+data class InputStatus(
+    val path: InputPath?,
+    val fallbackReason: String?,
+)
+
+/** Implemented by the wrapper returned for the Onyx path so tests can inject a stylus down where raw input is expected. */
 interface StylusDownObserver {
     fun onStylusDown()
 }
@@ -48,19 +66,52 @@ class InputSelector(
     private val touchFactory: () -> StrokeInput,
     private val mainExecutor: Executor = Executor { Handler(Looper.getMainLooper()).post(it) },
 ) {
+    private val _status = MutableStateFlow(InputStatus(null, null))
+
+    /** What the last [select] picked, updated when the Onyx path falls back at runtime. */
+    val status: StateFlow<InputStatus> = _status.asStateFlow()
+
+    private var onyxInput: OnyxWithFallback? = null
+
+    /** True while the selected Onyx path is active with raw drawing open and enabled. */
+    fun rawEnabled(): Boolean = onyxInput?.rawEnabled == true
+
     @Suppress("TooGenericExceptionCaught")
     fun select(): StrokeInput {
-        if (settings.forceTouch || onyxDisabled || !probe().available) return touchFactory()
+        onyxInput = null
+        touchReason()?.let { return touch(it) }
         return try {
-            OnyxWithFallback(onyxFactory(), touchFactory(), diagnostics, scope, mainExecutor)
+            OnyxWithFallback(onyxFactory(), touchFactory(), recording(), scope, mainExecutor).also {
+                onyxInput = it
+                _status.value = InputStatus(InputPath.ONYX_RAW, null)
+            }
         } catch (e: RuntimeException) {
-            disable(e.describe(), diagnostics)
-            touchFactory()
+            disable(e.describe(), recording())
+            touch(e.describe())
         } catch (e: LinkageError) {
-            disable(e.describe(), diagnostics)
-            touchFactory()
+            disable(e.describe(), recording())
+            touch(e.describe())
         }
     }
+
+    private fun touchReason(): String? {
+        if (settings.forceTouch) return "Force touch input is on"
+        if (onyxDisabled) return disabledReason ?: "Onyx input disabled"
+        val probed = probe()
+        return if (probed.available) null else "Onyx probe: ${probed.reason}"
+    }
+
+    private fun touch(reason: String): StrokeInput {
+        _status.value = InputStatus(InputPath.TOUCH_FALLBACK, reason)
+        return touchFactory()
+    }
+
+    /** [diagnostics] plus this selector's status, so a runtime fallback shows up on both. */
+    private fun recording() =
+        OnyxDiagnostics { reason ->
+            _status.value = InputStatus(InputPath.TOUCH_FALLBACK, reason)
+            diagnostics.record(reason)
+        }
 
     companion object {
         const val RAW_CALLBACK_TIMEOUT_MS = 300L
@@ -68,16 +119,21 @@ class InputSelector(
         @Volatile
         private var onyxDisabled = false
 
+        @Volatile
+        private var disabledReason: String? = null
+
         internal fun disable(
             reason: String,
             diagnostics: OnyxDiagnostics,
         ) {
+            disabledReason = reason
             onyxDisabled = true
             diagnostics.record(reason)
         }
 
         internal fun resetForTest() {
             onyxDisabled = false
+            disabledReason = null
         }
 
         internal fun Throwable.describe(): String = "Onyx input disabled: ${this::class.java.simpleName}: $message"
@@ -88,8 +144,14 @@ class InputSelector(
  * Onyx input guarded by a runtime fallback: any exception, or a first stylus down that gets no
  * raw callback within [InputSelector.RAW_CALLBACK_TIMEOUT_MS], switches to touch for the process.
  * The stylus down is seen by a wrapped Activity window callback (it runs before any view, so it
- * works in raw mode too) and by a view touch listener; the first one wins. All view work of the
- * switch runs on [mainExecutor]; the state is guarded by [lock].
+ * works in raw mode too) and by a view touch listener; the first one wins. Only a stylus down that
+ * can get a raw callback arms the watch: inside the limit rect, outside every exclude rect, while
+ * raw drawing is on ([RawActivitySource.rawActive]). A pen tap on the toolbar, an overlay, or
+ * during a hold must not abandon the raw path (that lost live ink in v0.3.2). An armed watch is
+ * cancelled when raw drawing goes off before it fires (hold, pause, refresh, a re-open for new
+ * rects) and checks [RawActivitySource.rawActive] again when it fires; the next stylus down on
+ * the board arms it again. All view work of the switch runs on [mainExecutor]; the state is
+ * guarded by [lock].
  */
 private class OnyxWithFallback(
     private val onyx: StrokeInput,
@@ -100,6 +162,13 @@ private class OnyxWithFallback(
 ) : StrokeInput,
     StylusDownObserver {
     override val events: Flow<StrokeEvent> = merge(onyx.events, touch.events)
+
+    /** Only touch has a stroke in progress to draw; raw ink is drawn by the vendor SDK. */
+    override val inProgress: StateFlow<Stroke?> = touch.inProgress
+
+    /** Raw drawing is on: no fallback, and the Onyx input reports it open and enabled. */
+    val rawEnabled: Boolean
+        get() = !synchronized(lock) { fellBack || stopped } && (onyx as? RawActivitySource)?.rawActive == true
 
     private val lock = Any()
     private var view: View? = null
@@ -126,8 +195,7 @@ private class OnyxWithFallback(
     private fun confirm() =
         synchronized(lock) {
             confirmed = true
-            watch?.cancel()
-            watch = null
+            disarm()
         }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -138,6 +206,8 @@ private class OnyxWithFallback(
     ) {
         val fallen =
             synchronized(lock) {
+                // New rects re-open raw drawing: a stylus down before that can get no callback.
+                if (limit != this.limit || exclude != this.exclude) disarm()
                 stopped = false
                 this.view = view
                 this.limit = limit
@@ -146,7 +216,7 @@ private class OnyxWithFallback(
             }
         if (fallen) return touch.start(view, limit, exclude)
         view.setOnTouchListener { _, ev ->
-            if (isStylusDown(ev)) onStylusDown()
+            if (isStylusDown(ev)) onStylusDownInView(ev.x, ev.y)
             false
         }
         installWindowCallback(view.context)
@@ -164,7 +234,7 @@ private class OnyxWithFallback(
         val wrapper =
             object : Window.Callback by original {
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-                    if (isStylusDown(event)) onStylusDown()
+                    if (isStylusDown(event)) onStylusDownInWindow(event.x, event.y)
                     return original.dispatchTouchEvent(event)
                 }
             }
@@ -181,17 +251,50 @@ private class OnyxWithFallback(
         if (win != null && win.callback === wrapper) win.callback = original
     }
 
-    private fun inactive() = fellBack || stopped || confirmed
+    private val inactive: Boolean get() = fellBack || stopped || confirmed
+
+    private fun onStylusDownInWindow(
+        x: Float,
+        y: Float,
+    ) {
+        val v = synchronized(lock) { view } ?: return
+        val loc = IntArray(2).also { v.getLocationInWindow(it) }
+        onStylusDownInView(x - loc[0], y - loc[1])
+    }
+
+    /** [x], [y] in the pixels of the started view, the space of [limit] and [exclude]. */
+    private fun onStylusDownInView(
+        x: Float,
+        y: Float,
+    ) {
+        val px = x.toInt()
+        val py = y.toInt()
+        val inRaw = synchronized(lock) { limit.contains(px, py) && exclude.none { it.contains(px, py) } }
+        if (inRaw) onStylusDown()
+    }
+
+    private val rawOff: Boolean get() = (onyx as? RawActivitySource)?.rawActive == false
 
     override fun onStylusDown() {
+        if (rawOff) return
         synchronized(lock) {
-            if (inactive() || watch != null) return
+            if (inactive || watch != null) return
             watch =
                 scope.launch {
                     delay(InputSelector.RAW_CALLBACK_TIMEOUT_MS)
-                    switchToTouch("Onyx input disabled: no raw pen callback within ${InputSelector.RAW_CALLBACK_TIMEOUT_MS} ms")
+                    if (rawOff) {
+                        synchronized(lock) { watch = null }
+                    } else {
+                        switchToTouch("Onyx input disabled: no raw pen callback within ${InputSelector.RAW_CALLBACK_TIMEOUT_MS} ms")
+                    }
                 }
         }
+    }
+
+    /** Cancels an armed watch; call under [lock]. */
+    private fun disarm() {
+        watch?.cancel()
+        watch = null
     }
 
     override fun setTool(
@@ -211,6 +314,7 @@ private class OnyxWithFallback(
         val fallen =
             synchronized(lock) {
                 paused = true
+                disarm()
                 fellBack
             }
         if (fallen) touch.pause() else guarded { onyx.pause() }
@@ -229,8 +333,7 @@ private class OnyxWithFallback(
         val fallen =
             synchronized(lock) {
                 stopped = true
-                watch?.cancel()
-                watch = null
+                disarm()
                 fellBack
             }
         restoreWindowCallback()
@@ -240,7 +343,12 @@ private class OnyxWithFallback(
     override val freezesUi: Boolean get() = onyx.freezesUi
 
     override fun holdUi() {
-        if (!synchronized(lock) { fellBack }) guarded { onyx.holdUi() }
+        val fallen =
+            synchronized(lock) {
+                disarm()
+                fellBack
+            }
+        if (!fallen) guarded { onyx.holdUi() }
     }
 
     override fun releaseUi() {
@@ -249,7 +357,11 @@ private class OnyxWithFallback(
 
     /** Runs [redraw] inside the active input's refresh; a failing Onyx refresh falls back and still redraws. */
     override fun refresh(redraw: () -> Unit) {
-        val fallen = synchronized(lock) { fellBack }
+        val fallen =
+            synchronized(lock) {
+                disarm()
+                fellBack
+            }
         if (fallen) return touch.refresh(redraw)
         var drawn = false
         guarded {
@@ -277,8 +389,7 @@ private class OnyxWithFallback(
         synchronized(lock) {
             if (fellBack || stopped) return
             fellBack = true
-            watch?.cancel()
-            watch = null
+            disarm()
         }
         InputSelector.disable(reason, diagnostics)
         mainExecutor.execute { startTouchOnMain() }
