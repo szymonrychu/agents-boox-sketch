@@ -22,6 +22,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -51,7 +54,9 @@ private class FreezingInput : StrokeInput {
 
     override fun resume() = Unit
 
-    override fun stop() = Unit
+    override fun stop() {
+        log += "stop"
+    }
 
     override fun holdUi() {
         log += "hold"
@@ -120,6 +125,21 @@ class UiRefreshWiringTest {
         compose.runOnIdle { vm.onStroke(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))) }
         compose.waitForIdle()
         assertThat(input.log).hasSize(4)
+    }
+
+    @Test
+    fun leaving_the_board_stops_the_input_before_the_refresher_releases_its_holds() {
+        val input = FreezingInput()
+        val vm = vm()
+        var shown by mutableStateOf(true)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { if (shown) BoardScreen(vm, input) }
+        assertThat(input.log).containsExactly("hold")
+        compose.runOnIdle { shown = false }
+        compose.mainClock.advanceTimeByFrame()
+        assertThat(input.log.indexOf("stop")).isAtLeast(0)
+        val releasesAfterDispose = input.log.filterIndexed { i, e -> e == "release" && i < input.log.indexOf("stop") }
+        assertThat(releasesAfterDispose).isEmpty()
     }
 
     @Test

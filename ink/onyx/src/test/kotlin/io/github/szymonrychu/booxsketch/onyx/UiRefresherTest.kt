@@ -38,7 +38,14 @@ class UiRefresherTest {
     private val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
     private val view = View(ctx)
     private val log = mutableListOf<String>()
-    private val input = OnyxStrokeInput(ctx, rawDrawing = { _, _ -> TogglingRawDrawing(log) }, maxPressure = { 4096f })
+    private val input =
+        OnyxStrokeInput(
+            ctx,
+            rawDrawing = { _, _ -> TogglingRawDrawing(log) },
+            maxPressure = { 4096f },
+            afterNextDraw = { _, r -> draws.addLast(r) },
+            fullRefresh = { log += "full" },
+        )
 
     private val draws = ArrayDeque<Runnable>()
     private val delayed = mutableListOf<Pair<Long, Runnable>>()
@@ -160,5 +167,32 @@ class UiRefresherTest {
         r.uiChanged()
         assertThat(log).isEmpty()
         assertThat(draws).isEmpty()
+    }
+
+    @Test
+    fun a_surface_recreate_with_a_ready_refresher_enables_raw_drawing_only_after_the_next_draw() {
+        ready()
+        input.stop()
+        log.clear()
+        startBoard()
+        assertThat(log).doesNotContain("raw:on")
+        drawFrame()
+        assertThat(log.takeLast(2)).containsExactly("full", "raw:on").inOrder()
+    }
+
+    @Test
+    fun after_next_draw_listener_is_removed_even_when_its_observer_was_merged_into_the_window() {
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val v = View(activity)
+        var runs = 0
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        v.afterNextDraw(main) { runs++ }
+        activity.setContentView(v)
+        val observer = v.viewTreeObserver
+        observer.dispatchOnPreDraw()
+        observer.dispatchOnPreDraw()
+        observer.dispatchOnPreDraw()
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        assertThat(runs).isEqualTo(1)
     }
 }

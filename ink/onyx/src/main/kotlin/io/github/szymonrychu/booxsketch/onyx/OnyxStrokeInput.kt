@@ -2,6 +2,8 @@ package io.github.szymonrychu.booxsketch.onyx
 
 import android.content.Context
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import com.onyx.android.sdk.data.note.TouchPoint
 import com.onyx.android.sdk.pen.RawInputCallback
@@ -24,7 +26,8 @@ import java.util.UUID
  *
  * One raw drawing helper exists per host view, as in the vendor demo: a repeated [start] on the
  * same view (every layout pass) only updates the limit and exclude rects, a different view closes
- * the old helper first, and [stop] closes it. Pressure is normalised to 0..1 by [maxPressure],
+ * the old helper first, and [stop] closes it. A new helper is enabled only after the next frame
+ * has drawn, followed by a full refresh. Pressure is normalised to 0..1 by [maxPressure],
  * the device maximum, so Onyx and touch strokes share one scale.
  */
 class OnyxStrokeInput(
@@ -32,6 +35,8 @@ class OnyxStrokeInput(
     private val newId: () -> String = { UUID.randomUUID().toString() },
     private val rawDrawing: (View, RawInputCallback) -> RawDrawing = TouchHelperRawDrawing::create,
     private val maxPressure: () -> Float = Epd::maxTouchPressure,
+    private val afterNextDraw: (View, Runnable) -> Unit = { v, r -> v.afterNextDraw(Handler(Looper.getMainLooper()), r) },
+    private val fullRefresh: () -> Unit = Epd::fullRefresh,
 ) : StrokeInput,
     RawActivitySource {
     private val channel = Channel<StrokeEvent>(Channel.UNLIMITED)

@@ -56,8 +56,17 @@ class OnyxRawSessionTest {
     private val view = View(ctx)
     private val log = mutableListOf<String>()
     private var created = 0
+    private val draws = ArrayDeque<Runnable>()
     private val input =
-        OnyxStrokeInput(ctx, rawDrawing = { _, _ -> FakeRawDrawing(log, ++created) }, maxPressure = { 4096f })
+        OnyxStrokeInput(
+            ctx,
+            rawDrawing = { _, _ -> FakeRawDrawing(log, ++created) },
+            maxPressure = { 4096f },
+            afterNextDraw = { _, r -> draws.addLast(r) },
+            fullRefresh = { log += "full" },
+        )
+
+    private fun drawFrame() = draws.removeFirst().run()
 
     private fun limit() = Rect(0, 0, 100, 100)
 
@@ -73,6 +82,7 @@ class OnyxRawSessionTest {
     @Test
     fun changed_rects_are_applied_and_raw_drawing_is_reopened_as_in_the_vendor_demo() {
         input.start(view, limit(), emptyList())
+        drawFrame()
         log.clear()
         input.start(view, limit(), listOf(Rect(0, 90, 100, 100)))
         input.start(view, limit(), listOf(Rect(0, 90, 100, 100), Rect(0, 0, 10, 10)))
@@ -93,6 +103,7 @@ class OnyxRawSessionTest {
     @Test
     fun changed_rects_while_paused_keep_raw_drawing_disabled() {
         input.start(view, limit(), emptyList())
+        drawFrame()
         input.pause()
         log.clear()
         input.start(view, limit(), listOf(Rect(0, 0, 5, 5)))
@@ -119,9 +130,46 @@ class OnyxRawSessionTest {
         }
 
     @Test
-    fun first_start_sets_rects_brush_opens_and_enables() {
+    fun first_start_sets_rects_brush_opens_and_enables_only_after_the_next_draw_with_a_full_refresh() {
         input.start(view, limit(), emptyList())
-        assertThat(log).containsExactly("limit1:0", "brush1", "open1", "enabled1:true").inOrder()
+        assertThat(log).containsExactly("limit1:0", "brush1", "open1", "enabled1:false").inOrder()
+        log.clear()
+        drawFrame()
+        assertThat(log).containsExactly("full", "enabled1:true", "brush1").inOrder()
+    }
+
+    @Test
+    fun start_after_the_surface_is_recreated_does_not_enable_raw_drawing_before_the_next_draw() {
+        input.start(view, limit(), emptyList())
+        drawFrame()
+        input.stop()
+        log.clear()
+        input.start(view, limit(), emptyList())
+        assertThat(log).doesNotContain("enabled2:true")
+        assertThat(log.last()).isEqualTo("enabled2:false")
+        drawFrame()
+        assertThat(log.takeLast(3)).containsExactly("full", "enabled2:true", "brush2").inOrder()
+    }
+
+    @Test
+    fun a_session_replaced_before_the_draw_still_releases_its_hold_without_a_stale_refresh() {
+        input.start(view, limit(), emptyList())
+        input.stop()
+        input.start(view, limit(), emptyList())
+        log.clear()
+        drawFrame()
+        assertThat(log).isEmpty()
+        drawFrame()
+        assertThat(log).containsExactly("full", "enabled2:true", "brush2").inOrder()
+    }
+
+    @Test
+    fun a_session_stopped_before_the_draw_never_enables() {
+        input.start(view, limit(), emptyList())
+        input.stop()
+        log.clear()
+        drawFrame()
+        assertThat(log).isEmpty()
     }
 
     @Test
@@ -178,6 +226,7 @@ class OnyxRawSessionTest {
     fun refresh_while_paused_or_stopped_only_redraws() {
         input.refresh { log += "redraw-stopped" }
         input.start(view, limit(), emptyList())
+        drawFrame()
         input.pause()
         log.clear()
         input.refresh { log += "redraw-paused" }
