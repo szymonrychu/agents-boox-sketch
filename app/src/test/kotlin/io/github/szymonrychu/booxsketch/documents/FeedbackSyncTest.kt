@@ -36,6 +36,9 @@ class FeedbackSyncTest {
     private val failFor = mutableMapOf<String, Int>()
     private var latest = mapOf<String, Int>()
 
+    /** When set, the page cursor the fake connector answers instead of the last item id (ids can be hidden). */
+    private var cursorOverride: ((after: Int) -> Int)? = null
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -56,11 +59,19 @@ class FeedbackSyncTest {
                         items.joinToString(",") {
                             """{"id":$it,"kind":"note","text":"t$it","where":"w$it","spec_version":1,"created_at":"2026-11-04T00:00:00Z"}"""
                         }
-                    return json(200, """{"items":[$body],"cursor":${items.lastOrNull() ?: after}}""")
+                    return json(
+                        200,
+                        """{"items":[$body],"cursor":${cursorOverride?.invoke(after.toInt()) ?: items.lastOrNull() ?: after}}""",
+                    )
                 }
             }
         server.start()
-        client = ConnectorClient(server.url("/").toString(), { "test-token" }, OkHttpClient())
+        client =
+            ConnectorClient(
+                server.url("/").toString(),
+                { "test-token" },
+                OkHttpClient(),
+            )
     }
 
     @After
@@ -179,5 +190,18 @@ class FeedbackSyncTest {
             conversation("c1", "srv-1")
             latest = mapOf("srv-1" to 1)
             assertThat(FeedbackSync(db, { null }, { latest }).sync()).isEqualTo(0)
+        }
+
+    @Test
+    fun paging_follows_the_server_cursor_past_hidden_ids() =
+        runBlocking<Unit> {
+            conversation("c1", "srv-1")
+            held["srv-1"] = listOf(1, 2, 5)
+            latest = mapOf("srv-1" to 5)
+            pageSize = 2
+            cursorOverride = { after -> if (after == 0) 4 else 5 }
+            assertThat(sync().sync()).isEqualTo(3)
+            assertThat(requests.map { it.substringAfter("after=") }).containsExactly("0", "4").inOrder()
+            assertThat(db.feedbackDao().maxId("srv-1")).isEqualTo(5)
         }
 }
