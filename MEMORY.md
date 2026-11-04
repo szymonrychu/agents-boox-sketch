@@ -2,6 +2,29 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Colour and shape UI on the Onyx path
+
+- Shape tools turn Onyx raw drawing off through `active()` (`!tool.isShape`), not through a
+  `holdUi` count. Why: the off state is derived from the selected tool, so it cannot get stuck the
+  way an unbalanced hold can; holds, pause, refresh and re-opens keep working unchanged and never
+  re-enable raw drawing while a shape tool is selected. `rawActive` is false then, so the #33 watch
+  never arms, and `OnyxWithFallback.setTool` disarms an armed watch when a shape tool is picked.
+- The shape drag comes from `TouchStrokeInput`, started by `OnyxWithFallback` on the same view and
+  rects when a shape tool is selected (it replaces the watch's view listener; going back to a pen
+  stops touch and re-installs the watch listener). Pause and resume always reach touch too, so
+  its paused flag is in step whenever it takes over. Not yet confirmed on the device: that a
+  stylus drag reaches the view's touch listener while raw drawing is open but disabled. If it does
+  not, close the raw helper for shape tools instead (costs a first-frame gate and GC flash on
+  every switch back to a pen).
+- Live colour: the raw brush is `setStrokeStyle` + `setStrokeWidth` + `setStrokeColor` (exists in
+  onyxsdk-pen 1.5.8 `TouchHelper`), re-applied after every enable like style and width. Whether the
+  Kaleido raw layer shows colour or grey is device-only; committed strokes carry the colour either way.
+- `TouchStrokeInput` commits on `events` before it clears `inProgress`, and the board's shape
+  preview is drawn inside `BoardSurfaceView.show`, so a lift swaps preview for shape in one redraw
+  and the cancel that follows the clear finds the preview already gone.
+- PNG export is not wired to Send on main yet, so the device checklist (`docs/device-checklist.md`)
+  marks the export check as pending that flow.
+
 ## 2026-11-03 PR 33 review: watch disarm, native exclude, live touch ink, Diagnostics tab
 
 - An armed 300 ms watch is cancelled by anything that turns raw drawing off before it fires

@@ -17,9 +17,11 @@ interface RawDrawing {
 
     fun setEnabled(enabled: Boolean)
 
+    /** Live ink style, width and ARGB [color]; an enable resets the firmware brush, so callers re-apply it. */
     fun setBrush(
         style: Int,
         width: Float,
+        color: Int,
     )
 
     fun close()
@@ -47,9 +49,11 @@ class TouchHelperRawDrawing(
     override fun setBrush(
         style: Int,
         width: Float,
+        color: Int,
     ) {
         helper.setStrokeStyle(style)
         helper.setStrokeWidth(width)
+        helper.setStrokeColor(color)
     }
 
     override fun close() {

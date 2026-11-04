@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.View
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
@@ -19,8 +20,9 @@ import java.util.UUID
  * Plain Android touch input. Only the stylus (and its eraser end) draws; a finger is ignored
  * unless [fingerEnabled] says otherwise. Historical points of batched MOVE events are kept, and
  * AXIS_TILT is stored as [Point.tiltX]. Touch has no vendor ink, so the stroke being drawn is
- * published on [inProgress] at every down and move for the board to draw live; it is committed
- * on lift.
+ * published on [inProgress] at every down and move for the board to draw live (a shape drag the
+ * same way, with the shape tool); it is committed on lift, before [inProgress] clears, so the
+ * board never shows a frame without either. Both carry the selected colour.
  */
 class TouchStrokeInput(
     private val fingerEnabled: () -> Boolean = { false },
@@ -33,6 +35,7 @@ class TouchStrokeInput(
 
     private var tool = Tool.BALLPOINT
     private var width = DEFAULT_WIDTH
+    private var color = PenColor.BLACK
     private var limit = Rect()
     private var exclude: List<Rect> = emptyList()
     private var paused = false
@@ -67,6 +70,10 @@ class TouchStrokeInput(
     ) {
         this.tool = tool
         this.width = width
+    }
+
+    override fun setColor(color: PenColor) {
+        this.color = color
     }
 
     override fun pause() {
@@ -174,13 +181,13 @@ class TouchStrokeInput(
     }
 
     private fun publish() {
-        live.value = current?.takeIf { it.isNotEmpty() }?.let { Stroke(LIVE_ID, tool, width, it.toList()) }
+        live.value = current?.takeIf { it.isNotEmpty() }?.let { Stroke(LIVE_ID, tool, width, it.toList(), color) }
     }
 
     private fun commit() {
         val pts = current
+        if (!pts.isNullOrEmpty()) channel.trySend(StrokeEvent.Committed(Stroke(newId(), tool, width, pts.toList(), color)))
         drop()
-        if (!pts.isNullOrEmpty()) channel.trySend(StrokeEvent.Committed(Stroke(newId(), tool, width, pts.toList())))
     }
 
     private companion object {

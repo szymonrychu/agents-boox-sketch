@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.board
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +11,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -30,9 +34,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.szymonrychu.booxsketch.ink.UiRefresh
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Tool
 
 internal const val TAG_SEND = "send"
@@ -40,9 +49,16 @@ internal const val TAG_PAGE_LABEL = "page_label"
 internal const val SEND_ALL_LABEL = "Send all pages"
 private const val MIN_WIDTH = 1f
 private const val MAX_WIDTH = 24f
+private val SWATCH_TARGET = 48.dp
+private val SWATCH_DOT = 34.dp
+private val SWATCH_MARK = 12.dp
+private val SWATCH_FRAME = 3.dp
+
+/** Test tag of the swatch for [color]. */
+internal fun colorTag(color: PenColor) = "color_${color.wire}"
 
 /**
- * Tools, width, eraser, undo, redo, clear, page strip, caption and Send. [onSend] gets
+ * Tools (pens, rectangle, arrow), colour swatches, width, eraser, undo, redo, clear, page strip, caption and Send. [onSend] gets
  * `all = false` on tap (changed pages only, D47 B) and `all = true` from the long-press
  * "Send all pages" item; the caption is null when blank. Every toolbar state change is reported to
  * [ui] so it reaches an e-ink panel frozen by raw drawing; width drags report unsettled changes.
@@ -64,11 +80,12 @@ fun BoardToolbar(
 
     Column(modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (t in Tool.entries.filterNot { it.isShape }) {
+            for (t in Tool.entries) {
                 FilterChip(selected = !eraser && tool == t, onClick = ui.act { vm.setTool(t) }, label = { Text(t.wire) })
             }
             FilterChip(selected = eraser, onClick = ui.act { vm.setEraser(!eraser) }, label = { Text("Eraser") })
         }
+        ColorRow(vm, ui)
         EditRow(vm, ui)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = ui.act { vm.selectPage(notebook.current - 1) }, enabled = notebook.current > 0) { Text("Previous") }
@@ -113,6 +130,52 @@ private fun UiRefresh.act(block: () -> Unit): () -> Unit =
         block()
         uiChanged()
     }
+
+/**
+ * One 48 dp swatch per palette colour. The selected one gets a black frame around the dot and a
+ * white centre mark, so it reads on e-ink without relying on the colour (black included).
+ */
+@Composable
+private fun ColorRow(
+    vm: BoardViewModel,
+    ui: UiRefresh,
+) {
+    val color by vm.color.collectAsState()
+    val eraser by vm.eraser.collectAsState()
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (c in PenColor.entries) {
+            val selected = !eraser && c == color
+            Box(
+                Modifier
+                    .size(SWATCH_TARGET)
+                    .testTag(colorTag(c))
+                    .semantics { contentDescription = "Colour ${c.wire}" }
+                    .selectable(selected = selected, role = Role.RadioButton, onClick = ui.act { vm.setColor(c) })
+                    .then(if (selected) Modifier.border(SWATCH_FRAME, Color.Black, RoundedCornerShape(8.dp)) else Modifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(SWATCH_DOT)
+                        .clip(CircleShape)
+                        .background(Color(c.argb))
+                        .border(1.dp, Color.Black, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) {
+                        Box(
+                            Modifier
+                                .size(SWATCH_MARK)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .border(1.dp, Color.Black, CircleShape),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** Width slider (drags report unsettled changes, release a settled one), undo, redo and clear. */
 @Composable

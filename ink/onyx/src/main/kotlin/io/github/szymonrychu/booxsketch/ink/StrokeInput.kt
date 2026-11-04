@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.ink
 
 import android.graphics.Rect
 import android.view.View
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.flow.Flow
@@ -31,10 +32,18 @@ interface StrokeInput {
         exclude: List<Rect>,
     )
 
+    /**
+     * Pen tool and width. A shape tool ([Tool.isShape]) is drawn by dragging: the input then
+     * publishes the drag on [inProgress] (tool set to the shape) and commits it on lift, and a raw
+     * pen input must not draw its own freehand ink meanwhile.
+     */
     fun setTool(
         tool: Tool,
         width: Float,
     )
+
+    /** Pen colour of the ink drawn live and of the strokes committed from now on. */
+    fun setColor(color: PenColor) = Unit
 
     fun pause()
 
@@ -67,8 +76,9 @@ interface StrokeInput {
 
     /**
      * The stroke being drawn, in view pixels, for an input whose ink the app must draw itself
-     * while the pen moves (touch); null between strokes. Raw pen inputs render their own ink and
-     * keep it null.
+     * while the pen moves (touch, and shape drags on any input); null between strokes. Raw pen
+     * inputs render their own freehand ink and keep it null. On lift the stroke is committed on
+     * [events] before this goes back to null.
      */
     val inProgress: StateFlow<Stroke?> get() = NO_STROKE
 

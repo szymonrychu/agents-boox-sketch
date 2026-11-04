@@ -105,7 +105,8 @@ class InputGate(
  * refresh, which lifts the raw-drawing screen freeze), and a load, page switch or clear also
  * schedules a debounced GC full refresh. [showLive] draws the stroke in progress of an input
  * without vendor ink (touch) on top of the page while the pen moves, in the e-ink handwriting
- * update mode; no animation, one frame per input event.
+ * update mode; no animation, one frame per input event. A shape drag's snapped preview is part
+ * of [show], so the commit swaps preview for shape in one frame.
  */
 class BoardSurfaceView(
     context: Context,
@@ -115,6 +116,7 @@ class BoardSurfaceView(
     private var strokes: List<Stroke> = emptyList()
     private var page: PageCanvas = PageCanvas(1, 1, 1f)
     private var shownIndex: Int? = null
+    private var preview: Stroke? = null
     private var ready = false
     private var live: Stroke? = null
     private var handwriting = false
@@ -142,16 +144,22 @@ class BoardSurfaceView(
 
     fun geometry() = BoardGeometry(width, height, page)
 
+    /** Shows [strokes] of page [index] plus the shape [preview] (page-canvas pixels, drawn over the page). */
     fun show(
         page: PageCanvas,
         strokes: List<Stroke>,
         index: Int,
+        preview: Stroke? = null,
     ) {
-        if (page == this.page && strokes == this.strokes && index == shownIndex) return
+        val samePage = page == this.page && strokes == this.strokes && index == shownIndex
+        if (samePage && preview == this.preview) return
         val full = needsFullRefresh(shownIndex, this.strokes, index, strokes)
+        val dragging = preview != null && samePage
         this.page = page
         this.strokes = strokes
         shownIndex = index
+        this.preview = preview
+        if (dragging) handwritingMode()
         redraw()
         if (full) fullRefresh.request()
     }
@@ -164,11 +172,14 @@ class BoardSurfaceView(
     fun showLive(stroke: Stroke?) {
         live = stroke
         if (stroke == null) return
-        if (!handwriting) {
-            handwriting = true
-            Epd.handwritingMode(this)
-        }
+        handwritingMode()
         redraw()
+    }
+
+    private fun handwritingMode() {
+        if (handwriting) return
+        handwriting = true
+        Epd.handwritingMode(this)
     }
 
     private fun redraw() {
@@ -182,6 +193,7 @@ class BoardSurfaceView(
             canvas.drawColor(Color.WHITE)
             val g = geometry()
             renderer.draw(canvas, strokes, g.scale, g.dx, g.dy)
+            preview?.let { renderer.draw(canvas, listOf(it), g.scale, g.dx, g.dy) }
             live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
         } finally {
             holder.unlockCanvasAndPost(canvas)
@@ -219,11 +231,15 @@ class BoardSurfaceView(
 
 /**
  * The drawing board: a [SurfaceView] in an AndroidView showing the current page of [notebook], fed by [input].
- * Stroke and erase events are mapped to page-canvas pixels before reaching the callbacks.
+ * Stroke and erase events are mapped to page-canvas pixels before reaching the callbacks. A stroke
+ * in progress with a shape tool is not drawn as ink: it goes to [onShapeDrag] (page-canvas pixels)
+ * and the board shows [preview], the snapped shape; one that ends without a commit calls
+ * [onShapeCancel].
  * [exclude] are window-coordinate rects (toolbar, overlays) where the pen must not draw; input
  * is (re)started on every layout and exclude change, closed when the surface goes away, and
  * paused while the activity is paused or the window has no focus.
  */
+@Suppress("LongParameterList")
 @Composable
 fun BoardView(
     notebook: Notebook,
@@ -232,10 +248,15 @@ fun BoardView(
     onErase: (x: Float, y: Float, radius: Float) -> Unit,
     modifier: Modifier = Modifier,
     exclude: List<Rect> = emptyList(),
+    preview: Stroke? = null,
+    onShapeDrag: (Stroke) -> Unit = {},
+    onShapeCancel: () -> Unit = {},
 ) {
     val surface = remember { arrayOfNulls<BoardSurfaceView>(1) }
     val strokeCb by rememberUpdatedState(onStroke)
     val eraseCb by rememberUpdatedState(onErase)
+    val shapeDragCb by rememberUpdatedState(onShapeDrag)
+    val shapeCancelCb by rememberUpdatedState(onShapeCancel)
     val excludeNow by rememberUpdatedState(exclude)
     val gate = remember(input) { InputGate(input) }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { gate.setResumed(false) }
@@ -254,11 +275,25 @@ fun BoardView(
                 v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> startOn(v) }
             }
         },
-        update = { it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current) },
+        update = { it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current, preview) },
         onRelease = { input.stop() },
     )
     LaunchedEffect(exclude) { surface[0]?.let { startOn(it) } }
-    LaunchedEffect(input) { input.inProgress.collect { surface[0]?.showLive(it) } }
+    LaunchedEffect(input) {
+        var shaping = false
+        input.inProgress.collect { s ->
+            val v = surface[0]
+            if (s != null && s.tool.isShape) {
+                shaping = true
+                v?.geometry()?.let { shapeDragCb(it.toCanvas(s)) }
+                return@collect
+            }
+            // The input commits before it clears, so after a lift this cancel finds the preview already gone.
+            if (shaping) shapeCancelCb()
+            shaping = false
+            v?.showLive(s)
+        }
+    }
     LaunchedEffect(input) {
         input.events.collect { ev ->
             val g = surface[0]?.geometry() ?: return@collect

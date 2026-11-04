@@ -40,6 +40,7 @@ private class FakeRawDrawing(
     override fun setBrush(
         style: Int,
         width: Float,
+        color: Int,
     ) {
         log += "brush$n"
     }

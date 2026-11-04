@@ -5,8 +5,13 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Tool
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Test
@@ -164,5 +169,43 @@ class TouchStrokeInputTest {
         view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 200L, coords(10f, 10f)))
         i.stop()
         assertThat(i.strokeInProgress).isFalse()
+    }
+
+    @Test
+    fun live_and_committed_strokes_carry_the_selected_colour() {
+        val i = input()
+        i.setColor(PenColor.ORANGE)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 100L, coords(10f, 10f)))
+        assertThat(i.inProgress.value!!.color).isEqualTo(PenColor.ORANGE)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_UP, MotionEvent.TOOL_TYPE_STYLUS, 110L, coords(20f, 20f)))
+        assertThat((next(i) as StrokeEvent.Committed).stroke.color).isEqualTo(PenColor.ORANGE)
+    }
+
+    @Test
+    fun shape_drag_is_published_live_with_the_shape_tool_and_committed_on_lift() {
+        val i = input()
+        i.setTool(Tool.RECTANGLE, 4f)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 100L, coords(10f, 10f)))
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_MOVE, MotionEvent.TOOL_TYPE_STYLUS, 110L, coords(60f, 40f)))
+        val live = i.inProgress.value!!
+        assertThat(live.tool).isEqualTo(Tool.RECTANGLE)
+        assertThat(live.points.last().x).isEqualTo(60f)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_UP, MotionEvent.TOOL_TYPE_STYLUS, 120L, coords(70f, 50f)))
+        assertThat((next(i) as StrokeEvent.Committed).stroke.tool).isEqualTo(Tool.RECTANGLE)
+        assertThat(i.inProgress.value).isNull()
+    }
+
+    @Test
+    fun the_commit_is_sent_before_the_live_stroke_is_cleared() {
+        val i = input()
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        var commits = 0
+        var commitsWhenCleared = -1
+        scope.launch { i.events.collect { commits++ } }
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 100L, coords(10f, 10f)))
+        scope.launch { i.inProgress.collect { if (it == null) commitsWhenCleared = commits } }
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_UP, MotionEvent.TOOL_TYPE_STYLUS, 110L, coords(20f, 20f)))
+        scope.cancel()
+        assertThat(commitsWhenCleared).isEqualTo(1)
     }
 }
