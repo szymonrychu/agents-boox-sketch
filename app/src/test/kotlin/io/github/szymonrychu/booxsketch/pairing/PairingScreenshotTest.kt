@@ -20,12 +20,12 @@ class PairingScreenshotTest {
     private fun shoot(
         name: String,
         origin: String = "",
-        token: String = "",
+        code: String = "",
         error: PairResult? = null,
     ) {
         compose.setContent {
             EinkTheme {
-                PairingContent(origin, token, error?.let(::pairingErrorText), false, {}, {}, {})
+                PairingContent(origin, code, error?.let(::pairingErrorText), false, {}, {}, {})
             }
         }
         compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
@@ -35,13 +35,22 @@ class PairingScreenshotTest {
     fun empty() = shoot("pairing_empty")
 
     @Test
-    fun invalid_origin() = shoot("pairing_invalid_origin", "http://connector.example", "test-token", PairResult.InvalidOrigin)
+    fun partial_code() = shoot("pairing_partial_code", "connector.example", "123")
 
     @Test
-    fun token_rejected() = shoot("pairing_token_rejected", "https://connector.example", "test-token", PairResult.TokenRejected)
+    fun full_code() = shoot("pairing_full_code", "https://connector.example", "123456")
 
     @Test
-    fun unreachable() = shoot("pairing_unreachable", "https://connector.example", "test-token", PairResult.Unreachable("timeout"))
+    fun invalid_origin() = shoot("pairing_invalid_origin", "http://connector.example", "123456", PairResult.InvalidOrigin)
+
+    @Test
+    fun code_rejected() = shoot("pairing_code_rejected", "https://connector.example", "", PairResult.CodeRejected)
+
+    @Test
+    fun rate_limited() = shoot("pairing_rate_limited", "https://connector.example", "", PairResult.RateLimited(30))
+
+    @Test
+    fun unreachable() = shoot("pairing_unreachable", "https://connector.example", "123456", PairResult.Unreachable("timeout"))
 
     @Test
     fun settings() {

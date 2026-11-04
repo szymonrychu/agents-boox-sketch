@@ -109,7 +109,7 @@ class OutboxRunnerCore(
                 fail(item, if (e.code == "idempotency_mismatch") "bug: idempotency_mismatch" else e.message)
             }
 
-            is ApiError.TooLarge, ApiError.Unsupported, ApiError.Purged, is ApiError.NotFound -> {
+            is ApiError.TooLarge, ApiError.Unsupported, ApiError.Purged, ApiError.InvalidCode, is ApiError.NotFound -> {
                 fail(item, e.message)
             }
         }
