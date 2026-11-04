@@ -35,7 +35,7 @@ class ConversationRepository(
     private val onUnauthorized: suspend () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { UUID.randomUUID().toString() },
-    /** Runs after every successful [refresh], with [latestSpecVersions] already updated (spec sync hook). */
+    /** Runs after every successful [refresh], with [latestSpecVersions] and [latestFeedbackIds] already updated (sync hook). */
     private val afterRefresh: suspend () -> Unit = {},
     /** The frozen pages and ink of documents; a conversation that goes away takes its annotations with it. */
     private val annotations: AnnotationStore? = null,
@@ -49,6 +49,11 @@ class ConversationRepository(
     /** Latest spec version per server conversation id, from the last successful [refresh]. */
     @Volatile
     var latestSpecVersions: Map<String, Int> = emptyMap()
+        private set
+
+    /** Latest feedback id per server conversation id, from the last successful [refresh]. */
+    @Volatile
+    var latestFeedbackIds: Map<String, Int> = emptyMap()
         private set
 
     /** Active conversations, most recent first. */
@@ -110,6 +115,7 @@ class ConversationRepository(
         pruned.forEach { annotations?.delete(it) }
         if (_selected.value in pruned) select(null)
         latestSpecVersions = remote.mapNotNull { r -> r.latestSpecVersion?.let { r.id to it } }.toMap()
+        latestFeedbackIds = remote.mapNotNull { r -> r.latestFeedbackId?.let { r.id to it } }.toMap()
         afterRefresh()
         return null
     }
@@ -139,6 +145,7 @@ class ConversationRepository(
             }.onEach { row ->
                 row.serverId?.let {
                     db.specDao().deleteFor(it)
+                    db.feedbackDao().deleteFor(it)
                     db.cursorDao().delete(it)
                 }
                 dao.delete(row.localId)
@@ -170,6 +177,7 @@ class ConversationRepository(
                 outbox.deleteForConversation(localId)
                 row.serverId?.let {
                     db.specDao().deleteFor(it)
+                    db.feedbackDao().deleteFor(it)
                     db.cursorDao().delete(it)
                 }
                 // Thread items go with the row (foreign key ON DELETE CASCADE).

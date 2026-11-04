@@ -22,6 +22,7 @@ import io.github.szymonrychu.booxsketch.documents.DocumentRow
 import io.github.szymonrychu.booxsketch.documents.DocumentViewModel
 import io.github.szymonrychu.booxsketch.documents.DocumentsTab
 import io.github.szymonrychu.booxsketch.documents.DocumentsViewModel
+import io.github.szymonrychu.booxsketch.documents.FeedbackSync
 import io.github.szymonrychu.booxsketch.documents.MarkdownPaginator
 import io.github.szymonrychu.booxsketch.documents.MermaidRenderer
 import io.github.szymonrychu.booxsketch.documents.SourcesViewModel
@@ -198,7 +199,10 @@ class AppContainer(
             app.getSharedPreferences("conversations", Context.MODE_PRIVATE),
             outboxRoot,
             onUnauthorized = pairingRepository::rejectToken,
-            afterRefresh = { specSync.sync() },
+            afterRefresh = {
+                specSync.sync()
+                feedbackSync.sync()
+            },
             annotations = annotationStore,
         )
     }
@@ -236,6 +240,9 @@ class AppContainer(
 
     /** Copies spec versions into Room: after a conversations refresh and while the Documents tab is shown. */
     val specSync: SpecSync by lazy { SpecSync(database, ::connector, { conversations.latestSpecVersions }) }
+
+    /** Copies the translator's feedback into Room, on the same triggers as [specSync]. */
+    val feedbackSync: FeedbackSync by lazy { FeedbackSync(database, ::connector, { conversations.latestFeedbackIds }) }
 
     /** A 401 pauses the queue (never fails items) and drops the token, so the gate shows Pairing. */
     val outboxRunner: OutboxRunner by lazy {

@@ -17,6 +17,7 @@ import io.github.szymonrychu.booxsketch.api.OutboxState
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.ConversationEntity
 import io.github.szymonrychu.booxsketch.data.CursorEntity
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.OutboxEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
 import io.github.szymonrychu.booxsketch.data.ThreadItemEntity
@@ -114,6 +115,7 @@ class ConversationsTest {
             db.threadDao().upsert(ThreadItemEntity("th-$local", local, ThreadKind.SKETCH, "c-$local", null, 1, null, "queued", 0))
             serverId?.let {
                 db.specDao().upsert(SpecEntity(it, 1, "# spec", "2026-11-03T00:00:00Z"))
+                db.feedbackDao().upsert(FeedbackEntity(it, 1, "note", "n", null, null, "2026-11-03T00:00:00Z"))
                 db.cursorDao().set(CursorEntity(it, 7))
             }
             val dir = File(outboxRoot, "c-$local").apply { mkdirs() }
@@ -147,6 +149,7 @@ class ConversationsTest {
             assertThat(db.conversationDao().get("l1")).isNull()
             assertThat(db.threadDao().list("l1")).isEmpty()
             assertThat(db.specDao().latest("srv-1")).isNull()
+            assertThat(db.feedbackDao().all("srv-1")).isEmpty()
             assertThat(db.cursorDao().get("srv-1")).isNull()
             assertThat(db.outboxDao().forConversation("l1")).isEmpty()
             assertThat(dir.exists()).isFalse()
@@ -154,6 +157,7 @@ class ConversationsTest {
             // The other conversation is untouched.
             assertThat(db.threadDao().list("l2")).hasSize(1)
             assertThat(db.specDao().latest("srv-2")).isNotNull()
+            assertThat(db.feedbackDao().all("srv-2")).hasSize(1)
             assertThat(db.outboxDao().forConversation("l2")).hasSize(1)
             assertThat(keptDir.exists()).isTrue()
         }
@@ -223,6 +227,16 @@ class ConversationsTest {
             assertThat(db.specDao().latest("srv-gone")).isNull()
             assertThat(db.cursorDao().get("srv-gone")).isNull()
             assertThat(repo.selected.value).isNull()
+        }
+
+    @Test
+    fun refresh_records_latest_feedback_ids() =
+        runBlocking<Unit> {
+            listBody =
+                """[{"id":"srv-1","title":"t","created_at":"2026-11-03T10:00:00+00:00","latest_spec_version":1,"latest_feedback_id":4},""" +
+                """{"id":"srv-2","title":"t","created_at":"2026-11-03T10:00:00+00:00","latest_spec_version":1}]"""
+            assertThat(repo.refresh()).isNull()
+            assertThat(repo.latestFeedbackIds).containsExactly("srv-1", 4)
         }
 
     @Test

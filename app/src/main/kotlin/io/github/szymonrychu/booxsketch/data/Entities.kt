@@ -77,3 +77,17 @@ data class CursorEntity(
     @PrimaryKey val conversationServerId: String,
     val cursor: Long,
 )
+
+/** One item the translator told the user, kept apart from the spec text. [id] is the connector's id, ascending. */
+@Entity(tableName = "feedback", primaryKeys = ["conversationServerId", "id"])
+data class FeedbackEntity(
+    val conversationServerId: String,
+    val id: Int,
+    /** `question`, `uncertain`, `illegible` or `note`. */
+    val kind: String,
+    val text: String,
+    /** Where on the page the item applies; the connector's `where`. */
+    val whereText: String?,
+    val specVersion: Int?,
+    val createdAt: String,
+)
