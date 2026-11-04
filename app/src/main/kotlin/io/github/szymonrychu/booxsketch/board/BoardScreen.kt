@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -221,6 +222,8 @@ private fun RelayoutOnConfigurationChange(
     // The layout this composition was built for; the listener compares the next configuration against it.
     val current = layoutOf(LocalConfiguration.current)
     var changes by remember { mutableIntStateOf(0) }
+    val latestChrome by rememberUpdatedState(chrome)
+    val latestHasPanel by rememberUpdatedState(hasPanel)
     DisposableEffect(provider, holds, ui) {
         var seen = current
         val listener =
@@ -248,7 +251,7 @@ private fun RelayoutOnConfigurationChange(
             withFrameNanos { }
             val reported =
                 withTimeoutOrNull(ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS) {
-                    snapshotFlow { holds.overlaysReported(chrome, hasPanel) }.first { it }
+                    snapshotFlow { holds.overlaysReported(latestChrome, latestHasPanel) }.first { it }
                 }
             if (reported == null) {
                 // Defence in depth: nothing reported in time, so release with the rects measured before.

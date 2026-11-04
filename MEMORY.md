@@ -538,7 +538,7 @@ Lessons that outlive a session. Newest first.
 
 - 2026-11-04 boox-pairing-code: pairing takes the server origin plus a 6-digit code (supersedes the 2026-11-03 two-field token decision). The app calls the public `POST /pair` (no Authorization header), proves the returned token with `GET /config`, then stores origin and token in the Keystore-backed `TokenStore` as before; nothing is stored on any failure. The code goes through six boxes fed by an on-screen 3x4 keypad (no IME, 72 dp keys, black borders, no ripple), Pair enables at six digits and never auto-submits (a typo would silently burn the server's 5-attempt budget per code); every failed attempt clears the digits and nothing auto-retries. `invalid_code` (400) becomes `CodeRejected` (the server gives one body for unknown, expired, used and locked), 429 becomes `RateLimited(retryAfter)`. A bare host in the origin field gets `https://` (no path, https only; debug still allows http for 127.0.0.1). No default origin is compiled in (public repo rule). `PairedDto.toString` masks the token.
 
-- 2026-11-04 stroke-flicker: a committed pen stroke redraws the board through
+- 2026-11-04 stroke-flicker (superseded by the 2026-11-04 pen ink latency entry: drawCommitted was removed): a committed pen stroke redraws the board through
   `StrokeInput.drawCommitted`, which on Onyx with raw drawing active does NOT toggle raw drawing;
   `BoardSurfaceView.show` uses it only when strokes were appended to the same page, index,
   background and preview. Why: `refresh` disables raw drawing (pen state PAUSE), which drops the
