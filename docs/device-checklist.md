@@ -180,7 +180,36 @@ pause about 1 s (idle sync), then undo and redo, then switch page and back.
 - [ ] Open a sent page in the document view and swipe between pages: charcoal looks as on the
       board and swiping does not stall.
 - [ ] Charcoal pressure range is not flattened: a light stroke and a hard stroke redraw with visibly
-      different grain weight (the redraw divides pressure once; this was inferred from a native
-      string scan, not a decompile).
+      different grain weight (the redraw passes the stored 0..1 pressure with maxTouchPressure 1).
 - [ ] Known gap: PNG exports and the images sent to the connector keep the app's own (smooth)
       look for these pens.
+
+## Redrawn strokes are not squished (device pen settings, e-ink mode reset)
+
+Before the steps: `adb logcat -c`, then keep `adb logcat -s InkDiag` running. Each committed
+stroke logs one `stroke ...` line (raw input box, redrawn ink bounds, view size and screen
+position, the firmware stroke parameters); each SDK pen fallback logs a `fallback #N` warning
+with its exception.
+
+- [ ] Logs and counter: draw one stroke with each pen (ballpoint, fountain, brush, marker,
+      charcoal, charcoal_v2, rectangle, arrow). Every stroke logs a `stroke` line; the
+      charcoals show the firmware `params` (or `none`); fountain and brush use fixed constants.
+      Open the Diagnostics tab: "Pen redraw fallbacks" is 0 and logcat has no `fallback` line. If
+      it is not 0, note the exception of the first `fallback` line.
+- [ ] 500 px stroke box: with the fountain pen draw one straight horizontal line about 500 px
+      long, then a diagonal one. In each `stroke` line the raw box is about 500 px wide and the ink
+      box contains it with a margin on every side (ink width >= raw width, ink height >= raw
+      height); the view size matches the board and its position is plausible.
+- [ ] Shapes per tool: for each pen write the same word, then pause about 1 s (idle sync), undo
+      and redo, and switch page and back. After every step the strokes look like the live ink:
+      same thickness, grey and anti-aliased edges, charcoal grain, and the edges of wide fountain
+      and brush strokes are not cut off. A rectangle and an arrow, dragged and lifted, show grey
+      anti-aliased lines after the lift, not the thin black drag preview.
+- [ ] Before and after a GC refresh: write a line with each pen, photograph it, then trigger a
+      full refresh (switch page and back, or clear and undo). The strokes look the same before and
+      after the GC refresh; a stroke that only looks right after the GC refresh means a frame was
+      still drawn in the handwriting (near-binary) e-ink mode. That mode is set only by touch
+      strokes and shape drags, so a pen tool that is still wrong here is not an e-ink mode
+      problem; look at the SDK pen redraw instead.
+- [ ] Fountain width: at the same selected width, the committed fountain stroke is as wide as the
+      live ink was (not about 3 px fatter).

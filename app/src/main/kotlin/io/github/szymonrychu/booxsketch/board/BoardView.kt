@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Handler
@@ -31,12 +32,15 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.onyx.BrushMapping
 import io.github.szymonrychu.booxsketch.onyx.Epd
 import io.github.szymonrychu.booxsketch.onyx.FullRefreshDebouncer
+import io.github.szymonrychu.booxsketch.onyx.InkDiag
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.StrokeRenderer
 import io.github.szymonrychu.booxsketch.render.devicePenRenderer
 import kotlin.math.min
+import kotlin.math.roundToInt
 import android.graphics.Canvas as AndroidCanvas
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
 import io.github.szymonrychu.booxsketch.render.inkBounds as strokeInkBounds
@@ -90,6 +94,35 @@ internal fun isAppend(
     old: List<Stroke>,
     new: List<Stroke>,
 ): Boolean = new.size > old.size && new.subList(0, old.size) == old
+
+/** "l,t,r,b (w x h)" of [r] in whole pixels, or "none". */
+private fun box(r: RectF?): String =
+    r?.let {
+        "${it.left.roundToInt()},${it.top.roundToInt()},${it.right.roundToInt()},${it.bottom.roundToInt()} " +
+            "(${it.width().roundToInt()}x${it.height().roundToInt()})"
+    } ?: "none"
+
+/**
+ * The [InkDiag] line of one committed stroke: the box of its raw input points ([raw], view
+ * pixels as the input delivered them), the bounds the board redraws it in ([ink], view pixels),
+ * the view size and its position on the screen, and the firmware's stroke parameters of its style.
+ */
+internal fun strokeDiagLine(
+    raw: Stroke,
+    ink: RectF?,
+    viewW: Int,
+    viewH: Int,
+    origin: PointF,
+    params: FloatArray?,
+): String {
+    val rawBox =
+        raw.points.takeIf { it.isNotEmpty() }?.let { pts ->
+            RectF(pts.minOf { it.x }, pts.minOf { it.y }, pts.maxOf { it.x }, pts.maxOf { it.y })
+        }
+    return "stroke ${raw.tool} width ${raw.width} points ${raw.points.size} raw ${box(rawBox)} ink ${box(ink)} " +
+        "view ${viewW}x$viewH at ${origin.x.roundToInt()},${origin.y.roundToInt()} " +
+        "params ${params?.joinToString(",", "[", "]") ?: "none"}"
+}
 
 /** Pauses [input] while the activity is paused or the window lost focus; resumes when both are back. */
 class InputGate(
@@ -186,15 +219,18 @@ internal class TapDetector(
  * [showLive] draws the stroke in progress of an input without vendor ink (touch) on top of the
  * page while the pen moves, in the e-ink handwriting update mode; no animation, one frame per
  * input event. A shape drag's snapped preview is part of [show], so the commit swaps preview for
- * shape in one frame. A finger tap calls [onTap]; it is
+ * shape in one frame. The handwriting mode is near-binary (no grey, anti-aliasing or texture), so
+ * it is reset when the stroke or drag that set it ends, before the frame that shows the result
+ * ([einkMode]). A finger tap calls [onTap]; it is
  * seen in [dispatchTouchEvent], before whichever touch listener the input installed.
  */
 class BoardSurfaceView(
     context: Context,
-    private val renderer: StrokeRenderer = CanvasStrokeRenderer(devicePenRenderer()),
+    renderer: StrokeRenderer? = null,
 ) : SurfaceView(context),
     SurfaceHolder.Callback,
     CommittedInkSurface {
+    private val renderer: StrokeRenderer = renderer ?: CanvasStrokeRenderer(devicePenRenderer(::screenOrigin))
     private var strokes: List<Stroke> = emptyList()
     private var page: PageCanvas = PageCanvas(1, 1, 1f)
     private var shownIndex: Int? = null
@@ -217,6 +253,9 @@ class BoardSurfaceView(
     val surfaceReady: Boolean get() = ready
 
     var refresher: (() -> Unit) -> Unit = { it() }
+
+    /** Switches the e-ink update mode of this view: true is the handwriting mode, false resets it; tests record it. */
+    internal var einkMode: (Boolean) -> Unit = { on -> if (on) Epd.handwritingMode(this) else Epd.resetUpdateMode(this) }
 
     /** True while the input's raw drawing overlay draws the ink; see [StrokeInput.rawLive]. */
     var rawLive: () -> Boolean = { false }
@@ -265,7 +304,7 @@ class BoardSurfaceView(
         this.strokes = strokes
         shownIndex = index
         this.preview = preview
-        if (dragging) handwritingMode()
+        dragMode(dragging)
         redraw()
         if (full) fullRefresh.request()
     }
@@ -314,15 +353,52 @@ class BoardSurfaceView(
      */
     fun showLive(stroke: Stroke?) {
         live = stroke
-        if (stroke == null) return
+        if (stroke == null) return normalMode()
         handwritingMode()
         redraw()
+    }
+
+    /**
+     * The handwriting mode while [dragging]; otherwise the drag or touch stroke has ended and this
+     * frame shows the result in full quality. A touch stroke still in progress (quick writing
+     * commits the previous one under it) keeps the fast mode.
+     */
+    private fun dragMode(dragging: Boolean) {
+        when {
+            dragging -> handwritingMode()
+            live == null -> normalMode()
+        }
     }
 
     private fun handwritingMode() {
         if (handwriting) return
         handwriting = true
-        Epd.handwritingMode(this)
+        einkMode(true)
+    }
+
+    /** Ends the handwriting mode set by a drag or touch stroke; the next frame is drawn in the view's normal mode. */
+    private fun normalMode() {
+        if (!handwriting) return
+        handwriting = false
+        einkMode(false)
+    }
+
+    /**
+     * [raw] (view pixels, as the input delivered it) in page pixels. Its geometry is logged under
+     * [InkDiag] ([strokeDiagLine]) with the firmware's stroke parameters of its style.
+     */
+    fun committed(raw: Stroke): Stroke {
+        val g = geometry()
+        val committed = g.toCanvas(raw)
+        val params = Epd.strokeParameters(BrushMapping.style(raw.tool))
+        InkDiag.info(strokeDiagLine(raw, g.inkBounds(committed), width, height, screenOrigin(), params))
+        return committed
+    }
+
+    /** Where this view's (0, 0) sits on the screen. */
+    internal fun screenOrigin(): PointF {
+        val loc = IntArray(2).also { getLocationOnScreen(it) }
+        return PointF(loc[0].toFloat(), loc[1].toFloat())
     }
 
     private fun redraw() {
@@ -471,9 +547,10 @@ fun BoardView(
     LaunchedEffect(input) {
         input.events.collect { ev ->
             if (ev is StrokeEvent.Cancelled) return@collect shapeCancelCb()
-            val g = surface[0]?.geometry() ?: return@collect
+            val v = surface[0] ?: return@collect
+            val g = v.geometry()
             when (ev) {
-                is StrokeEvent.Committed -> strokeCb(g.toCanvas(ev.stroke))
+                is StrokeEvent.Committed -> strokeCb(v.committed(ev.stroke))
                 is StrokeEvent.Erase -> eraseCb((ev.x - g.dx) / g.scale, (ev.y - g.dy) / g.scale, ev.radius / g.scale)
                 StrokeEvent.Cancelled -> Unit
             }

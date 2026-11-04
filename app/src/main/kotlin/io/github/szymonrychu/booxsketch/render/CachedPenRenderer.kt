@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.render
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.LruCache
@@ -12,18 +13,22 @@ import io.github.szymonrychu.booxsketch.onyx.OnyxPenRenderer
 import io.github.szymonrychu.booxsketch.onyx.PenRenderer
 
 /**
- * How many times its width a stroke of [tool] may paint across: shapes 1x, marker 3x, and the
- * charcoal pens 8x, because their native texture stamps are scaled by the pen tilt (NeoPenConfig
- * tiltScale defaults to 3) on top of charcoal_v2's 1.2x width, so the grain reaches past the line.
+ * How many times its width a stroke of [tool] may paint across: shapes 1x, ballpoint and marker 3x,
+ * fountain and brush 6x, and the charcoal pens 8x. The native fountain and brush pens size each
+ * point from pressure and velocity (and the V2 fountain adds 3 px to the width), so their outline
+ * reaches past the nominal width; the charcoal texture stamps are scaled by the pen tilt
+ * (NeoPenConfig tiltScale defaults to 3) on top of charcoal_v2's 1.2x width.
  */
 fun inkWidthFactor(tool: Tool): Float =
     when (tool) {
         Tool.RECTANGLE, Tool.ARROW -> 1f
+        Tool.FOUNTAIN, Tool.BRUSH -> SDK_PEN_INK_FACTOR
         Tool.CHARCOAL, Tool.CHARCOAL_V2 -> CHARCOAL_INK_FACTOR
-        else -> MARKER_INK_FACTOR
+        Tool.BALLPOINT, Tool.MARKER -> MARKER_INK_FACTOR
     }
 
 private const val MARKER_INK_FACTOR = 3f
+private const val SDK_PEN_INK_FACTOR = 6f
 private const val CHARCOAL_INK_FACTOR = 8f
 private const val AA_PAD = 2f
 
@@ -46,8 +51,13 @@ fun inkBounds(
     return r
 }
 
-/** The device pens behind a bitmap cache, or null off-Onyx; what the board and document views draw with. */
-fun devicePenRenderer(): PenRenderer? = OnyxPenRenderer.onDevice()?.let { CachedPenRenderer(it) }
+/**
+ * The device pens behind a bitmap cache, or null off-Onyx; what the board and document views draw
+ * with. [screenOrigin] is where the drawn canvas's (0, 0) sits on the screen (the charcoal pens'
+ * screen matrix).
+ */
+fun devicePenRenderer(screenOrigin: () -> PointF = ::PointF): PenRenderer? =
+    OnyxPenRenderer.onDevice(screenOrigin)?.let { CachedPenRenderer(it) }
 
 /**
  * Runs the (slow, native) [pen] once per committed stroke and placement and keeps the result as a
