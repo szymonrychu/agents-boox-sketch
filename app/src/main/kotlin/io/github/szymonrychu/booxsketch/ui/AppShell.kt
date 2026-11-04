@@ -47,9 +47,16 @@ interface BoardChrome {
      */
     var autoHideHandler: (() -> Boolean)?
 
+    /** The side panel overlay is shown (hidden by default); [hide] hides it too. */
+    val panelVisible: Boolean
+
     fun show()
 
     fun hide()
+
+    fun showPanel()
+
+    fun hidePanel()
 
     fun onStrokeCommitted()
 }
@@ -93,12 +100,19 @@ private class ShellChrome(
 
     override fun hide() = state.hide()
 
+    override val panelVisible: Boolean get() = state.panelVisible
+
+    override fun showPanel() = state.showPanel()
+
+    override fun hidePanel() = state.hidePanel()
+
     override fun onStrokeCommitted() = state.onStrokeCommitted()
 }
 
 /**
  * Top-level shell: the board tab hosts [board] full screen with the tab bar overlaid (and
- * auto-hidden after strokes); every other tab shows its content below an always visible tab bar.
+ * auto-hidden after strokes, together with the side panel); with a single tab there is no tab bar.
+ * Every other tab shows its content below an always visible tab bar.
  * The board is disposed while another tab is selected.
  */
 @Composable
@@ -137,7 +151,8 @@ fun AppShell(
     Box(modifier.fillMaxSize().background(Color.White)) {
         if (onBoard) {
             board(chrome)
-            if (state.chromeVisible) {
+            // A tab bar with a single tab has nothing to switch to.
+            if (state.chromeVisible && specs.size > 1) {
                 TabBar(
                     tabs = specs,
                     selectedId = selectedId,

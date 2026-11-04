@@ -29,4 +29,14 @@ class ShellStateSaverTest {
             assertThat(state!!.chromeVisible).isFalse()
         }
     }
+
+    @Test
+    fun saver_does_not_keep_panel_visible() {
+        val restoration = StateRestorationTester(compose)
+        var state: ShellState? = null
+        restoration.setContent { state = rememberShellState() }
+        compose.runOnIdle { state!!.showPanel() }
+        restoration.emulateSavedInstanceStateRestore()
+        compose.runOnIdle { assertThat(state!!.panelVisible).isFalse() }
+    }
 }

@@ -207,6 +207,47 @@ abstract class AppShellTestBase {
     }
 
     @Test
+    fun two_tabs_show_tab_bar() {
+        show()
+        compose.onNodeWithTag(TAG_TAB_BAR).assertIsDisplayed()
+    }
+
+    @Test
+    fun single_tab_shows_no_tab_bar() {
+        val single = TabRegistry()
+        single.register(TabSpec(BOARD_TAB_ID, "Drawing", 10) { })
+        compose.setContent {
+            AppShell(
+                tabs = single,
+                board = { c ->
+                    chrome = c
+                    Box(Modifier.fillMaxSize().testTag(TAG_FAKE_BOARD))
+                },
+                state = state,
+                insets = WindowInsets(0, 0, 0, 0),
+            )
+        }
+        compose.onNodeWithTag(TAG_FAKE_BOARD).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_TAB_BAR).assertDoesNotExist()
+        compose.runOnIdle { assertThat(chrome!!.overlays).isEmpty() }
+    }
+
+    @Test
+    fun auto_hide_also_hides_panel() {
+        show()
+        // Only the panel is visible: it alone arms the auto-hide.
+        compose.runOnIdle {
+            chrome!!.hide()
+            chrome!!.showPanel()
+        }
+        compose.mainClock.autoAdvance = false
+        strokeCommitted()
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 1)
+        assertThat(chrome!!.panelVisible).isFalse()
+        assertThat(state.chromeVisible).isFalse()
+    }
+
+    @Test
     fun select_hook_from_content_switches_tab() {
         show()
         compose.runOnIdle { state.select("conversations") }
