@@ -59,7 +59,7 @@ class PngExporter(
         }
     }
 
-    private fun bounds(strokes: List<Stroke>): RectF? {
+    internal fun bounds(strokes: List<Stroke>): RectF? {
         var l = Float.MAX_VALUE
         var t = Float.MAX_VALUE
         var r = -Float.MAX_VALUE

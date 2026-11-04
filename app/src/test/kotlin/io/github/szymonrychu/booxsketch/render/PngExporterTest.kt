@@ -8,6 +8,9 @@ import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.Vec
+import io.github.szymonrychu.booxsketch.model.arrowHead
+import io.github.szymonrychu.booxsketch.model.planExport
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -115,16 +118,16 @@ class PngExporterTest {
     @Test
     fun arrow_head_not_clipped_by_crop() {
         val arrow = stroke(Tool.ARROW, 2f, listOf(100f to 300f, 500f to 300f), PenColor.BLUE)
-        val r = exported(exporter.export(page(arrow), canvas, cfg()))
-        val (w, h, px) = decode(r.png)
-        val ys = (0 until h).filter { y -> (0 until w).any { x -> px[y * w + x] != 0xFFFFFF } }
-        val xs = (0 until w).filter { x -> (0 until h).any { y -> px[y * w + x] != 0xFFFFFF } }
-        // wings run off the shaft line, so the ink spans several rows and stays clear of every edge
-        assertThat(ys.size).isGreaterThan(8)
-        assertThat(ys.first()).isGreaterThan(0)
-        assertThat(ys.last()).isLessThan(h - 1)
-        assertThat(xs.first()).isGreaterThan(0)
-        assertThat(xs.last()).isLessThan(w - 1)
+        val (w1, w2) = arrowHead(Vec(100f, 300f), Vec(500f, 300f), 2f)
+        val half = 2f * 3f / 2f
+        val b = exporter.bounds(listOf(arrow))!!
+        // raw points span y 297..303 only; the bounds must also contain both wing ends
+        assertThat(b.t).isAtMost(minOf(w1.y, w2.y) - half)
+        assertThat(b.b).isAtLeast(maxOf(w1.y, w2.y) + half)
+        assertThat(b.t).isLessThan(297f)
+        assertThat(b.b).isGreaterThan(303f)
+        assertThat(b.l).isAtMost(100f - half)
+        assertThat(b.r).isAtLeast(maxOf(500f, w1.x, w2.x) + half)
     }
 
     @Test
@@ -141,7 +144,12 @@ class PngExporterTest {
                     )
                 }
             }
-        val r = exported(exporter.export(page(*strokes.toTypedArray()), canvas, cfg()))
+        val pg = page(*strokes.toTypedArray())
+        val plan = planExport(exporter.bounds(pg.strokes), canvas, cfg().maxLongEdgePx, cfg().minEdgePx)!!
+        val r = exported(exporter.export(pg, canvas, cfg()))
+        // the shrink loop must not have fired, so the size is the real full-resolution RGB size
+        assertThat(r.w).isEqualTo(plan.outW)
+        assertThat(r.h).isEqualTo(plan.outH)
         assertThat(r.png.size).isLessThan(1_000_000)
     }
 
