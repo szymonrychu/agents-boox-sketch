@@ -82,6 +82,7 @@ class CanvasStrokeRenderer : StrokeRenderer {
             canvas.drawRect(r.l * scale + dx, r.t * scale + dy, r.r * scale + dx, r.b * scale + dy, paint)
             return
         }
+        paint.strokeCap = Paint.Cap.ROUND // arrow shaft and head lines end in round caps
         val tail = Vec(s.points.first().x, s.points.first().y)
         val tip = Vec(s.points.last().x, s.points.last().y)
         val (w1, w2) = arrowHead(tail, tip, s.width)

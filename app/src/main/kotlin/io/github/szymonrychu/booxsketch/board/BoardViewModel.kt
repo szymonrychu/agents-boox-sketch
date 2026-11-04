@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /** Board state: the notebook, pen settings and per-page undo. Autosaves 500 ms after the last change. */
-@Suppress("TooManyFunctions") // one intent method per board action, per the view-model interface
+@Suppress("TooManyFunctions") // one small intent method per board action (tools, colours, pages, undo, send)
 class BoardViewModel(
     private val store: NotebookStore,
     private val scope: CoroutineScope,
