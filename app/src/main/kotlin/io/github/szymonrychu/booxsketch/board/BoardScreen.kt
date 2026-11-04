@@ -114,7 +114,7 @@ internal fun BoardScreenWith(
 ) {
     val notebook by vm.notebook.collectAsState()
     val tool by vm.tool.collectAsState()
-    val width by vm.width.collectAsState()
+    val width by vm.effectiveWidth.collectAsState()
     val eraser by vm.eraser.collectAsState()
     val color by vm.color.collectAsState()
     val preview by vm.preview.collectAsState()

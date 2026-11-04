@@ -41,6 +41,11 @@ class BoardViewModel(
     private val _width = MutableStateFlow(DEFAULT_WIDTH)
     val width: StateFlow<Float> = _width.asStateFlow()
 
+    private val _effectiveWidth = MutableStateFlow(DEFAULT_WIDTH)
+
+    /** The width the input draws with: [SHAPE_WIDTH] while a shape tool is selected, else the slider [width]. */
+    val effectiveWidth: StateFlow<Float> = _effectiveWidth.asStateFlow()
+
     private val _eraser = MutableStateFlow(false)
     val eraser: StateFlow<Boolean> = _eraser.asStateFlow()
 
@@ -66,6 +71,7 @@ class BoardViewModel(
     fun setTool(tool: Tool) {
         _tool.value = tool
         _eraser.value = false
+        updateEffectiveWidth()
     }
 
     fun setColor(color: PenColor) {
@@ -75,6 +81,11 @@ class BoardViewModel(
 
     fun setWidth(width: Float) {
         _width.value = width
+        updateEffectiveWidth()
+    }
+
+    private fun updateEffectiveWidth() {
+        _effectiveWidth.value = if (_tool.value.isShape) SHAPE_WIDTH else _width.value
     }
 
     fun setEraser(on: Boolean) {
@@ -86,7 +97,7 @@ class BoardViewModel(
 
     /** Shape tools: previews the snapped shape for a drag in canvas pixels (same call as the commit). */
     fun onShapeDrag(drag: Stroke) {
-        _preview.value = snapShape(drag, currentStrokes)
+        _preview.value = snapShape(drag.withShapeWidth(), currentStrokes)
     }
 
     fun onShapeCancel() {
@@ -97,9 +108,11 @@ class BoardViewModel(
     fun onStroke(stroke: Stroke) {
         if (!stroke.tool.isShape) return update { undoStack.apply(it, Command.AddStroke(stroke)) }
         _preview.value = null
-        val shape = snapShape(stroke, currentStrokes) ?: return
+        val shape = snapShape(stroke.withShapeWidth(), currentStrokes) ?: return
         update { undoStack.apply(it, Command.AddStroke(shape)) }
     }
+
+    private fun Stroke.withShapeWidth() = if (width == SHAPE_WIDTH) this else copy(width = SHAPE_WIDTH)
 
     /** Erases the strokes of the current page hit by a circle at (x, y), in canvas pixels; undoable. */
     fun onErase(
@@ -183,6 +196,9 @@ class BoardViewModel(
     companion object {
         const val SAVE_DEBOUNCE_MS = 500L
         const val DEFAULT_WIDTH = 4f
+
+        /** The one stroke width of rectangle and arrow, whatever the pen width slider says. */
+        const val SHAPE_WIDTH = 4f
         val DEFAULT_CANVAS = Canvas(1404, 1872, 300f)
     }
 }
