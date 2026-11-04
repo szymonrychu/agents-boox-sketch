@@ -47,4 +47,15 @@ class ColourMarkersTest {
     fun empty_text_has_no_spans() {
         assertThat(splitColourMarkers("")).isEmpty()
     }
+
+    @Test
+    fun adjacent_markers_become_adjacent_spans_without_empty_text() {
+        assertThat(splitColourMarkers("[[red]][[blue]]x[[green]]"))
+            .containsExactly(
+                MarkerSpan("[red]", PenColor.RED),
+                MarkerSpan("[blue]", PenColor.BLUE),
+                MarkerSpan("x", null),
+                MarkerSpan("[green]", PenColor.GREEN),
+            ).inOrder()
+    }
 }
