@@ -11,6 +11,7 @@ import com.onyx.android.sdk.pen.data.TouchPointList
 import io.github.szymonrychu.booxsketch.ink.RawActivitySource
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
@@ -29,6 +30,10 @@ import java.util.UUID
  * the old helper first, and [stop] closes it. A new helper is enabled only after the next frame
  * has drawn, followed by a full refresh. Pressure is normalised to 0..1 by [maxPressure],
  * the device maximum, so Onyx and touch strokes share one scale.
+ *
+ * A shape tool keeps raw drawing off for as long as it is selected (part of [active], not a
+ * nested hold, so it cannot get stuck): the shape drag is drawn by the app from plain touch
+ * events, and raw ink must not draw freehand on top. The selected colour is part of the raw brush.
  */
 class OnyxStrokeInput(
     @Suppress("unused") private val context: Context,
@@ -68,6 +73,9 @@ class OnyxStrokeInput(
     @Volatile
     private var width = DEFAULT_WIDTH
 
+    @Volatile
+    private var color = PenColor.BLACK
+
     private val callback =
         object : RawInputCallback() {
             override fun onBeginRawDrawing(
@@ -90,7 +98,16 @@ class OnyxStrokeInput(
 
             override fun onRawDrawingTouchPointListReceived(list: TouchPointList) {
                 activity()
-                guard { strokeFrom(list.points, tool, width, newId(), pressureMax)?.let { channel.trySend(StrokeEvent.Committed(it)) } }
+                guard {
+                    strokeFrom(
+                        list.points,
+                        tool,
+                        width,
+                        newId(),
+                        pressureMax,
+                        color,
+                    )?.let { channel.trySend(StrokeEvent.Committed(it)) }
+                }
             }
 
             override fun onBeginRawErasing(
@@ -175,8 +192,8 @@ class OnyxStrokeInput(
         d.setEnabled(active())
     }
 
-    /** Raw drawing may be on: not paused, no [holdUi] outstanding and no session awaiting its first draw. */
-    private fun active() = !paused && holds == 0 && gated == null
+    /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool. */
+    private fun active() = !paused && holds == 0 && gated == null && !tool.isShape
 
     override val rawActive: Boolean get() = drawing != null && active()
 
@@ -191,15 +208,26 @@ class OnyxStrokeInput(
     }
 
     private fun applyBrush(d: RawDrawing) {
-        d.setBrush(BrushMapping.style(tool), BrushMapping.width(width))
+        d.setBrush(BrushMapping.style(tool), BrushMapping.width(width), color.argb)
     }
 
     override fun setTool(
         tool: Tool,
         width: Float,
     ) {
+        val wasShape = this.tool.isShape
         this.tool = tool
         this.width = width
+        val d = drawing ?: return
+        when {
+            tool.isShape && !wasShape -> disable(d)
+            !tool.isShape && wasShape && active() -> enable(d)
+            else -> applyBrush(d)
+        }
+    }
+
+    override fun setColor(color: PenColor) {
+        this.color = color
         drawing?.let { applyBrush(it) }
     }
 
@@ -296,6 +324,7 @@ class OnyxStrokeInput(
             width: Float,
             id: String,
             maxPressure: Float = 1f,
+            color: PenColor = PenColor.BLACK,
         ): Stroke? {
             if (points.isEmpty()) return null
             val t0 = points.first().timestamp
@@ -311,7 +340,7 @@ class OnyxStrokeInput(
                         tiltY = if (tilted && it.tiltY != 0) it.tiltY.toFloat() else null,
                     )
                 }
-            return Stroke(id, tool, width, mapped)
+            return Stroke(id, tool, width, mapped, color)
         }
     }
 }

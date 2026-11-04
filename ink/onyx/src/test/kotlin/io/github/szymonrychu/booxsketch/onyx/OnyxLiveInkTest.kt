@@ -35,6 +35,7 @@ private class StateRawDrawing : RawDrawing {
     override fun setBrush(
         style: Int,
         width: Float,
+        color: Int,
     ) = Unit
 
     override fun close() {

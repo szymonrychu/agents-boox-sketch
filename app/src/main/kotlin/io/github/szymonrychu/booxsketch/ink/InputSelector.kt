@@ -10,6 +10,7 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.Window
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
 
@@ -48,6 +50,12 @@ data class InputStatus(
     val fallbackReason: String?,
 )
 
+/** Shape drag events seen per [DragSource] (both copies of one event count), for the Diagnostics screen. */
+data class ShapeDragCounts(
+    val window: Int = 0,
+    val view: Int = 0,
+)
+
 /** Implemented by the wrapper returned for the Onyx path so tests can inject a stylus down where raw input is expected. */
 interface StylusDownObserver {
     fun onStylusDown()
@@ -73,6 +81,11 @@ class InputSelector(
 
     private var onyxInput: OnyxWithFallback? = null
 
+    private val _shapeDrags = MutableStateFlow(ShapeDragCounts())
+
+    /** Shape drag events per source since process start; shows on device whether the board view still gets them. */
+    val shapeDrags: StateFlow<ShapeDragCounts> = _shapeDrags.asStateFlow()
+
     /** True while the selected Onyx path is active with raw drawing open and enabled. */
     fun rawEnabled(): Boolean = onyxInput?.rawEnabled == true
 
@@ -81,7 +94,7 @@ class InputSelector(
         onyxInput = null
         touchReason()?.let { return touch(it) }
         return try {
-            OnyxWithFallback(onyxFactory(), touchFactory(), recording(), scope, mainExecutor).also {
+            OnyxWithFallback(onyxFactory(), counted(touchFactory()), recording(), scope, mainExecutor).also {
                 onyxInput = it
                 _status.value = InputStatus(InputPath.ONYX_RAW, null)
             }
@@ -103,7 +116,19 @@ class InputSelector(
 
     private fun touch(reason: String): StrokeInput {
         _status.value = InputStatus(InputPath.TOUCH_FALLBACK, reason)
-        return touchFactory()
+        return counted(touchFactory())
+    }
+
+    private fun counted(touch: StrokeInput): StrokeInput {
+        (touch as? WindowTouchFeed)?.onShapeEvent = { source ->
+            _shapeDrags.update {
+                when (source) {
+                    DragSource.WINDOW -> it.copy(window = it.window + 1)
+                    DragSource.VIEW -> it.copy(view = it.view + 1)
+                }
+            }
+        }
+        return touch
     }
 
     /** [diagnostics] plus this selector's status, so a runtime fallback shows up on both. */
@@ -152,7 +177,16 @@ class InputSelector(
  * rects) and checks [RawActivitySource.rawActive] again when it fires; the next stylus down on
  * the board arms it again. All view work of the switch runs on [mainExecutor]; the state is
  * guarded by [lock].
+ *
+ * Shape tools: the Onyx input keeps raw drawing off (disabled, not closed) while one is selected,
+ * and the drag comes from [touch], started on the same view and rects (it replaces the watch's
+ * view listener until a pen tool is back). The window callback also feeds every event to [touch]
+ * (as a [WindowTouchFeed], mapped into the view's pixels) before the views see it, because the
+ * firmware may still claim a stylus drag for the open but disabled raw layer, and then the view
+ * listener gets nothing; touch handles each event once, whichever copy comes first. Selecting a
+ * shape tool cancels an armed watch; no hold is taken, so nothing can stay held.
  */
+@Suppress("TooManyFunctions") // every StrokeInput member plus the watch and the switch to touch
 private class OnyxWithFallback(
     private val onyx: StrokeInput,
     private val touch: StrokeInput,
@@ -163,7 +197,7 @@ private class OnyxWithFallback(
     StylusDownObserver {
     override val events: Flow<StrokeEvent> = merge(onyx.events, touch.events)
 
-    /** Only touch has a stroke in progress to draw; raw ink is drawn by the vendor SDK. */
+    /** Only touch (fallback or shape drags) has a stroke in progress to draw; raw ink is drawn by the vendor SDK. */
     override val inProgress: StateFlow<Stroke?> = touch.inProgress
 
     /** Raw drawing is on: no fallback, and the Onyx input reports it open and enabled. */
@@ -176,6 +210,7 @@ private class OnyxWithFallback(
     private var exclude: List<Rect> = emptyList()
     private var tool = Tool.BALLPOINT
     private var width = 4f
+    private var color = PenColor.BLACK
     private var paused = false
     private var fellBack = false
     private var stopped = false
@@ -204,7 +239,7 @@ private class OnyxWithFallback(
         limit: Rect,
         exclude: List<Rect>,
     ) {
-        val fallen =
+        val (fallen, shape) =
             synchronized(lock) {
                 // New rects re-open raw drawing: a stylus down before that can get no callback.
                 if (limit != this.limit || exclude != this.exclude) disarm()
@@ -212,15 +247,21 @@ private class OnyxWithFallback(
                 this.view = view
                 this.limit = limit
                 this.exclude = exclude
-                fellBack
+                fellBack to tool.isShape
             }
         if (fallen) return touch.start(view, limit, exclude)
+        if (shape) touch.start(view, limit, exclude) else watchView(view)
+        installWindowCallback(view.context)
+        guarded { onyx.start(view, limit, exclude) }
+    }
+
+    /** The view listener that arms the watch (the window callback is the other source). */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun watchView(view: View) {
         view.setOnTouchListener { _, ev ->
             if (isStylusDown(ev)) onStylusDownInView(ev.x, ev.y)
             false
         }
-        installWindowCallback(view.context)
-        guarded { onyx.start(view, limit, exclude) }
     }
 
     private fun isStylusDown(ev: MotionEvent) =
@@ -235,6 +276,7 @@ private class OnyxWithFallback(
             object : Window.Callback by original {
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                     if (isStylusDown(event)) onStylusDownInWindow(event.x, event.y)
+                    feedShapeDrag(event)
                     return original.dispatchTouchEvent(event)
                 }
             }
@@ -249,6 +291,20 @@ private class OnyxWithFallback(
     private fun restoreWindowCallback() {
         val (win, wrapper, original) = synchronized(lock) { Triple(window, windowCallback, originalCallback) }
         if (win != null && win.callback === wrapper) win.callback = original
+    }
+
+    /** Hands a window [event] to [touch] in view pixels while a shape tool runs on it. */
+    private fun feedShapeDrag(event: MotionEvent) {
+        val feed = touch as? WindowTouchFeed ?: return
+        val v = synchronized(lock) { view.takeIf { !stopped && !fellBack && tool.isShape } } ?: return
+        val loc = IntArray(2).also { v.getLocationInWindow(it) }
+        val copy = MotionEvent.obtain(event)
+        try {
+            copy.offsetLocation(-loc[0].toFloat(), -loc[1].toFloat())
+            feed.feed(copy, DragSource.WINDOW)
+        } finally {
+            copy.recycle()
+        }
     }
 
     private val inactive: Boolean get() = fellBack || stopped || confirmed
@@ -301,14 +357,44 @@ private class OnyxWithFallback(
         tool: Tool,
         width: Float,
     ) {
+        val wasShape: Boolean
+        val fallen: Boolean
+        val v: View?
+        synchronized(lock) {
+            wasShape = this.tool.isShape
+            this.tool = tool
+            this.width = width
+            // Raw drawing goes off for a shape tool: a watch armed before can get no callback.
+            if (tool.isShape) disarm()
+            fallen = fellBack
+            v = view.takeIf { !stopped }
+        }
+        // Touch needs the tool when it draws: after the fallback, or for a shape drag (the fallback sets it on switch).
+        if (fallen || tool.isShape) touch.setTool(tool, width)
+        if (fallen) return
+        guarded { onyx.setTool(tool, width) }
+        if (v == null || tool.isShape == wasShape) return
+        if (tool.isShape) {
+            val (lim, exc) = synchronized(lock) { limit to exclude }
+            touch.start(v, lim, exc)
+        } else {
+            touch.stop()
+            watchView(v)
+        }
+    }
+
+    override fun setColor(color: PenColor) {
         val fallen =
             synchronized(lock) {
-                this.tool = tool
-                this.width = width
+                this.color = color
                 fellBack
             }
-        if (fallen) touch.setTool(tool, width) else guarded { onyx.setTool(tool, width) }
+        touch.setColor(color)
+        if (!fallen) guarded { onyx.setColor(color) }
     }
+
+    /** Shape drags run on [touch] while the Onyx path is still in use. */
+    private val shapeOnTouch: Boolean get() = synchronized(lock) { !fellBack && tool.isShape }
 
     override fun pause() {
         val fallen =
@@ -317,7 +403,9 @@ private class OnyxWithFallback(
                 disarm()
                 fellBack
             }
-        if (fallen) touch.pause() else guarded { onyx.pause() }
+        // Touch always mirrors the pause, so it is in step whenever it takes over (fallback or shape drag).
+        touch.pause()
+        if (!fallen) guarded { onyx.pause() }
     }
 
     override fun resume() {
@@ -326,7 +414,8 @@ private class OnyxWithFallback(
                 paused = false
                 fellBack
             }
-        if (fallen) touch.resume() else guarded { onyx.resume() }
+        touch.resume()
+        if (!fallen) guarded { onyx.resume() }
     }
 
     override fun stop() {
@@ -337,13 +426,14 @@ private class OnyxWithFallback(
                 fellBack
             }
         restoreWindowCallback()
-        if (fallen) touch.stop() else guarded { onyx.stop() }
+        if (fallen || shapeOnTouch) touch.stop()
+        if (!fallen) guarded { onyx.stop() }
     }
 
     override val freezesUi: Boolean get() = onyx.freezesUi
 
     override val strokeInProgress: Boolean
-        get() = if (synchronized(lock) { fellBack }) touch.strokeInProgress else onyx.strokeInProgress
+        get() = if (synchronized(lock) { fellBack || tool.isShape }) touch.strokeInProgress else onyx.strokeInProgress
 
     override fun holdUi() {
         val fallen =
@@ -413,6 +503,7 @@ private class OnyxWithFallback(
         val (t, w, p) = synchronized(lock) { Triple(tool, width, paused) }
         touch.start(v, lim, exc)
         touch.setTool(t, w)
+        touch.setColor(synchronized(lock) { color })
         if (p) touch.pause()
     }
 }

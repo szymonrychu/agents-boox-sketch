@@ -28,6 +28,7 @@ private class TogglingRawDrawing(
     override fun setBrush(
         style: Int,
         width: Float,
+        color: Int,
     ) = Unit
 
     override fun close() = Unit

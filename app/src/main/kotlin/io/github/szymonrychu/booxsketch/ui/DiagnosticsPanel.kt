@@ -16,23 +16,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputStatus
+import io.github.szymonrychu.booxsketch.ink.ShapeDragCounts
 
 /** The Diagnostics panel tab, fed by the process [selector]. */
 @Composable
 fun DiagnosticsTab(selector: InputSelector) {
     val status by selector.status.collectAsState()
-    DiagnosticsPanel(status, selector::rawEnabled)
+    val shapeDrags by selector.shapeDrags.collectAsState()
+    DiagnosticsPanel(status, selector::rawEnabled, shapeDrags = shapeDrags)
 }
 
 /**
  * Pen input diagnostics a user can read out from the device: the active input path, whether raw
  * drawing is enabled and why touch was chosen. [rawEnabled] is read when shown and on Refresh.
+ * [shapeDrags] counts shape drag events per source: on the device, a zero view count while the
+ * window count grows means the raw layer claims the drag and only the window feed draws shapes.
  */
 @Composable
 fun DiagnosticsPanel(
     status: InputStatus,
     rawEnabled: () -> Boolean,
     modifier: Modifier = Modifier,
+    shapeDrags: ShapeDragCounts = ShapeDragCounts(),
 ) {
     var tick by remember { mutableIntStateOf(0) }
     val raw = remember(tick, status) { rawEnabled() }
@@ -40,6 +45,7 @@ fun DiagnosticsPanel(
         Text("Input path: ${status.path?.label ?: "not selected yet"}", color = Color.Black)
         Text("Raw drawing enabled: ${if (raw) "yes" else "no"}", color = Color.Black)
         Text("Fallback reason: ${status.fallbackReason ?: "none"}", color = Color.Black)
+        Text("Shape drag events: window ${shapeDrags.window}, view ${shapeDrags.view}", color = Color.Black)
         TextButton(onClick = { tick++ }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
             Text("Refresh", color = Color.Black)
         }

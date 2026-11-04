@@ -8,6 +8,23 @@ time; nothing server specific is compiled into the app.
 
 Language: Kotlin. Modules: `:core:model`, `:core:api`, `:ink:onyx`, `:app`.
 
+## Drawing
+
+- Pens: fountain, brush, ballpoint, charcoal, charcoal v2 and marker, with a width slider, an
+  eraser, undo, redo and clear, on several pages.
+- Colours: black, red, blue, green, orange and purple, picked from the swatch row in the toolbar
+  (the selected swatch has a black frame and a white centre mark). Strokes keep their colour in
+  the notebook, in `strokes.json` and in the exported PNG. On the Onyx raw path the live ink is
+  asked for in the selected colour; if the panel draws it grey, the stroke takes its colour once
+  the pen lifts.
+- Shapes: pick "rectangle" or "arrow" and drag with the pen. A preview follows the pen and the
+  shape is committed when you lift. Arrow ends snap to the corners and side midpoints of
+  rectangles on the page within 40 page pixels, so boxes connect like in draw.io. While a shape
+  tool is selected the Onyx raw ink is off, so no freehand line is drawn along the drag.
+- The toolbar dock hides itself shortly after a stroke; tap the indicator to bring it back.
+
+Test on the device with `docs/device-checklist.md`.
+
 ## Build
 
     mise run install      # Android SDK under .android-sdk (once)

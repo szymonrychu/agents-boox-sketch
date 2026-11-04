@@ -82,7 +82,10 @@ internal fun BoardScreenWith(
     val tool by vm.tool.collectAsState()
     val width by vm.width.collectAsState()
     val eraser by vm.eraser.collectAsState()
+    val color by vm.color.collectAsState()
+    val preview by vm.preview.collectAsState()
     LaunchedEffect(tool, width) { input.setTool(tool, width) }
+    LaunchedEffect(color) { input.setColor(color) }
     LaunchedEffect(eraser) { setEraser(eraser) }
     val scope = rememberCoroutineScope()
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { scope.launch { vm.flush() } }
@@ -140,6 +143,9 @@ internal fun BoardScreenWith(
             onErase = vm::onErase,
             modifier = Modifier.fillMaxSize(),
             exclude = exclude,
+            preview = preview,
+            onShapeDrag = vm::onShapeDrag,
+            onShapeCancel = vm::onShapeCancel,
         )
         // The board ignores system bars; the dock keeps clear of them.
         val dockArea = Modifier.fillMaxSize()

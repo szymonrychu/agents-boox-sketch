@@ -108,6 +108,8 @@ dependencies {
     implementation(libs.hiddenapibypass)
 
     testImplementation(libs.junit)
+    // RawInputCallback and TouchPoint, to drive the real OnyxStrokeInput with a fake RawDrawing.
+    testImplementation(libs.onyx.pen)
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
