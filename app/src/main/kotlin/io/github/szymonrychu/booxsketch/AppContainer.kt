@@ -13,6 +13,7 @@ import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
@@ -101,6 +102,7 @@ class AppContainer(
         withContext(Dispatchers.IO) {
             database.clearAllTables()
             outboxRoot.deleteRecursively()
+            annotationStore.deleteAll()
             notebookStore.delete()
             tokenStore.clear()
         }
@@ -172,6 +174,9 @@ class AppContainer(
         return ConnectorClient(origin, tokenStore::token, okHttpClient)
     }
 
+    /** Frozen document pages and ink, per conversation and spec version. */
+    val annotationStore: AnnotationStore by lazy { AnnotationStore(dir) }
+
     val conversations: ConversationRepository by lazy {
         ConversationRepository(
             database,
@@ -180,6 +185,7 @@ class AppContainer(
             outboxRoot,
             onUnauthorized = pairingRepository::rejectToken,
             afterRefresh = { specSync.sync() },
+            annotations = annotationStore,
         )
     }
 

@@ -7,6 +7,7 @@ import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.api.ConversationDto
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.ConversationEntity
+import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +37,8 @@ class ConversationRepository(
     private val newId: () -> String = { UUID.randomUUID().toString() },
     /** Runs after every successful [refresh], with [latestSpecVersions] already updated (spec sync hook). */
     private val afterRefresh: suspend () -> Unit = {},
+    /** The frozen pages and ink of documents; a conversation that goes away takes its annotations with it. */
+    private val annotations: AnnotationStore? = null,
 ) {
     private val dao = db.conversationDao()
     private val _selected = MutableStateFlow(prefs.getString(KEY_SELECTED, null))
@@ -104,6 +107,7 @@ class ConversationRepository(
                 return "Could not load conversations: ${e.message}"
             }
         val pruned = db.withTransaction { merge(remote, knownBefore) }
+        pruned.forEach { annotations?.delete(it) }
         if (_selected.value in pruned) select(null)
         latestSpecVersions = remote.mapNotNull { r -> r.latestSpecVersion?.let { r.id to it } }.toMap()
         afterRefresh()
@@ -174,6 +178,7 @@ class ConversationRepository(
             }
         val root = outboxRoot.canonicalFile
         dirs.map { File(it).canonicalFile }.filter { it.parentFile == root }.forEach { it.deleteRecursively() }
+        annotations?.delete(localId)
         if (_selected.value == localId) select(null)
         return null
     }
