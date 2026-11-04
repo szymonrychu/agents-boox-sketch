@@ -12,11 +12,12 @@ fun hitStrokes(
     strokes
         .filter { s ->
             val reach = radius + s.width / 2f
-            val pts = s.points
-            when {
-                pts.isEmpty() -> false
-                pts.size == 1 -> hypot(pts[0].x - x, pts[0].y - y) <= reach
-                else -> pts.zipWithNext().any { (a, b) -> distToSegment(x, y, a, b) <= reach }
+            shapeOutline(s).any { line ->
+                when {
+                    line.isEmpty() -> false
+                    line.size == 1 -> hypot(line[0].x - x, line[0].y - y) <= reach
+                    else -> line.zipWithNext().any { (a, b) -> distToSegment(x, y, a, b) <= reach }
+                }
             }
         }.map { it.id }
         .toSet()
@@ -24,8 +25,8 @@ fun hitStrokes(
 private fun distToSegment(
     px: Float,
     py: Float,
-    a: Point,
-    b: Point,
+    a: Vec,
+    b: Vec,
 ): Float {
     val dx = b.x - a.x
     val dy = b.y - a.y

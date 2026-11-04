@@ -243,3 +243,13 @@ Lessons that outlive a session. Newest first.
 - Shapes are strokes (C2): RECTANGLE and ARROW are `Tool` entries, so undo, erase, hit test and
   export reuse the stroke paths unchanged. `Stroke.color` defaults to `PenColor.BLACK` so notebooks
   saved before the colour feature load unchanged (C5).
+
+## 2026-11-03 Arrow snapping: 40 px radius, same-anchor rule
+
+- Arrow tail and tip snap to the nearest anchor (8 per rectangle: corners, side midpoints) of any
+  RECTANGLE on the page within `SNAP_RADIUS` = 40 canvas px (C4). Why: an e-ink pen tip is imprecise
+  and a finger-width radius makes connecting boxes forgiving without grabbing distant ones.
+- When both ends would snap to the same anchor, the tip keeps its raw position. Why: otherwise the
+  arrow collapses to a point and is dropped by the `MIN_SHAPE_SIZE` = 8 px check.
+- Hit test works on `shapeOutline`: a rectangle is hit only on its outline, never its interior, so
+  the eraser cannot remove a box by touching a shape drawn inside it.
