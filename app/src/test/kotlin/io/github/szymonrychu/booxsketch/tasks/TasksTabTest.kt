@@ -31,7 +31,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -74,7 +73,7 @@ class TasksTabTest {
     @After
     fun tearDown() {
         scope.cancel()
-        runBlocking { containers.forEach { it.appScope.coroutineContext[Job]?.cancelAndJoin() } }
+        containers.forEach { it.appScope.coroutineContext[Job]?.cancel() }
         relay.shutdown()
     }
 
