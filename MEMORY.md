@@ -413,3 +413,7 @@ Lessons that outlive a session. Newest first.
   returns before any write). Only rows whose serverId was known before the request started, and
   never rows with queued outbox items: a conversation acked while the request was in flight may
   be missing from the answer.
+
+- 2026-11-04: remote Sources fetch `/attachments/{sketchId}` for page 0. Verified on connector main
+  (plugins/sketch/router.py): the page 0 png attachment is inserted with id = the inbound sketch id,
+  so no extra route is needed. Other pages of a purged local sketch are not reachable by sketch id.

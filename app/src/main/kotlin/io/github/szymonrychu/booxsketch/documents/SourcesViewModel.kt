@@ -76,6 +76,7 @@ class SourcesViewModel(
         return files.filter { Regex("sketch\\.\\d+\\.png").matches(it.name) }.sortedBy { it.name.filter(Char::isDigit).toInt() }
     }
 
+    /** The connector stores page 0 of a sketch under the sketch id itself, so `/attachments/{sketchId}` is page 0. */
     @Suppress("SwallowedException") // purged, missing or offline all read as "no longer stored" here
     private suspend fun remotePage0(sketchId: String): File? {
         val cached = File(cacheDir, "$sketchId.png")
