@@ -149,3 +149,18 @@ Open the Documents tab (side panel), pick a document with at least one spec vers
 - [ ] Pause about 1 s after writing: nothing visibly changes (no blink, no flash). Then undo,
       erase, switch page, open the toolbar, leave and return to the app: the right ink each time
       and no stroke vanishes.
+
+## Board overlays (strip, popups, panel)
+
+- [ ] The left strip icons are legible at arm's length; the selected tool has a black frame.
+- [ ] A second tap on the selected tool opens its popup right of the strip with one GC flash and
+      no residue after it closes.
+- [ ] The colour popup shows a grid of the 6 colours.
+- [ ] The width slider is free for the pens and absent for rectangle and arrow.
+- [ ] A finger tap on the board closes the popup, the strip and the panel.
+- [ ] The panel indicator sits on the right edge; tapping it opens the panel over the board
+      without resizing the board.
+- [ ] Rotate with a popup or the panel open: the popup closes, the panel and strip re-lay out, and
+      the pen still draws on the board and nothing on the overlays.
+- [ ] The pen over the popup, the panel and the strip draws nothing.
+- [ ] No ghost of the old bottom toolbar anywhere.

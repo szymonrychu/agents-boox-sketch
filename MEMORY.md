@@ -564,3 +564,12 @@ Lessons that outlive a session. Newest first.
 - 2026-11-04 board-pr2 popup holds: a popup open or close is its own hold (`holds.change("popup", target, needsRects = open)`) and a full refresh (`chromeChanged`), because popup residue ghosts on e-ink. The popup rect is reported under its own key `popup` (separate from the strip's `dock` key, a deviation from the plan's single exclude list): the dock key is already settled when a popup opens, so only a separate key makes the hold wait for the popup to be measured. The popup rect is keyed on the popup kind, so switching pen -> send drops the old rect and waits for the new one. The popup closes on tap on the board, auto-hide, hide and rotation (anchored to a button of the old layout).
 - 2026-11-04 board-pr2 layout: the strip starts below the tab bar (the tab bar spans the top edge while the chrome is visible), and on a window too short for ten 48 dp buttons they shrink to fit instead of clipping. The eraser popup also holds Clear page (the old toolbar's Clear must not be lost; it is undoable, so no confirm). The send button keeps the long press for "Send all pages" (ledger ruling) next to the explicit button. Tests: the harness traverses the view tree only on a layout request, so wiring tests that wait for the refresher's next draw call `requestLayout` (the old chips' ripple used to do it).
 - 2026-11-04 board-pr2 review: the send caption moved from `rememberSaveable` to `ToolboxState` (plain state): it survives rotation and popup close but not process death. A finger tap on the board with a popup open hides the whole chrome (as the old toolbar did), not only the popup.
+
+- 2026-11-04 board-pr3: the strip, popups and the right side panel are all overlays that share one `ChromeHolds`
+  (a change takes a hold, the rect of every open overlay goes into the exclude list, and the hold is released once
+  per change after the input restarted with it), so pen-down on any overlay draws nothing and raw drawing is never
+  left off. The panel never resizes the board (the board stays full screen: a resize would restart the input and
+  ghost). Rotation is handled with `configChanges` (no recreate) and re-reports the rects. Send moved into a popup
+  (tap opens, the buttons send). Tool icons are drawn on a Canvas, so there is no icon dependency to verify.
+  Combined replays live in `BoardOverlaysIntegrationTest`; goldens `board_overlays_*` cover closed, pen popup,
+  colour popup, panel open and everything hidden (two indicators) in landscape and portrait.
