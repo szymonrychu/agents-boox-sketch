@@ -198,16 +198,13 @@ class OnyxPenRenderer internal constructor(
     }
 }
 
-private const val FOUNTAIN_V2_ADDITION = 3f
-
 /**
- * The width to hand `createNeoPenV2` so the redraw is as wide as the live ink: it adds
- * [FOUNTAIN_V2_ADDITION] px (`FountainShapes.FOUNTAIN_PEN_V1_COMPENSATION`) to the width, while
- * the live raw ink is sized by `TouchHelper.setStrokeWidth` with the width unchanged
- * (`RawInputReader.setStrokeWidth` hands it straight to the native renderer). Below the
- * addition the pen cannot go: a stroke narrower than [FOUNTAIN_V2_ADDITION] px redraws at it.
+ * The width to hand `createNeoPenV2`: the [BrushMapping] width unchanged. The SDK adds
+ * `FOUNTAIN_PEN_V1_COMPENSATION / scale` (3 px at scale 1) to it on purpose, and the live ink has
+ * the same look; subtracting those 3 px (PR #51) made the redraw thinner than the live ink on the
+ * device (v0.12.1: "fountain gets thiner after redraw").
  */
-internal fun fountainWidth(width: Float): Float = (width - FOUNTAIN_V2_ADDITION).coerceAtLeast(0f)
+internal fun fountainWidth(width: Float): Float = width
 
 /** The SDK's readers take a non-null pair type but check each half for null themselves. */
 @Suppress("UNCHECKED_CAST")
