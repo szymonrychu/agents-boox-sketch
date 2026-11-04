@@ -696,4 +696,47 @@ class BoardChromeWiringTest {
         assertThat(releases()).isEqualTo(1)
         assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfLast { it.startsWith("start:") } - 1)
     }
+
+    @Test
+    fun relayout_hold_ignores_the_stale_rect_reported_before_the_rotation() {
+        val oldRect = Rect(0, 500, 400, 600)
+        val newRect = Rect(0, 300, 600, 400)
+        val current = mutableStateOf(oldRect)
+        val dock: DockContent =
+            { p ->
+                val rects = listOf(current.value)
+                var reported by remember { mutableStateOf<List<Rect>?>(null) }
+                SideEffect {
+                    if (rects != reported) {
+                        reported = rects
+                        p.onExcludeChange(rects)
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.runOnUiThread {
+            val activity = host!!.context as android.app.Activity
+            val config = android.content.res.Configuration(activity.resources.configuration)
+            config.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT
+            config.screenWidthDp += 10
+            (activity as androidx.activity.ComponentActivity).onConfigurationChanged(config)
+        }
+        compose.waitForIdle()
+        // The old rect is still stored but no report came from the new layout: raw drawing stays held
+        // (the layout hold and the refresher's hold for the full refresh).
+        assertThat(holds()).isEqualTo(2)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.runOnUiThread { current.value = newRect }
+        compose.waitForIdle()
+        assertThat(releases()).isEqualTo(1)
+        // The restarted input carries the new rect (clipped to the window), not the stale one.
+        assertThat(lastStart()).contains("Rect(0, 300 -")
+        assertThat(lastStart()).doesNotContain("Rect(0, 500 -")
+        assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfLast { it.startsWith("start:") } - 1)
+    }
 }

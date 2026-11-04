@@ -226,6 +226,8 @@ private fun RelayoutOnConfigurationChange(
                     seen = layout
                     ui.chromeChanged()
                     holds.report(LAYOUT_KEY, false, emptyList())
+                    // Rects reported for the old layout are stale: settle only on reports from the new one.
+                    holds.invalidateRects(DOCK_KEY, PANEL_KEY)
                     holds.change(LAYOUT_KEY, true, needsRects = false) { }
                     changes++
                 }

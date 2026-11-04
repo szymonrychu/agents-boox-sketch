@@ -54,6 +54,14 @@ internal class ChromeHolds(
         visible: Boolean,
     ): Boolean = reports[key]?.let { overlaySettled(visible, needsRects = true, visible = it.visible, rects = it.rects) } ?: false
 
+    /**
+     * Drops the rects of the stored reports of [keys] (their state stays): a layout change makes them
+     * stale, so only a report made after this call counts as reported again.
+     */
+    fun invalidateRects(vararg keys: String) {
+        for (key in keys) reports[key]?.let { reports[key] = OverlayReport(it.visible, emptyList()) }
+    }
+
     /** Runs [apply] (the state flip of overlay [key] to [target]), holding raw drawing if nothing was pending. */
     fun change(
         key: String,
