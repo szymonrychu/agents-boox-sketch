@@ -21,6 +21,13 @@ sealed interface StrokeEvent {
         val y: Float,
         val radius: Float,
     ) : StrokeEvent
+
+    /**
+     * The stroke published on [StrokeInput.inProgress] was dropped without a commit (cancel, pause,
+     * stop). Sent on [StrokeInput.events], after any earlier commit, so a consumer can tell a lift
+     * (commit, then clear) from a drop with one ordered stream.
+     */
+    data object Cancelled : StrokeEvent
 }
 
 /** Source of pen strokes: the Onyx raw-drawing SDK on Boox devices, plain touch events elsewhere. */
@@ -78,7 +85,8 @@ interface StrokeInput {
      * The stroke being drawn, in view pixels, for an input whose ink the app must draw itself
      * while the pen moves (touch, and shape drags on any input); null between strokes. Raw pen
      * inputs render their own freehand ink and keep it null. On lift the stroke is committed on
-     * [events] before this goes back to null.
+     * [events] before this goes back to null; a stroke dropped without a commit sends
+     * [StrokeEvent.Cancelled] instead.
      */
     val inProgress: StateFlow<Stroke?> get() = NO_STROKE
 

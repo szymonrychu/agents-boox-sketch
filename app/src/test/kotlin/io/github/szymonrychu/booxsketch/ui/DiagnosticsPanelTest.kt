@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.github.szymonrychu.booxsketch.ink.InputPath
 import io.github.szymonrychu.booxsketch.ink.InputStatus
+import io.github.szymonrychu.booxsketch.ink.ShapeDragCounts
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,5 +42,14 @@ class DiagnosticsPanelTest {
         compose.onNodeWithText("Input path: Touch fallback").assertIsDisplayed()
         compose.onNodeWithText("Raw drawing enabled: no").assertIsDisplayed()
         compose.onNodeWithText("Fallback reason: Onyx input disabled: no raw pen callback within 300 ms").assertIsDisplayed()
+    }
+
+    @Test
+    fun shape_drag_events_are_counted_per_source() {
+        var counts by mutableStateOf(ShapeDragCounts())
+        compose.setContent { DiagnosticsPanel(InputStatus(InputPath.ONYX_RAW, null), rawEnabled = { false }, shapeDrags = counts) }
+        compose.onNodeWithText("Shape drag events: window 0, view 0").assertIsDisplayed()
+        counts = ShapeDragCounts(window = 12, view = 0)
+        compose.onNodeWithText("Shape drag events: window 12, view 0").assertIsDisplayed()
     }
 }

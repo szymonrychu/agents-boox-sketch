@@ -92,6 +92,7 @@ class OnyxShapeRoutingTest {
     private lateinit var input: StrokeInput
     private lateinit var view: View
     private lateinit var activity: Activity
+    private lateinit var selector: InputSelector
 
     @Before
     fun reset() = InputSelector.resetForTest()
@@ -99,7 +100,7 @@ class OnyxShapeRoutingTest {
     private fun start(scope: TestScope) {
         activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         view = View(activity)
-        input =
+        selector =
             InputSelector(
                 probe = { ProbeResult(true, "ok") },
                 settings =
@@ -111,7 +112,8 @@ class OnyxShapeRoutingTest {
                 onyxFactory = { onyx },
                 touchFactory = { touch },
                 mainExecutor = Executor { it.run() },
-            ).select()
+            )
+        input = selector.select()
         input.start(view, board, listOf(tabBar))
     }
 
@@ -260,5 +262,51 @@ class OnyxShapeRoutingTest {
             input.setTool(Tool.ARROW, 4f)
             drag(20f to 20f, 60f to 50f)
             assertThat(input.inProgress.value!!.color).isEqualTo(PenColor.PURPLE)
+        }
+
+    @Test
+    fun shape_drag_seen_only_by_the_window_callback_still_draws_and_commits() =
+        runTest {
+            start(this)
+            input.setTool(Tool.RECTANGLE, 4f)
+            // The view is not in the activity's hierarchy: only the window wrapper sees these, as when raw claims the drag.
+            activity.window.callback.dispatchTouchEvent(ev(MotionEvent.ACTION_DOWN, 20f, 20f))
+            activity.window.callback.dispatchTouchEvent(ev(MotionEvent.ACTION_MOVE, 60f, 50f))
+            assertThat(input.inProgress.value!!.tool).isEqualTo(Tool.RECTANGLE)
+            activity.window.callback.dispatchTouchEvent(ev(MotionEvent.ACTION_UP, 60f, 50f))
+            val committed = input.events.first() as StrokeEvent.Committed
+            assertThat(committed.stroke.tool).isEqualTo(Tool.RECTANGLE)
+            assertThat(input.inProgress.value).isNull()
+            assertThat(selector.shapeDrags.value).isEqualTo(ShapeDragCounts(window = 3, view = 0))
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+        }
+
+    @Test
+    fun one_drag_seen_by_window_and_view_commits_once_and_counts_both_sources() =
+        runTest {
+            start(this)
+            input.setTool(Tool.ARROW, 4f)
+            listOf(
+                ev(MotionEvent.ACTION_DOWN, 20f, 20f),
+                ev(MotionEvent.ACTION_MOVE, 60f, 50f),
+                ev(MotionEvent.ACTION_UP, 60f, 50f),
+            ).forEach {
+                activity.window.callback.dispatchTouchEvent(it)
+                view.dispatchTouchEvent(it)
+            }
+            val committed = input.events.first() as StrokeEvent.Committed
+            assertThat(committed.stroke.points).hasSize(3)
+            assertThat(selector.shapeDrags.value).isEqualTo(ShapeDragCounts(window = 3, view = 3))
+        }
+
+    @Test
+    fun window_callback_feeds_no_drag_with_a_pen_tool() =
+        runTest {
+            start(this)
+            activity.window.callback.dispatchTouchEvent(ev(MotionEvent.ACTION_DOWN, 20f, 20f))
+            activity.window.callback.dispatchTouchEvent(ev(MotionEvent.ACTION_MOVE, 60f, 50f))
+            assertThat(input.inProgress.value).isNull()
+            assertThat(selector.shapeDrags.value).isEqualTo(ShapeDragCounts())
         }
 }

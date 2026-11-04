@@ -2,6 +2,30 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 PR 36 review: window-fed shape drags, ordered cancel, wrapping tool row
+
+- Shape drags are also fed from the `OnyxWithFallback` window-callback wrapper (mapped into view
+  pixels, same limit and exclude rects, same `TouchStrokeInput` logic through `WindowTouchFeed`),
+  besides the view listener. Why: the firmware may still claim a stylus drag while raw drawing is
+  open but disabled, and the window callback sees events before any view even in raw mode. Each
+  event is handled once (`EventKey`: down time, event time, action, history size, rounded view
+  position); both copies are counted per source in `InputSelector.shapeDrags`, shown on
+  Diagnostics ("Shape drag events: window N, view M") for checklist round 1.
+- Raw drawing stays open and disabled for shape tools (not `closeRawDrawing`). Why: reopening
+  costs a first-frame gate and GC flash on every return to a pen, the live-ink regression surface.
+- A touch stroke dropped without a commit (cancel, pause, stop, pen picked mid-drag) sends
+  `StrokeEvent.Cancelled` on `events`. `BoardView` clears the shape preview only from `events`:
+  a commit through `vm.onStroke`, a drop through `onShapeCancel`; `inProgress` going null never
+  touches it. Why: `inProgress` and `events` are collected by two coroutines, so "commit before
+  clear" at the source did not hold across collectors and the preview could blink off a frame
+  before the shape (`ShapeDragWiringTest`).
+- The tool row wraps (`FlowRow`) instead of scrolling, chips are at least 48 dp tall and the
+  selected one gets the swatches' black frame. Why: rectangle and arrow were scrolled off-screen
+  (also in the golden), and a scroll on e-ink ghosts.
+- `OnyxRealInputShapeTest` drives the real `OnyxStrokeInput` (fake `RawDrawing` only) under the
+  fallback wrapper across pause, resume and mid-stroke tool switches; app tests depend on
+  `onyxsdk-pen` for `RawInputCallback` and `TouchPoint`.
+
 ## 2026-11-04 Colour and shape UI on the Onyx path
 
 - Shape tools turn Onyx raw drawing off through `active()` (`!tool.isShape`), not through a
@@ -13,15 +37,13 @@ Lessons that outlive a session. Newest first.
   rects when a shape tool is selected (it replaces the watch's view listener; going back to a pen
   stops touch and re-installs the watch listener). Pause and resume always reach touch too, so
   its paused flag is in step whenever it takes over. Not yet confirmed on the device: that a
-  stylus drag reaches the view's touch listener while raw drawing is open but disabled. If it does
-  not, close the raw helper for shape tools instead (costs a first-frame gate and GC flash on
-  every switch back to a pen).
+  stylus drag reaches the view's touch listener while raw drawing is open but disabled; the window
+  feed (PR 36 review entry above) covers the case where it does not.
 - Live colour: the raw brush is `setStrokeStyle` + `setStrokeWidth` + `setStrokeColor` (exists in
   onyxsdk-pen 1.5.8 `TouchHelper`), re-applied after every enable like style and width. Whether the
   Kaleido raw layer shows colour or grey is device-only; committed strokes carry the colour either way.
-- `TouchStrokeInput` commits on `events` before it clears `inProgress`, and the board's shape
-  preview is drawn inside `BoardSurfaceView.show`, so a lift swaps preview for shape in one redraw
-  and the cancel that follows the clear finds the preview already gone.
+- The board's shape preview is drawn inside `BoardSurfaceView.show`, so a lift swaps preview for
+  shape in one redraw (the cancel path moved to `StrokeEvent.Cancelled`, PR 36 review entry above).
 - PNG export is not wired to Send on main yet, so the device checklist (`docs/device-checklist.md`)
   marks the export check as pending that flow.
 

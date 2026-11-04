@@ -194,10 +194,31 @@ class ShapeDragWiringTest {
         compose.runOnIdle { input.inProgress.value = drag(Tool.ARROW, 100f, 100f, 300f, 200f) }
         compose.waitForIdle()
         assertThat(vm.preview.value).isNotNull()
-        compose.runOnIdle { input.inProgress.value = null }
+        compose.runOnIdle {
+            input.channel.trySend(StrokeEvent.Cancelled)
+            input.inProgress.value = null
+        }
         compose.waitForIdle()
         assertThat(vm.preview.value).isNull()
         assertThat(strokes()).isEmpty()
+    }
+
+    @Test
+    fun lift_clears_the_preview_only_with_the_commit_whichever_collector_runs_first() {
+        board()
+        compose.runOnIdle { vm.setTool(Tool.RECTANGLE) }
+        compose.runOnIdle { input.inProgress.value = drag(Tool.RECTANGLE, 100f, 100f, 400f, 300f) }
+        compose.waitForIdle()
+        val preview = vm.preview.value!!
+        // The in-progress clear is collected before the commit: the preview must stay on the board.
+        compose.runOnIdle { input.inProgress.value = null }
+        compose.waitForIdle()
+        assertThat(vm.preview.value).isEqualTo(preview)
+        assertThat(strokes()).isEmpty()
+        compose.runOnIdle { input.channel.trySend(StrokeEvent.Committed(drag(Tool.RECTANGLE, 100f, 100f, 400f, 300f))) }
+        compose.waitForIdle()
+        assertThat(vm.preview.value).isNull()
+        assertThat(strokes().single().points.map { it.x to it.y }).isEqualTo(preview.points.map { it.x to it.y })
     }
 
     @Test

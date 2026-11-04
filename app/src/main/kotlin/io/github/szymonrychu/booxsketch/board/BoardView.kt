@@ -233,8 +233,10 @@ class BoardSurfaceView(
  * The drawing board: a [SurfaceView] in an AndroidView showing the current page of [notebook], fed by [input].
  * Stroke and erase events are mapped to page-canvas pixels before reaching the callbacks. A stroke
  * in progress with a shape tool is not drawn as ink: it goes to [onShapeDrag] (page-canvas pixels)
- * and the board shows [preview], the snapped shape; one that ends without a commit calls
- * [onShapeCancel].
+ * and the board shows [preview], the snapped shape. Only the ordered [StrokeInput.events] end a
+ * drag: a commit reaches [onStroke] (which drops the preview), a [StrokeEvent.Cancelled] calls
+ * [onShapeCancel]; the in-progress stream going null never does, so a lift cannot clear the
+ * preview a frame before the shape is committed.
  * [exclude] are window-coordinate rects (toolbar, overlays) where the pen must not draw; input
  * is (re)started on every layout and exclude change, closed when the surface goes away, and
  * paused while the activity is paused or the window has no focus.
@@ -280,26 +282,24 @@ fun BoardView(
     )
     LaunchedEffect(exclude) { surface[0]?.let { startOn(it) } }
     LaunchedEffect(input) {
-        var shaping = false
         input.inProgress.collect { s ->
             val v = surface[0]
+            // The end of a drag never touches the preview here: a lift clears it in onStroke, a drop on Cancelled.
             if (s != null && s.tool.isShape) {
-                shaping = true
                 v?.geometry()?.let { shapeDragCb(it.toCanvas(s)) }
-                return@collect
+            } else {
+                v?.showLive(s)
             }
-            // The input commits before it clears, so after a lift this cancel finds the preview already gone.
-            if (shaping) shapeCancelCb()
-            shaping = false
-            v?.showLive(s)
         }
     }
     LaunchedEffect(input) {
         input.events.collect { ev ->
+            if (ev is StrokeEvent.Cancelled) return@collect shapeCancelCb()
             val g = surface[0]?.geometry() ?: return@collect
             when (ev) {
                 is StrokeEvent.Committed -> strokeCb(g.toCanvas(ev.stroke))
                 is StrokeEvent.Erase -> eraseCb((ev.x - g.dx) / g.scale, (ev.y - g.dy) / g.scale, ev.radius / g.scale)
+                StrokeEvent.Cancelled -> Unit
             }
         }
     }

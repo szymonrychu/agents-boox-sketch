@@ -31,6 +31,11 @@ Then:
 ## Rectangle and arrow snapping
 
 - [ ] Select "rectangle". Diagnostics shows "Raw drawing enabled: no" while it is selected.
+- [ ] Note "Shape drag events: window N, view M" on Diagnostics, draw one rectangle, tap Refresh
+      on Diagnostics (or reopen the tab) and note it again. Both counts should grow by the
+      events of the drag. Window growing while view stays the same means the open but disabled
+      raw layer claims the stylus drag and only the window feed draws shapes: still a pass, but
+      report the numbers. Neither growing while a drag draws nothing: fail, report it.
 - [ ] Drag with the pen: a rectangle preview follows the pen; no freehand ink is drawn along the
       drag. Lift: the rectangle stays, in the selected colour.
 - [ ] A tiny drag (a pen tap or a few pixels) leaves nothing behind.
