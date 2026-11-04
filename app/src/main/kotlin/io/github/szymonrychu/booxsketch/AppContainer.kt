@@ -351,12 +351,12 @@ class AppContainer(
         onRepaired()
     }
 
+    /** Top-level tabs of the app shell; the Drawing tab hosts the board. Declared before init, which registers into it. */
+    val tabs = TabRegistry()
+
     init {
         registerFeatures()
     }
-
-    /** Top-level tabs of the app shell; the Drawing tab hosts the board. */
-    val tabs = TabRegistry()
 
     private fun registerFeatures() {
         // One line per feature, added by its task.
