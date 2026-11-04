@@ -736,3 +736,14 @@ Lessons that outlive a session. Newest first.
 
 - 2026-11-04 boox-tasks: the Tasks tab reads and writes the taskboard only through the connector relay (`/app/v1/sketch/tasks`), as the user, with web parity (Q1). Decisions: Q8 waiting sessions are text rows; a tap filters the list by that session id (the server's `session` filter matches ids, the slug is only shown). Q9 no status, title, assignee or todo text edit anywhere; `TasksClient` has no such method (a reflection test guards it). Q10 live refresh of the visible Tasks tab only: the SSE flow is collected from a `LaunchedEffect`, so leaving the tab cancels it; no badge, no notification channel. The real taskboard API differs from the plan sketch: decision ids, todo item ids are integers and the answer `choice` is the option index; `POST /comments` returns the whole task. Events are hints only (`task_changed {key}`); a lost stream emits one refresh hint and reconnects with backoff capped at 30 s. A 429 sets `retryAfterS`, stops automatic refreshes until it elapsed and never loops. A 401 calls `pairingRepository.rejectToken`, so the gate shows pairing. The connector dependency: agents-app-connector 2.0.0 task relay with the delegate token configured (503 `taskboard_unconfigured` otherwise, shown as "Tasks are not set up on the server."). Navigation and the view models live in `TasksController` on the container, so a tab switch keeps filters, page and the open task; unpair resets it.
 
+
+- 2026-11-04 boox-resman (fix/onyx-resmanager-init): device logcat on v0.11.6 showed the first SDK pen redraw throwing
+  `java.lang.ExceptionInInitializerError at com.onyx.android.sdk.pen.NeoNativePen.onPenDown`, caused by
+  `kotlin.UninitializedPropertyAccessException: lateinit property appContext has not been initialized at
+  com.onyx.android.sdk.base.utils.ResManager.getAppContext(ResManager.kt:377)`, called from `DimenUtils.dp2PxFloat`
+  from `PenUtils.<clinit>(PenUtils.kt:45)`. The app never initialised ResManager (onyxsdk-baselite), so every SDK pen
+  fell back to plain for the rest of the process. Fix: `App.onCreate` calls `OnyxSdk.init(this)` (`ResManager.INSTANCE.init(context)`)
+  before the container is built, guarded by `OnyxProbe`, as the vendor OnyxAndroidDemo does in `Application.onCreate`. The first
+  clinit/LinkageError in `OnyxPenRenderer` is logged under InkDiag and shown in Diagnostics as
+  `SDK pens off: <exception class>: <message>` (an ExceptionInInitializerError is unwrapped to its cause, as its own message is empty).
+  Deferred: tilt in the upload format, a pressure-varying ballpoint.
