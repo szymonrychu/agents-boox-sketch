@@ -1,6 +1,5 @@
 package io.github.szymonrychu.booxsketch.board
 
-import android.graphics.Rect
 import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -13,18 +12,15 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
-import io.github.szymonrychu.booxsketch.ink.StrokeEvent
-import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
 import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.UiRefresher
+import io.github.szymonrychu.booxsketch.testing.FreezingInput
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -32,40 +28,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
-
-/** A screen-freezing input that logs its holds and releases. */
-private class FreezingInput : StrokeInput {
-    val log = mutableListOf<String>()
-    override val events: Flow<StrokeEvent> = emptyFlow()
-    override val freezesUi = true
-
-    override fun start(
-        view: View,
-        limit: Rect,
-        exclude: List<Rect>,
-    ) = Unit
-
-    override fun setTool(
-        tool: Tool,
-        width: Float,
-    ) = Unit
-
-    override fun pause() = Unit
-
-    override fun resume() = Unit
-
-    override fun stop() {
-        log += "stop"
-    }
-
-    override fun holdUi() {
-        log += "hold"
-    }
-
-    override fun releaseUi() {
-        log += "release"
-    }
-}
 
 private class RecordingUi : UiRefresh {
     val calls = mutableListOf<Boolean>()

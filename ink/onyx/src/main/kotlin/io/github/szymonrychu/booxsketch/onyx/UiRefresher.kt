@@ -14,7 +14,8 @@ import io.github.szymonrychu.booxsketch.ink.UiRefresh
  * refresh runs and raw drawing is enabled for the first time. Each [uiChanged] holds raw drawing
  * off, waits for the next draw (Compose recomposes and draws), runs a partial refresh and
  * releases it. Unsettled changes (slider drags) run at most once per [minIntervalMs] with a
- * trailing run; a settled change runs at once. Changes during a refresh run once after it.
+ * trailing run; a settled change runs at once. [chromeChanged] is a settled change that ends with
+ * a full refresh instead of a partial one. Changes during a refresh run once after it.
  * All calls are on the main thread.
  */
 class UiRefresher(
@@ -30,6 +31,7 @@ class UiRefresher(
     private var firstDrawn = false
     private var inFlight = false
     private var pending = false
+    private var pendingFull = false
     private var closed = false
     private var lastRun = Long.MIN_VALUE / 2
     private var held = 0
@@ -57,10 +59,22 @@ class UiRefresher(
         if (settled || wait <= 0) run() else postDelayed(trailing, wait)
     }
 
-    private fun run() {
+    override fun chromeChanged() {
+        if (closed || !firstDrawn) return
+        if (inFlight) {
+            pending = true
+            pendingFull = true
+            return
+        }
+        cancel(trailing)
+        run(full = true)
+    }
+
+    private fun run(full: Boolean = false) {
         if (closed) return
         if (inFlight) {
             pending = true
+            pendingFull = pendingFull || full
             return
         }
         inFlight = true
@@ -68,12 +82,14 @@ class UiRefresher(
         hold()
         afterNextDraw {
             if (!closed) {
-                partialRefresh()
+                if (full) fullRefresh() else partialRefresh()
                 inFlight = false
                 release()
                 if (pending) {
+                    val nextFull = pendingFull
                     pending = false
-                    run()
+                    pendingFull = false
+                    run(nextFull)
                 }
             }
         }

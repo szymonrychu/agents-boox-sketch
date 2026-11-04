@@ -153,6 +153,30 @@ abstract class AppShellTestBase {
     }
 
     @Test
+    fun refused_auto_hide_is_retried_after_another_quiet_gap() {
+        show()
+        var allow = false
+        var calls = 0
+        compose.runOnIdle {
+            chrome!!.autoHideHandler = {
+                calls++
+                if (allow) state.hide()
+                allow
+            }
+        }
+        compose.mainClock.autoAdvance = false
+        strokeCommitted()
+        compose.mainClock.advanceTimeBy(100)
+        compose.mainClock.advanceTimeBy(601)
+        assertThat(calls).isEqualTo(1)
+        assertThat(state.chromeVisible).isTrue()
+        allow = true
+        compose.mainClock.advanceTimeBy(600)
+        assertThat(calls).isEqualTo(2)
+        assertThat(state.chromeVisible).isFalse()
+    }
+
+    @Test
     fun second_stroke_restarts_quiet_gap() {
         show()
         compose.mainClock.autoAdvance = false
