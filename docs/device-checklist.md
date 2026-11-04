@@ -174,5 +174,8 @@ pause about 1 s (idle sync), then undo and redo, then switch page and back.
       lag (committed strokes are blitted from the cache, the preview is never drawn by the SDK pens).
 - [ ] Open a sent page in the document view and swipe between pages: charcoal looks as on the
       board and swiping does not stall.
+- [ ] Charcoal pressure range is not flattened: a light stroke and a hard stroke redraw with visibly
+      different grain weight (the redraw divides pressure once; this was inferred from a native
+      string scan, not a decompile).
 - [ ] Known gap: PNG exports and the images sent to the connector keep the app's own (smooth)
       look for these pens.

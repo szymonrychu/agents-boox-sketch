@@ -21,6 +21,9 @@ import kotlin.math.roundToInt
 
 /** Draws a committed stroke with a vendor pen; false leaves it to the caller's own renderer. */
 fun interface PenRenderer {
+    /** False when [draw] would certainly return false for [stroke], so callers can skip preparing for it. */
+    fun handles(stroke: Stroke): Boolean = true
+
     fun draw(
         canvas: Canvas,
         stroke: Stroke,
@@ -74,6 +77,8 @@ class OnyxPenRenderer internal constructor(
 
     @Volatile
     private var broken = false
+
+    override fun handles(stroke: Stroke) = !broken && pen(stroke.tool) != null && stroke.points.size >= 2
 
     @Suppress("TooGenericExceptionCaught")
     override fun draw(

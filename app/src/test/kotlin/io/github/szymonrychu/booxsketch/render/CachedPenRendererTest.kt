@@ -20,8 +20,11 @@ import org.robolectric.annotation.GraphicsMode
 private class DotPen(
     private val claims: Boolean = true,
     private val grain: Float = 0f,
+    private val accepts: Boolean = true,
 ) : PenRenderer {
     var calls = 0
+
+    override fun handles(stroke: Stroke) = accepts
 
     override fun draw(
         canvas: Canvas,
@@ -124,5 +127,70 @@ class CachedPenRendererTest {
         repeat(3) { renderer.draw(c, listOf(stroke), 1f, 0f, 0f) }
         renderer.drawPreview(c, listOf(stroke), 1f, 0f, 0f)
         assertThat(pen.calls).isEqualTo(1)
+    }
+
+    @Test
+    fun a_stroke_the_pen_does_not_handle_allocates_no_bitmap_and_never_runs_the_pen() {
+        val pen = DotPen(accepts = false)
+        var allocations = 0
+        val r =
+            CachedPenRenderer(pen, 1 shl 20) { w, h ->
+                allocations++
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            }
+        val (_, c) = board()
+        repeat(3) { assertThat(r.draw(c, stroke, 1f, 0f, 0f)).isFalse() }
+        assertThat(allocations).isEqualTo(0)
+        assertThat(pen.calls).isEqualTo(0)
+    }
+
+    @Test
+    fun the_declined_set_is_capped() {
+        val pen = DotPen(claims = false)
+        val r = CachedPenRenderer(pen)
+        val (_, c) = board()
+        val strokes = List(300) { stroke.copy() }
+        strokes.forEach { r.draw(c, it, 1f, 0f, 0f) }
+        r.draw(c, strokes.first(), 1f, 0f, 0f)
+        assertThat(pen.calls).isEqualTo(301)
+    }
+
+    @Test
+    fun the_bitmap_is_clipped_to_the_canvas() {
+        val wide = stroke.copy(width = 400f)
+        val sizes = mutableListOf<Pair<Int, Int>>()
+        val r =
+            CachedPenRenderer(DotPen(), 1 shl 24) { w, h ->
+                sizes += w to h
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            }
+        val (bmp, c) = board()
+        assertThat(r.draw(c, wide, 1f, 0f, 0f)).isTrue()
+        assertThat(sizes.single().first).isAtMost(200)
+        assertThat(sizes.single().second).isAtMost(200)
+        assertThat(bmp.getPixel(50, 50)).isEqualTo(PenColor.RED.argb)
+    }
+
+    @Test
+    fun a_stroke_wholly_outside_the_canvas_allocates_nothing() {
+        var allocations = 0
+        val r =
+            CachedPenRenderer(DotPen(), 1 shl 20) { w, h ->
+                allocations++
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            }
+        val (_, c) = board()
+        assertThat(r.draw(c, stroke, 1f, 1000f, 1000f)).isFalse()
+        assertThat(allocations).isEqualTo(0)
+    }
+
+    @Test
+    fun an_allocation_failure_falls_back_to_the_canvas_renderer() {
+        val pen = DotPen()
+        val r = CachedPenRenderer(pen, 1 shl 20) { _, _ -> throw OutOfMemoryError("test") }
+        val (bmp, c) = board()
+        CanvasStrokeRenderer(r).draw(c, listOf(stroke), 1f, 0f, 0f)
+        assertThat(pen.calls).isEqualTo(0)
+        assertThat(bmp.getPixel(65, 50)).isNotEqualTo(Color.WHITE)
     }
 }

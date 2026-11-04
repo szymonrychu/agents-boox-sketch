@@ -51,56 +51,65 @@ fun devicePenRenderer(): PenRenderer? = OnyxPenRenderer.onDevice()?.let { Cached
 
 /**
  * Runs the (slow, native) [pen] once per committed stroke and placement and keeps the result as a
- * bitmap of the stroke's [inkBounds], so a redraw (a shape drag frame, a dirty-rect sync, a Compose
- * draw pass) only blits it. A stroke the pen declines is remembered too and left to the caller.
- * Keys are the stroke instance (committed strokes are immutable and kept by reference) and the
- * placement; the cache holds at most [maxBytes] of bitmaps, least recently drawn evicted first.
- * Draws happen on one thread (the view's), as for any canvas.
+ * bitmap of the stroke's [inkBounds] clipped to the canvas, so a redraw (a shape drag frame, a
+ * dirty-rect sync, a Compose draw pass) only blits it. A stroke the pen does not handle
+ * ([PenRenderer.handles]) is declined before any bitmap exists; one the pen runs on and draws
+ * nothing for is remembered in a small capped set. Both are left to the caller, as is any stroke
+ * whose bitmap cannot be allocated. Keys are the stroke instance (committed strokes are immutable
+ * and kept by reference), the placement and the canvas size; the cache holds at most [maxBytes] of
+ * bitmaps, least recently drawn evicted first. Draws happen on one thread (the view's), as for
+ * any canvas.
  */
-class CachedPenRenderer(
+class CachedPenRenderer internal constructor(
     private val pen: PenRenderer,
-    maxBytes: Int = defaultBytes(),
+    maxBytes: Int,
+    private val createBitmap: (Int, Int) -> Bitmap,
 ) : PenRenderer {
-    private sealed interface Entry {
-        val bytes: Int
-    }
-
-    private object Declined : Entry {
-        override val bytes = 1
-    }
+    constructor(pen: PenRenderer, maxBytes: Int = defaultBytes()) : this(pen, maxBytes, ::argbBitmap)
 
     private class Drawn(
         val bitmap: Bitmap,
         val left: Float,
         val top: Float,
-    ) : Entry {
-        override val bytes = bitmap.allocationByteCount
-    }
+    )
 
     private class Key(
         val stroke: Stroke,
         val scale: Float,
         val dx: Float,
         val dy: Float,
+        val width: Int,
+        val height: Int,
     ) {
         override fun equals(other: Any?) =
-            other is Key && other.stroke === stroke && other.scale == scale && other.dx == dx && other.dy == dy
+            other is Key &&
+                other.stroke === stroke &&
+                other.scale == scale &&
+                other.dx == dx &&
+                other.dy == dy &&
+                other.width == width &&
+                other.height == height
 
         override fun hashCode() =
-            ((System.identityHashCode(stroke) * HASH + scale.hashCode()) * HASH + dx.hashCode()) * HASH + dy.hashCode()
+            (((System.identityHashCode(stroke) * HASH + scale.hashCode()) * HASH + dx.hashCode()) * HASH + dy.hashCode()) * HASH +
+                width * HASH + height
     }
 
     private val cache =
-        object : LruCache<Key, Entry>(maxBytes) {
+        object : LruCache<Key, Drawn>(maxBytes) {
             override fun sizeOf(
                 key: Key,
-                value: Entry,
-            ) = value.bytes
+                value: Drawn,
+            ) = value.bitmap.allocationByteCount
         }
+
+    private val declined = LruCache<Key, Boolean>(MAX_DECLINED)
 
     /** Strokes the pen actually ran for; tests read it. */
     internal var rendered = 0
         private set
+
+    override fun handles(stroke: Stroke) = pen.handles(stroke)
 
     override fun draw(
         canvas: Canvas,
@@ -109,34 +118,50 @@ class CachedPenRenderer(
         dx: Float,
         dy: Float,
     ): Boolean {
-        val key = Key(stroke, scale, dx, dy)
-        val entry = cache.get(key) ?: render(stroke, scale, dx, dy).also { cache.put(key, it) }
-        if (entry !is Drawn) return false
+        if (!pen.handles(stroke)) return false
+        val key = Key(stroke, scale, dx, dy, canvas.width, canvas.height)
+        if (declined.get(key) != null) return false
+        val entry = cache.get(key) ?: render(key) ?: return false
         canvas.drawBitmap(entry.bitmap, entry.left, entry.top, null)
         return true
     }
 
-    private fun render(
-        stroke: Stroke,
-        scale: Float,
-        dx: Float,
-        dy: Float,
-    ): Entry {
-        val r = inkBounds(stroke, scale, dx, dy)?.let { Rect().apply { it.roundOut(this) } } ?: return Declined
-        if (r.isEmpty) return Declined
-        val bitmap = Bitmap.createBitmap(r.width(), r.height(), Bitmap.Config.ARGB_8888)
+    private fun render(key: Key): Drawn? {
+        val stroke = key.stroke
+        val r = inkBounds(stroke, key.scale, key.dx, key.dy)?.let { Rect().apply { it.roundOut(this) } } ?: return decline(key)
+        if (r.isEmpty) return decline(key)
+        // Wholly outside the canvas: nothing to blit, and nothing worth remembering.
+        if (!r.intersect(0, 0, key.width, key.height)) return null
+        val bitmap =
+            try {
+                createBitmap(r.width(), r.height())
+            } catch (_: OutOfMemoryError) {
+                cache.evictAll()
+                return null
+            }
         val offscreen = Canvas(bitmap).apply { translate(-r.left.toFloat(), -r.top.toFloat()) }
         rendered++
-        if (!pen.draw(offscreen, stroke, scale, dx, dy)) {
+        if (!pen.draw(offscreen, stroke, key.scale, key.dx, key.dy)) {
             bitmap.recycle()
-            return Declined
+            return decline(key)
         }
-        return Drawn(bitmap, r.left.toFloat(), r.top.toFloat())
+        return Drawn(bitmap, r.left.toFloat(), r.top.toFloat()).also { cache.put(key, it) }
+    }
+
+    private fun decline(key: Key): Drawn? {
+        declined.put(key, true)
+        return null
     }
 
     private companion object {
         const val HASH = 31
         const val HEAP_SHARE = 8
+        const val MAX_DECLINED = 256
+
+        fun argbBitmap(
+            w: Int,
+            h: Int,
+        ): Bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
 
         fun defaultBytes(): Int = (Runtime.getRuntime().maxMemory() / HEAP_SHARE).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
