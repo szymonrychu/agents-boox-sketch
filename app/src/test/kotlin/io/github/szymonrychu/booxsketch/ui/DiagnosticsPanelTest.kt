@@ -61,4 +61,15 @@ class DiagnosticsPanelTest {
         fallbacks = 3
         compose.onNodeWithText("Pen redraw fallbacks: 3").assertIsDisplayed()
     }
+
+    @Test
+    fun the_sdk_pens_off_reason_is_shown_next_to_the_fallback_counter() {
+        var reason by mutableStateOf<String?>(null)
+        compose.setContent {
+            DiagnosticsPanel(InputStatus(InputPath.ONYX_RAW, null), rawEnabled = { false }, penFallbacks = 1, penOffReason = reason)
+        }
+        compose.onNodeWithText("SDK pens off", substring = true).assertDoesNotExist()
+        reason = "SDK pens off: java.lang.UnsatisfiedLinkError: no neopen_jni"
+        compose.onNodeWithText("SDK pens off: java.lang.UnsatisfiedLinkError: no neopen_jni").assertIsDisplayed()
+    }
 }

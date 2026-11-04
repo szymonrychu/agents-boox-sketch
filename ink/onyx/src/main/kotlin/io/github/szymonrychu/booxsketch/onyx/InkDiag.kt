@@ -28,6 +28,19 @@ object InkDiag {
         write { Log.w(TAG, "fallback #$n: $message", error) }
     }
 
+    private val off = MutableStateFlow<String?>(null)
+
+    /** Why the SDK pens are off ("SDK pens off: <exception class>: <message>"), null while they work. */
+    val penOffReason: StateFlow<String?> = off.asStateFlow()
+
+    /** Records why the SDK pens are off, returns the reason; the caller logs it (one line, with the exception). */
+    fun penOff(error: Throwable): String {
+        val cause = (error as? ExceptionInInitializerError)?.cause ?: error
+        val reason = "SDK pens off: ${cause.javaClass.name}: ${cause.message}"
+        off.value = reason
+        return reason
+    }
+
     fun info(message: String) {
         write { Log.i(TAG, message) }
     }

@@ -159,7 +159,7 @@ class OnyxPenRenderer internal constructor(
         e: Throwable,
     ): Boolean {
         broken = true
-        InkDiag.fallback("${stroke.tool} stroke ${stroke.id}: the SDK pens are off for good", e)
+        InkDiag.fallback("${stroke.tool} stroke ${stroke.id}: ${InkDiag.penOff(e)}", e)
         return false
     }
 

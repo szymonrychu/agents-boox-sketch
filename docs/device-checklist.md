@@ -196,6 +196,9 @@ with its exception.
       charcoals show the firmware `params` (or `none`); fountain and brush use fixed constants.
       Open the Diagnostics tab: "Pen redraw fallbacks" is 0 and logcat has no `fallback` line. If
       it is not 0, note the exception of the first `fallback` line.
+- [ ] SDK pens redraw (ResManager initialised): draw with every tool, wait for the redraw, then open
+      Diagnostics: "Pen redraw fallbacks" stays 0 and no "SDK pens off: ..." line is shown. If one
+      is shown, note its text (it names the exception class and message).
 - [ ] 500 px stroke box: with the fountain pen draw one straight horizontal line about 500 px
       long, then a diagonal one. In each `stroke` line the raw box is about 500 px wide and the ink
       box contains it with a margin on every side (ink width >= raw width, ink height >= raw

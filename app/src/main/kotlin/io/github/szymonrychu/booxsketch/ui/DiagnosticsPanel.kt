@@ -25,7 +25,8 @@ fun DiagnosticsTab(selector: InputSelector) {
     val status by selector.status.collectAsState()
     val shapeDrags by selector.shapeDrags.collectAsState()
     val penFallbacks by InkDiag.fallbacks.collectAsState()
-    DiagnosticsPanel(status, selector::rawEnabled, shapeDrags = shapeDrags, penFallbacks = penFallbacks)
+    val penOffReason by InkDiag.penOffReason.collectAsState()
+    DiagnosticsPanel(status, selector::rawEnabled, shapeDrags = shapeDrags, penFallbacks = penFallbacks, penOffReason = penOffReason)
 }
 
 /**
@@ -34,7 +35,8 @@ fun DiagnosticsTab(selector: InputSelector) {
  * [shapeDrags] counts shape drag events per source: on the device, a zero view count while the
  * window count grows means the raw layer claims the drag and only the window feed draws shapes.
  * [penFallbacks] counts committed strokes the SDK pens did not redraw (the app renderer drew them);
- * each one is logged under the InkDiag tag with its cause.
+ * each one is logged under the InkDiag tag with its cause. [penOffReason] is why the SDK pens turned
+ * themselves off ("SDK pens off: <exception class>: <message>"), shown only then.
  */
 @Composable
 fun DiagnosticsPanel(
@@ -43,6 +45,7 @@ fun DiagnosticsPanel(
     modifier: Modifier = Modifier,
     shapeDrags: ShapeDragCounts = ShapeDragCounts(),
     penFallbacks: Int = 0,
+    penOffReason: String? = null,
 ) {
     var tick by remember { mutableIntStateOf(0) }
     val raw = remember(tick, status) { rawEnabled() }
@@ -52,6 +55,7 @@ fun DiagnosticsPanel(
         Text("Fallback reason: ${status.fallbackReason ?: "none"}", color = Color.Black)
         Text("Shape drag events: window ${shapeDrags.window}, view ${shapeDrags.view}", color = Color.Black)
         Text("Pen redraw fallbacks: $penFallbacks", color = Color.Black)
+        if (penOffReason != null) Text(penOffReason, color = Color.Black)
         TextButton(onClick = { tick++ }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
             Text("Refresh", color = Color.Black)
         }

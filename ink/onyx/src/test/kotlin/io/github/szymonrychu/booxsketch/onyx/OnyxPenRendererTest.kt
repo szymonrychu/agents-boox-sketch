@@ -207,6 +207,25 @@ class OnyxPenRendererTest {
     }
 
     @Test
+    fun a_clinit_failure_is_logged_once_with_its_reason_and_exposed() {
+        ShadowLog.clear()
+        val cause = UninitializedPropertyAccessException("lateinit property appContext has not been initialized")
+        val r = renderer(OnyxPens { _, _ -> throw ExceptionInInitializerError(cause) })
+        repeat(3) { r.draw(canvas, stroke(Tool.FOUNTAIN), 1f, 0f, 0f) }
+        val reason = "SDK pens off: kotlin.UninitializedPropertyAccessException: lateinit property appContext has not been initialized"
+        assertThat(InkDiag.penOffReason.value).isEqualTo(reason)
+        val offLogs = ShadowLog.getLogsForTag(InkDiag.TAG).filter { it.msg.contains("SDK pens off:") }
+        assertThat(offLogs).hasSize(1)
+        assertThat(offLogs[0].msg).contains(reason)
+    }
+
+    @Test
+    fun a_plain_linkage_error_names_its_own_class_and_message() {
+        renderer(OnyxPens { _, _ -> throw UnsatisfiedLinkError("no neopen_jni") }).draw(canvas, stroke(Tool.BRUSH), 1f, 0f, 0f)
+        assertThat(InkDiag.penOffReason.value).isEqualTo("SDK pens off: java.lang.UnsatisfiedLinkError: no neopen_jni")
+    }
+
+    @Test
     fun strokes_are_still_counted_as_fallbacks_after_the_pens_broke() {
         val before = InkDiag.fallbacks.value
         val r = renderer(OnyxPens { _, _ -> throw UnsatisfiedLinkError("no neopen_jni") })
