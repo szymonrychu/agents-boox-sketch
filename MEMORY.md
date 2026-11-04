@@ -46,6 +46,20 @@ Lessons that outlive a session. Newest first.
 - The rotation relayout hold no longer settles after one fixed frame: it also waits for the dock (and the panel
   when composed) to have reported non-empty rects for their current state, like `dockSettled`.
 
+## 2026-11-04 Relayout hold cannot deadlock on equal rects (fix of 7a60809)
+
+- A relayout drops the stored dock and panel rects and waits for fresh reports, but the dock and panel
+  only reported when their rects changed, so a 180 degree rotation (same rects) never released the hold.
+  `ChromeHolds.relayout` now bumps `layoutEpoch`; `ToolbarDock` and `SidePanelHost` report again on
+  every epoch change even with equal rects (`relayout_with_identical_rects_still_releases`).
+- Defence in depth: if no fresh report comes within `ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS` = 600 ms,
+  the hold is released with the rects measured before (`acceptStaleRects`) and a warning goes to the
+  log (`Log.w`, tag BoardScreen; the app's only diagnostics sink besides the Onyx fallback reason,
+  which would be misleading here). Why 600 ms: the relayout's full refresh runs 300 ms after the
+  draw (`FULL_REFRESH_DELAY_MS`, same as `RAW_CALLBACK_TIMEOUT_MS`), a healthy report takes one or two
+  frames, so 600 ms (= `AUTO_HIDE_AFTER_STROKE_MS`) never cuts a healthy wait short and a stuck hold
+  ends before the next auto-hide.
+
 ## 2026-11-04 Board wave A rebased onto the documents wave (#38), pairing code (#39) and flicker fix (#40)
 
 - Documents stays a panel tab (`PanelTabs`, `documents.DOCUMENTS_TAB_ORDER` = 20) inside the side panel that

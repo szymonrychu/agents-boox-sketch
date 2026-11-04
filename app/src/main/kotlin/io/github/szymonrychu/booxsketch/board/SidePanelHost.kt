@@ -73,6 +73,7 @@ fun BoxScope.SidePanelHost(
     onHide: () -> Unit,
     ui: UiRefresh,
     onExcludeChange: (List<Rect>) -> Unit,
+    layoutEpoch: Int = 0,
     panel: @Composable () -> Unit,
 ) {
     var parent by remember { mutableStateOf<Rect?>(null) }
@@ -90,9 +91,12 @@ fun BoxScope.SidePanelHost(
         }
     val excludes = dockExcludeRects(visible, measured.value ?: estimate, measured.value)
     var reported by remember { mutableStateOf<List<Rect>?>(null) }
+    var reportedEpoch by remember { mutableStateOf(layoutEpoch) }
     SideEffect {
-        if (excludes != reported) {
+        // A new layout epoch reports again even when the rects are equal (a relayout waits for it).
+        if (excludes != reported || layoutEpoch != reportedEpoch) {
             reported = excludes
+            reportedEpoch = layoutEpoch
             onExcludeChange(excludes)
         }
     }

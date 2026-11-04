@@ -55,6 +55,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
+// One class: the tests share the shell, dock and input fixtures (LargeClass).
+@Suppress("LargeClass")
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class BoardChromeWiringTest {
@@ -677,14 +679,7 @@ class BoardChromeWiringTest {
         compose.waitForIdle()
         input.log.clear()
 
-        compose.runOnUiThread {
-            val activity = host!!.context as android.app.Activity
-            val config = android.content.res.Configuration(activity.resources.configuration)
-            config.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT
-            config.screenWidthDp += 10
-            (activity as androidx.activity.ComponentActivity).onConfigurationChanged(config)
-        }
-        compose.waitForIdle()
+        rotate()
         // Raw drawing stays held while the dock has no rect in the new layout (the layout hold and the
         // refresher's hold for the full refresh, which only a real draw releases).
         assertThat(holds()).isEqualTo(2)
@@ -718,14 +713,7 @@ class BoardChromeWiringTest {
         compose.waitForIdle()
         input.log.clear()
 
-        compose.runOnUiThread {
-            val activity = host!!.context as android.app.Activity
-            val config = android.content.res.Configuration(activity.resources.configuration)
-            config.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT
-            config.screenWidthDp += 10
-            (activity as androidx.activity.ComponentActivity).onConfigurationChanged(config)
-        }
-        compose.waitForIdle()
+        rotate()
         // The old rect is still stored but no report came from the new layout: raw drawing stays held
         // (the layout hold and the refresher's hold for the full refresh).
         assertThat(holds()).isEqualTo(2)
@@ -738,5 +726,72 @@ class BoardChromeWiringTest {
         assertThat(lastStart()).contains("Rect(0, 300 -")
         assertThat(lastStart()).doesNotContain("Rect(0, 500 -")
         assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfLast { it.startsWith("start:") } - 1)
+    }
+
+    private fun rotate() {
+        compose.runOnUiThread {
+            val activity = host!!.context as android.app.Activity
+            val config = android.content.res.Configuration(activity.resources.configuration)
+            config.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT
+            config.screenWidthDp += 10
+            (activity as androidx.activity.ComponentActivity).onConfigurationChanged(config)
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun relayout_with_identical_rects_still_releases() {
+        // A 180 degree rotation or a config change that moves nothing: the rects stay equal, so a dock
+        // that reports only on change never reports again. The layout epoch makes it report anyway.
+        val rect = Rect(0, 500, 400, 600)
+        val dock: DockContent =
+            { p ->
+                var reportedEpoch by remember { mutableStateOf<Int?>(null) }
+                SideEffect {
+                    if (reportedEpoch != p.layoutEpoch) {
+                        reportedEpoch = p.layoutEpoch
+                        p.onExcludeChange(listOf(rect))
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        input.log.clear()
+
+        rotate()
+
+        assertThat(releases()).isEqualTo(1)
+    }
+
+    @Test
+    fun relayout_without_any_report_releases_after_the_fallback_timeout() {
+        val rect = Rect(0, 500, 400, 600)
+        val dock: DockContent =
+            { p ->
+                var reported by remember { mutableStateOf(false) }
+                SideEffect {
+                    if (!reported) {
+                        reported = true
+                        p.onExcludeChange(listOf(rect))
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        rotate()
+        compose.mainClock.advanceTimeBy(ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS - 100)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.mainClock.advanceTimeBy(200)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertThat(releases()).isEqualTo(1)
+        // Released with the rects measured before: the exclude is not empty.
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
     }
 }

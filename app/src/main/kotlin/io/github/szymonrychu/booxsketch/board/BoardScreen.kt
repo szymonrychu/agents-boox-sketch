@@ -5,6 +5,7 @@ import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -37,6 +38,7 @@ import io.github.szymonrychu.booxsketch.onyx.UiRefresher
 import io.github.szymonrychu.booxsketch.ui.BoardChrome
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Full-screen board with the toolbar dock overlaid at the bottom. [chrome] carries the shell state
@@ -83,13 +85,14 @@ internal class DockParams(
     val onExcludeChange: (List<Rect>) -> Unit,
     val rememberedDockSize: IntSize?,
     val onDockSize: (IntSize) -> Unit,
+    val layoutEpoch: Int,
     val toolbar: @Composable () -> Unit,
 )
 
 internal typealias DockContent = @Composable BoxScope.(DockParams) -> Unit
 
 private val DefaultDock: DockContent = { p ->
-    ToolbarDock(p.visible, p.onShow, p.onHide, p.ui, p.onExcludeChange, p.rememberedDockSize, p.onDockSize, p.toolbar)
+    ToolbarDock(p.visible, p.onShow, p.onHide, p.ui, p.onExcludeChange, p.rememberedDockSize, p.onDockSize, p.layoutEpoch, p.toolbar)
 }
 
 /** [BoardScreen] with the dock replaceable, so tests can drive the dock's exclude reports. */
@@ -179,6 +182,7 @@ internal fun BoardScreenWith(
                     onExcludeChange = { holds.report(DOCK_KEY, dockVisible, it) },
                     rememberedDockSize = chrome?.dockSize,
                     onDockSize = { chrome?.dockSize = it },
+                    layoutEpoch = holds.layoutEpoch,
                     toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui, options = toolbarOptions) },
                 ),
             )
@@ -227,7 +231,8 @@ private fun RelayoutOnConfigurationChange(
                     ui.chromeChanged()
                     holds.report(LAYOUT_KEY, false, emptyList())
                     // Rects reported for the old layout are stale: settle only on reports from the new one.
-                    holds.invalidateRects(DOCK_KEY, PANEL_KEY)
+                    // The epoch makes the dock and the panel report again even when their rects are equal.
+                    holds.relayout(DOCK_KEY, PANEL_KEY)
                     holds.change(LAYOUT_KEY, true, needsRects = false) { }
                     changes++
                 }
@@ -241,7 +246,18 @@ private fun RelayoutOnConfigurationChange(
             // placed. Then wait, like the dock and panel show or hide, until the dock (and the panel,
             // when composed) report non-empty rects for the state they are in.
             withFrameNanos { }
-            snapshotFlow { holds.overlaysReported(chrome, hasPanel) }.first { it }
+            val reported =
+                withTimeoutOrNull(ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS) {
+                    snapshotFlow { holds.overlaysReported(chrome, hasPanel) }.first { it }
+                }
+            if (reported == null) {
+                // Defence in depth: nothing reported in time, so release with the rects measured before.
+                Log.w(
+                    TAG,
+                    "relayout: no dock or panel report within ${ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS} ms, releasing with the last rects",
+                )
+                holds.acceptStaleRects(DOCK_KEY, PANEL_KEY)
+            }
             holds.report(LAYOUT_KEY, true, emptyList())
         }
     }
@@ -316,6 +332,7 @@ private fun BoxScope.PanelLayer(
             onHide = control::hidePanel,
             ui = ui,
             onExcludeChange = { holds.report(PANEL_KEY, visible, it) },
+            layoutEpoch = holds.layoutEpoch,
             panel = panel,
         )
     }
@@ -328,6 +345,7 @@ private val PANEL_INSET_SIDES = WindowInsetsSides.Vertical + WindowInsetsSides.E
 private const val DOCK_KEY = "dock"
 private const val PANEL_KEY = "panel"
 private const val LAYOUT_KEY = "layout"
+private const val TAG = "BoardScreen"
 
 /** [overlaySettled] for the dock with a change pending to [awaiting] (null: no change pending); the dock always needs rects. */
 internal fun dockSettled(
