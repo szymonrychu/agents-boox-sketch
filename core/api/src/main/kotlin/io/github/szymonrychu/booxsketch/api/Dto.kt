@@ -37,6 +37,22 @@ data class SketchMetaDto(
     @SerialName("conversation_id") val conversationId: String? = null,
     val caption: String? = null,
     val pages: List<PageMetaDto>,
+    val annotates: AnnotatesDto? = null,
+)
+
+/** One uploaded page of a notes upload: [page] indexes `meta.pages`, [docPage] the rendered document page, [lines] its source line range. */
+@Serializable
+data class AnnotatedPageDto(
+    val page: Int,
+    @SerialName("doc_page") val docPage: Int,
+    val lines: List<Int>,
+)
+
+/** `meta.annotates`: the upload is handwritten notes over spec [specVersion]. */
+@Serializable
+data class AnnotatesDto(
+    @SerialName("spec_version") val specVersion: Int,
+    val pages: List<AnnotatedPageDto>,
 )
 
 /** 202 (or 200 replay) body of `POST /sketches`. */

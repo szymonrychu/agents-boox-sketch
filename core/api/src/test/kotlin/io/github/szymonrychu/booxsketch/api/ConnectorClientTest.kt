@@ -246,4 +246,70 @@ class ConnectorClientTest {
         assertThat(request.url.toString()).isEqualTo("https://connector.example/app/v1/sketch/config")
         assertThat(request.header("Authorization")).isNull()
     }
+
+    @Test
+    fun sketchMeta_without_annotates_serializes_unchanged() {
+        val meta = SketchMetaDto(clientId = cid, conversationId = conv, pages = listOf(PageMetaDto(0, Canvas(10, 20, 300f))))
+        val text =
+            Json {
+                explicitNulls = false
+                encodeDefaults = true
+            }.encodeToString(SketchMetaDto.serializer(), meta)
+        assertThat(text).doesNotContain("annotates")
+    }
+
+    @Test
+    fun sketchMeta_with_annotates_serializes_snake_case() {
+        val annotates = AnnotatesDto(2, listOf(AnnotatedPageDto(0, 3, listOf(10, 24))))
+        val text =
+            Json {
+                explicitNulls = false
+                encodeDefaults = true
+            }.encodeToString(AnnotatesDto.serializer(), annotates)
+        assertThat(text).isEqualTo("""{"spec_version":2,"pages":[{"page":0,"doc_page":3,"lines":[10,24]}]}""")
+    }
+
+    @Test
+    fun uploadSketch_meta_carries_annotates() =
+        runTest {
+            server.enqueue(json("""{"sketch_id":"$cid","conversation_id":"$conv","status":"queued"}""", 202))
+            val meta =
+                SketchMetaDto(
+                    clientId = cid,
+                    conversationId = conv,
+                    pages = listOf(PageMetaDto(0, Canvas(1404, 1872, 300f))),
+                    annotates = AnnotatesDto(1, listOf(AnnotatedPageDto(0, 2, listOf(0, 5)))),
+                )
+            client.uploadSketch(meta, listOf(byteArrayOf(1)), listOf(null))
+            assertThat(
+                server.takeRequest().body.readUtf8(),
+            ).contains(""""annotates":{"spec_version":1,"pages":[{"page":0,"doc_page":2,"lines":[0,5]}]}""")
+        }
+
+    @Test
+    fun attachment_returns_bytes_with_auth() =
+        runTest {
+            server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(1, 2, 3))))
+            val bytes = client.attachment(cid)
+            val r = server.takeRequest()
+            assertThat(r.path).isEqualTo("/app/v1/sketch/attachments/$cid")
+            assertThat(r.getHeader("Authorization")).isEqualTo(bearerHeader)
+            assertThat(bytes).isEqualTo(byteArrayOf(1, 2, 3))
+        }
+
+    @Test
+    fun attachment_410_is_purged_error() =
+        runTest {
+            server.enqueue(json("""{"error":"purged","detail":"gone"}""", 410))
+            val e = runCatching { client.attachment(cid) }.exceptionOrNull()
+            assertThat(e).isEqualTo(ApiError.Purged)
+        }
+
+    @Test
+    fun attachment_404_is_not_found() =
+        runTest {
+            server.enqueue(json("""{"error":"not_found","detail":"x"}""", 404))
+            val e = runCatching { client.attachment(cid) }.exceptionOrNull()
+            assertThat(e).isEqualTo(ApiError.NotFound("not_found"))
+        }
 }

@@ -103,6 +103,9 @@ class ConnectorClient(
 
     suspend fun specMarkdown(id: String): String = execute(authedRequest("/conversations/$id/spec.md").get().build()) { it.body.string() }
 
+    /** The stored bytes of a sketch file; [ApiError.Purged] after retention, [ApiError.NotFound] when unknown. */
+    suspend fun attachment(id: String): ByteArray = execute(authedRequest("/attachments/$id").get().build()) { it.body.bytes() }
+
     suspend fun handoffTargets(): HandoffTargetDto = call(authedRequest("/handoff/targets").get().build())
 
     suspend fun handoff(
