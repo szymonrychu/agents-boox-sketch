@@ -5,11 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.testing.createDbFromSchema
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -36,25 +33,7 @@ class MigrationTest {
 
     /** Builds a version 1 database file from the exported 1.json schema. */
     private fun createV1() {
-        val schema =
-            Json
-                .parseToJsonElement(File("schemas/io.github.szymonrychu.booxsketch.data.AppDatabase/1.json").readText())
-                .jsonObject["database"]!!
-                .jsonObject
-        val db = context.openOrCreateDatabase(dbName, Context.MODE_PRIVATE, null)
-        for (entity in schema["entities"]!!.jsonArray) {
-            val e = entity.jsonObject
-            val table = e["tableName"]!!.jsonPrimitive.content
-            db.execSQL(e["createSql"]!!.jsonPrimitive.content.replace("\${TABLE_NAME}", table))
-            e["indices"]?.jsonArray?.forEach {
-                db.execSQL(
-                    it.jsonObject["createSql"]!!
-                        .jsonPrimitive.content
-                        .replace("\${TABLE_NAME}", table),
-                )
-            }
-        }
-        schema["setupQueries"]!!.jsonArray.forEach { db.execSQL(it.jsonPrimitive.content) }
+        val db = createDbFromSchema(context, dbName, 1)
         db.execSQL("INSERT INTO conversations VALUES ('c1', 's1', 'T', 1, 2, 0)")
         db.execSQL("INSERT INTO specs VALUES ('s1', 1, '# hi', '2026-11-04T00:00:00Z')")
         db.execSQL("INSERT INTO thread_items VALUES ('i1', 'c1', 'SKETCH', 'cid-1', NULL, 1, NULL, 'queued', 5)")

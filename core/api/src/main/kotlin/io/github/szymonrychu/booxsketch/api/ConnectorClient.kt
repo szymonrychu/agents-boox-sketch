@@ -113,6 +113,12 @@ class ConnectorClient(
         return call(authedRequest("/conversations/$id$suffix").get().build())
     }
 
+    /** The translator's feedback items with an id above [after], oldest first. */
+    suspend fun feedback(
+        id: String,
+        after: Int,
+    ): FeedbackPage = call(authedRequest("/conversations/$id/feedback?after=$after").get().build())
+
     suspend fun specMarkdown(id: String): String = execute(authedRequest("/conversations/$id/spec.md").get().build()) { it.body.string() }
 
     /** The stored bytes of a sketch file; [ApiError.Purged] after retention, [ApiError.NotFound] when unknown. */

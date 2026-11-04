@@ -545,3 +545,18 @@ Lessons that outlive a session. Newest first.
   firmware ink overlay, and the app frame posted by the SurfaceView lands later, so each stroke
   vanished briefly and came back. Undo, erase, clear, page switch and preview changes keep the
   disable, draw, enable bracket (the frame must replace the overlay). Guarded by `PenUpReplayTest`.
+
+## 2026-11-04 Translator feedback and colour markers (T-40)
+
+- Feedback lives in Room v3 table `feedback` (real Migration(2, 3)), synced by `FeedbackSync` after every
+  conversations refresh (hooked next to SpecSync) from `latest_feedback_id`; it fetches from the stored max id,
+  page by page. Why: same trigger and failure policy as specs, nothing new to schedule. The open document
+  now refreshes every 20 s (was once) so new notes appear while reading.
+- Feedback is shown apart from the document: a one-line latest strip and a "Notes (N)" list overlay, never inside
+  the paginated markdown. Answering stays the existing typed-message path (not changed here).
+- `[[red]]`-style markers (black, blue, green, orange, purple too, case-insensitive) render as a bold `[red]`
+  label in the ink colour, in the spec pages (MarkdownPaginator text blocks, including inline code spans, not code blocks or tables) and in feedback
+  text. Why the label stays: on greyscale e-ink the colour alone would vanish. `[[?word]]` and `[[illegible]]`
+  stay as written. Pure parsing is `splitColourMarkers` in :core:model.
+- `core/api/src/test/resources/openapi.json` refreshed from connector 2.0.0; plan and contract agreed
+  (path prefix /app/v1/sketch, `latest_feedback_id` nullable, feedback page `{items, cursor}`).

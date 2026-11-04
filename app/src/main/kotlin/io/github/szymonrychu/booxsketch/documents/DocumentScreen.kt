@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.github.szymonrychu.booxsketch.board.BoardGeometry
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
@@ -59,7 +60,7 @@ fun pageCounter(state: DocumentViewState) = "${state.pageIndex + 1}/${state.page
  * The document view: header (Close, title, version picker, Share, Sources), the page in [pageArea] and the footer with
  * Prev, counter and Next. Nothing scrolls; the page is fitted and centred, so landscape scales it to the height.
  */
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "LongMethod")
 @Composable
 fun DocumentScreen(
     title: String,
@@ -72,6 +73,7 @@ fun DocumentScreen(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    feedback: List<FeedbackEntity> = emptyList(),
     pageArea: @Composable (
         Modifier,
     ) -> Unit = { m ->
@@ -86,6 +88,7 @@ fun DocumentScreen(
     },
 ) {
     var picker by remember { mutableStateOf(false) }
+    var notes by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(Color.White)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onClose, modifier = Modifier.defaultMinSize(minHeight = 48.dp).testTag(TAG_DOC_CLOSE)) { Text("Close") }
@@ -121,6 +124,10 @@ fun DocumentScreen(
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (state.loaded) pageArea(Modifier.fillMaxSize()) else Text("Loading", Modifier.testTag(TAG_DOC_LOADING))
+            if (notes && feedback.isNotEmpty()) FeedbackPanel(feedback, onClose = { notes = false })
+        }
+        if (!notes && feedback.isNotEmpty()) {
+            FeedbackLatest(feedback.first(), feedback.size, onOpen = { notes = true }, modifier = Modifier.padding(horizontal = 8.dp))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(
@@ -134,6 +141,12 @@ fun DocumentScreen(
                 enabled = state.pageIndex < state.pages.size - 1,
                 modifier = Modifier.defaultMinSize(minHeight = 48.dp).testTag(TAG_DOC_NEXT),
             ) { Text("Next") }
+            if (feedback.isNotEmpty()) {
+                TextButton(
+                    onClick = { notes = !notes },
+                    modifier = Modifier.defaultMinSize(minHeight = 48.dp).testTag(TAG_DOC_FEEDBACK_TOGGLE),
+                ) { Text("Notes (${feedback.size})") }
+            }
             if (state.readOnly) Text("Read only", Modifier.padding(start = 12.dp).testTag(TAG_DOC_READ_ONLY))
         }
     }

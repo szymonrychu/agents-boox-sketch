@@ -61,6 +61,7 @@ class ContractTest {
         check<ErrorResponse>(schema("ErrorResponse"))
         check<EventDto>(schema("Event"))
         check<SpecDto>(schema("Spec"))
+        check<FeedbackDto>(schema("Feedback"))
         check<MessageIn>(schema("MessageIn"))
         check<HandoffDto>(schema("HandoffIn"))
         check<PresetTargetDto>(schema("PresetTarget"))
@@ -73,6 +74,7 @@ class ContractTest {
         val targets = response("$base/handoff/targets", "get", "200")
         check<HandoffTargetDto>(targets)
         check<SessionTargetDto>(items(targets["properties"]!!.jsonObject["sessions"]!!.jsonObject))
+        check<FeedbackPage>(response("$base/conversations/{conversation_id}/feedback", "get", "200"))
         val events = response("$base/conversations/{conversation_id}/events", "get", "200")
         check<EventsResponse>(events)
     }

@@ -3,8 +3,11 @@ package io.github.szymonrychu.booxsketch.documents
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import com.github.takahirom.roborazzi.captureRoboImage
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
 import org.junit.Rule
 import org.junit.Test
@@ -36,12 +39,44 @@ class DocumentScreenshotTest {
     private fun content(
         readOnly: Boolean,
         version: Int = 3,
+        feedback: List<FeedbackEntity> = emptyList(),
     ) {
         val p = page()
         val state = DocumentViewState(version, 3, listOf(p, p, p), 1, readOnly, loaded = true)
         compose.setContent {
-            EinkTheme { DocumentScreen("Settings page", state, listOf(1, 2, 3), {}, {}, {}, {}, {}, {}) }
+            EinkTheme { DocumentScreen("Settings page", state, listOf(1, 2, 3), {}, {}, {}, {}, {}, {}, feedback = feedback) }
         }
+    }
+
+    private val feedback =
+        listOf(
+            FeedbackEntity("s", 3, "question", "Does the arrow point to Save or to Cancel?", "bottom right", 3, "x"),
+            FeedbackEntity("s", 2, "uncertain", "Read the second label as Settings; it could be Setting.", "top", 3, "x"),
+            FeedbackEntity("s", 1, "note", "[[red]] items are marked in red ink, [[blue]] items in blue.", null, 3, "x"),
+        )
+
+    @Test
+    fun document_with_latest_feedback() {
+        content(readOnly = false, feedback = feedback)
+        compose.onRoot().captureRoboImage("src/test/screenshots/document_with_latest_feedback.png")
+    }
+
+    @Test
+    fun document_feedback_list() {
+        content(readOnly = false, feedback = feedback)
+        compose.onNodeWithTag(TAG_DOC_FEEDBACK_LATEST).performClick()
+        compose.onRoot().captureRoboImage("src/test/screenshots/document_feedback_list.png")
+    }
+
+    @Test
+    fun document_page_with_colour_markers() {
+        val md = "# Wireframe\n\n- [[red]] Delete account\n- [[blue]] Save\n- [[green]] Export\n- Cancel"
+        val rendered = MarkdownPaginator(layout).paginate(md).first()
+        val file = File(tmp.root, "colour.0.png")
+        file.outputStream().use { rendered.bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val state = DocumentViewState(3, 3, listOf(FrozenPage(file, rendered.sourceLines)), 0, true, loaded = true)
+        compose.setContent { EinkTheme { DocumentScreen("Wireframe", state, listOf(1, 2, 3), {}, {}, {}, {}, {}, {}) } }
+        compose.onRoot().captureRoboImage("src/test/screenshots/document_page_with_colour_markers.png")
     }
 
     @Test

@@ -27,6 +27,9 @@ class MarkdownPaginator(
     private val styles = TextStyles(layout)
     private val flavour = GFMFlavourDescriptor()
 
+    /** The text of every text block of [markdown] as laid out (markers resolved), for tests. */
+    internal fun textBlocks(markdown: String): List<String> = BlockParser(markdown).blocks().filterIsInstance<TextBlock>().map { it.text }
+
     fun paginate(markdown: String): List<RenderedPage> {
         val blocks = BlockParser(markdown).blocks()
         val usable = (layout.pageHeightPx - 2 * PAGE_MARGIN_V).coerceAtLeast(1)
@@ -222,6 +225,7 @@ class MarkdownPaginator(
         ): RenderedBlock {
             trim(s)
             if (s.isEmpty()) s.append(' ')
+            styles.colourMarkers(s)
             return TextBlock(styles.measure(s, styles.paint(size)), styles.spacing, from, to)
         }
 

@@ -144,4 +144,36 @@ class MarkdownPaginatorTest {
         val pages = paginator(DocumentLayout(1404, 300)).paginate(md)
         assertThat(pages.size).isAtLeast(2)
     }
+
+    @Test
+    fun colour_markers_become_a_readable_label_in_the_paragraph() {
+        assertThat(paginator().textBlocks("[[red]] Login button")).containsExactly("[red] Login button")
+    }
+
+    @Test
+    fun colour_markers_work_in_lists_headings_and_quotes() {
+        val texts = paginator().textBlocks("# [[blue]] Title\n\n- [[green]] one\n- two\n\n> [[orange]] said")
+        assertThat(texts).hasSize(3)
+        assertThat(texts[0]).isEqualTo("[blue] Title")
+        assertThat(texts[1]).isEqualTo("- [green] one\n- two")
+        assertThat(texts[2]).isEqualTo("[orange] said")
+    }
+
+    @Test
+    fun uncertain_markers_and_code_stay_as_written() {
+        val texts = paginator().textBlocks("Read [[?ward|word]] or [[illegible]] here\n\n```\n[[red]] literal\n```")
+        assertThat(texts).containsExactly("Read [[?ward|word]] or [[illegible]] here", "[[red]] literal").inOrder()
+    }
+
+    @Test
+    fun a_colour_marker_is_drawn_in_its_colour() {
+        val page = paginator().paginate("[[red]] Login button").single()
+        val px = IntArray(page.bitmap.width * page.bitmap.height)
+        page.bitmap.getPixels(px, 0, page.bitmap.width, 0, 0, page.bitmap.width, page.bitmap.height)
+        assertThat(px.any { Color.red(it) > 150 && Color.green(it) < 90 && Color.blue(it) < 90 }).isTrue()
+        val plain = paginator().paginate("Login button").single()
+        val plainPx = IntArray(plain.bitmap.width * plain.bitmap.height)
+        plain.bitmap.getPixels(plainPx, 0, plain.bitmap.width, 0, 0, plain.bitmap.width, plain.bitmap.height)
+        assertThat(plainPx.none { Color.red(it) > 150 && Color.green(it) < 90 && Color.blue(it) < 90 }).isTrue()
+    }
 }
