@@ -14,9 +14,11 @@ sealed class DiagramFailure(
 ) {
     val caption: String = "diagram failed: " + detail
 
+    /** [hint] says what the page was seen doing, for example `blocked: <url>` or `js: <first console error>`. */
     data class Timeout(
         val ms: Long,
-    ) : DiagramFailure("timed out after ${ms / MS_PER_S} s")
+        val hint: String = "",
+    ) : DiagramFailure("timed out after ${ms / MS_PER_S} s" + if (hint.isEmpty()) "" else " (" + oneLine(hint) + ")")
 
     data object Blank : DiagramFailure("blank capture")
 

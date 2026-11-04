@@ -749,3 +749,17 @@ Lessons that outlive a session. Newest first.
   Deferred: tilt in the upload format, a pressure-varying ballpoint.
 
 - 2026-11-04 boox-tilt: strokes.json is version 3. A point stays `[x, y, pressure, t]` and gains `tiltX, tiltY` (six values) only when the pen reported tilt; a missing axis is written 0, a finger point stays four values. The decoder accepts versions 2 and 3 and 4 or 6 values per point (the only reader of old files is our own notebook storage). Why this shape: agents-app-connector `validate_strokes` (images.py) checks only that the file is JSON, `version` is an int, `canvas` has w, h, dpi and `strokes` is a list; it never inspects points or the version value, so no connector change is needed. Readers that index points[0..3] keep working. Ballpoint redraw width now follows pressure: `width * (0.6 + 0.4 * pressure)`, averaged over the segment ends like fountain and brush. The live pencil style (`STROKE_STYLE_PENCIL`) is drawn by the vendor native layer, so its curve is not in the SDK bytecode (javap notes only list `NEOPEN_PEN_TYPE_PENCIL = 7` as a constant); 0.6x-1x is a modest guess, tuned on the device (checklist "Tilt and ballpoint pressure"). Marker and shapes are unchanged. Test changes: `strokes-example.json` and `StrokesCodecTest` (version 3, the "without tilt" roundtrip test asserted tilt was dropped, which is no longer accurate).
+
+## 2026-11-04 Mermaid timeout root cause: View.post on an unattached view (fix/mermaid-timeout)
+
+- Device report on v0.13.0: "diagram failed- timed out after 20s". Root cause (found by code reading, reproduced by a
+  failing Robolectric test, not yet seen on the device): the JS bridge callbacks `Android.done` and `Android.fail` ran
+  `view.post { ... }` on the offscreen web view, which is never attached to a window. `View.post` on an unattached view
+  queues the runnable until attach, so it never ran; no done, no fail, so only the timeout could end the render. The URL
+  check was ruled out: the page loads `file:///android_asset/mermaid/render.html` and `.../mermaid.min.js`, both pass
+  `isAllowedUrl` (test pins them). `postOnAnimation` had the same flaw (the 700 ms timer masked it). Both now go through
+  the main handler (`CaptureBridge`, `main.post`).
+- Diagnostics: the timeout caption carries a hint, `timed out after 20 s (blocked: <url>)`, `(load error: ...)` or
+  `(js: <first console error>)`, from `CaptureNotes` fed by `shouldInterceptRequest`, `onReceivedError` and a
+  `WebChromeClient.onConsoleMessage`; all of it is also logged under `BooxMermaid`. The host timer fires 500 ms before the
+  renderer's own wait so the hint is not lost to the race.
