@@ -64,7 +64,7 @@ fun BoardToolbar(
 
     Column(modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (t in Tool.entries) {
+            for (t in Tool.entries.filterNot { it.isShape }) {
                 FilterChip(selected = !eraser && tool == t, onClick = ui.act { vm.setTool(t) }, label = { Text(t.wire) })
             }
             FilterChip(selected = eraser, onClick = ui.act { vm.setEraser(!eraser) }, label = { Text("Eraser") })

@@ -237,3 +237,9 @@ Lessons that outlive a session. Newest first.
 - Agent pods (8Gi limit) were OOMKilled by Gradle builds (-Xmx3g plus Kotlin daemon plus test JVMs).
   Now: `org.gradle.jvmargs=-Xmx1536m`, `kotlin.daemon.jvmargs=-Xmx1g`, `org.gradle.daemon=false`,
   test tasks `maxHeapSize=1g`, `maxParallelForks=1`. Why: keep total peak well under 4 GiB.
+
+## 2026-11-03 Shapes are strokes, colour defaults to black
+
+- Shapes are strokes (C2): RECTANGLE and ARROW are `Tool` entries, so undo, erase, hit test and
+  export reuse the stroke paths unchanged. `Stroke.color` defaults to `PenColor.BLACK` so notebooks
+  saved before the colour feature load unchanged (C5).

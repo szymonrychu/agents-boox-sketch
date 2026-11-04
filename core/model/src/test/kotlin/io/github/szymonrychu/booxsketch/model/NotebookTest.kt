@@ -56,4 +56,30 @@ class NotebookTest {
         assertThat(first.id).isEqualTo("id-1")
         assertThat(first.points[0].tiltX).isEqualTo(0.1f)
     }
+
+    @Test
+    fun notebook_json_without_color_loads_black() {
+        val json =
+            """{"canvas":{"w":1404,"h":1872,"dpi":300.0},"pages":[{"strokes":[{"id":"old","tool":"MARKER","width":3.0,""" +
+                """"points":[{"x":1.0,"y":2.0,"pressure":0.5,"tMs":7}]}],"changedSinceSend":true}],"current":0}"""
+        val n = Json { ignoreUnknownKeys = true }.decodeFromString<Notebook>(json)
+        val s = n.pages[0].strokes[0]
+        assertThat(s.color).isEqualTo(PenColor.BLACK)
+        assertThat(s.tool).isEqualTo(Tool.MARKER)
+    }
+
+    @Test
+    fun stroke_color_and_shape_tool_roundtrip_in_notebook_json() {
+        val pts = listOf(Point(1f, 2f, 0.5f, 1L), Point(5f, 6f, 0.5f, 2L))
+        val strokes =
+            listOf(
+                Stroke("r", Tool.RECTANGLE, 2f, pts, PenColor.RED),
+                Stroke("a", Tool.ARROW, 2f, pts, PenColor.PURPLE),
+            )
+        val n = Notebook(canvas, listOf(Page(strokes, true)), 0)
+        val back = Json.decodeFromString<Notebook>(Json.encodeToString(n))
+        assertThat(back).isEqualTo(n)
+        assertThat(back.pages[0].strokes.map { it.color }).containsExactly(PenColor.RED, PenColor.PURPLE).inOrder()
+        assertThat(back.pages[0].strokes.map { it.tool }).containsExactly(Tool.RECTANGLE, Tool.ARROW).inOrder()
+    }
 }

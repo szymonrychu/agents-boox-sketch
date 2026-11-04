@@ -73,7 +73,7 @@ class CanvasStrokeRenderer : StrokeRenderer {
             when (s.tool) {
                 Tool.FOUNTAIN -> s.width * (0.35f + 0.65f * pressure) to 255
                 Tool.BRUSH -> s.width * (0.2f + 0.8f * pressure) to 255
-                Tool.BALLPOINT -> s.width to 255
+                Tool.BALLPOINT, Tool.RECTANGLE, Tool.ARROW -> s.width to 255
                 Tool.CHARCOAL -> s.width to (110 + 100 * pressure).toInt()
                 Tool.CHARCOAL_V2 -> s.width * 1.2f to (80 + 90 * pressure).toInt()
                 Tool.MARKER -> s.width * 3f to 90
