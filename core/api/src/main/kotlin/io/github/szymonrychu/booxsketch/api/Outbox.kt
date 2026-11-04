@@ -112,6 +112,11 @@ class OutboxRunnerCore(
             is ApiError.TooLarge, ApiError.Unsupported, ApiError.Purged, ApiError.InvalidCode, is ApiError.NotFound -> {
                 fail(item, e.message)
             }
+
+            // task-only errors: an upload never produces them
+            ApiError.StaleVersion, ApiError.AlreadyAnswered, is ApiError.Unavailable -> {
+                fail(item, e.message)
+            }
         }
 
     private suspend fun retry(

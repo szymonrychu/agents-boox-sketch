@@ -134,6 +134,9 @@ class ConnectorClient(
         execute(authedRequest("/conversations/$id/handoff").post(body).build()) { }
     }
 
+    /** Runs [request] and returns the body text of a success; failures throw [ApiError]. For sibling clients. */
+    suspend fun fetch(request: Request): String = execute(request) { it.body.string() }
+
     private suspend inline fun <reified T> call(
         request: Request,
         client: OkHttpClient = http,
@@ -166,12 +169,11 @@ class ConnectorClient(
         }
 
     private fun errorOf(response: Response): ApiError {
-        val parsed =
-            runCatching { json.decodeFromString<ErrorResponse>(response.body.string()) }.getOrNull()
+        val parsed = parseErrorBody(response.body.string())
         return mapError(
             status = response.code,
-            code = parsed?.error ?: UNKNOWN_CODE,
-            detail = parsed?.detail.orEmpty(),
+            code = parsed?.first ?: UNKNOWN_CODE,
+            detail = parsed?.second.orEmpty(),
             retryAfter = response.header("Retry-After"),
         )
     }

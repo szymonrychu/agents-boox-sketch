@@ -33,6 +33,16 @@ written over, so the agent returns the next version. Older versions (the "v3" pi
 read-only, Share .md sends the markdown, Sources shows the sketches a version was made from.
 Mermaid blocks are drawn offline by a bundled renderer and fall back to code text.
 
+## Tasks
+
+The Tasks tab is the taskboard of the web UI, through the connector's task relay: a paged list
+(Active, Done, Dropped, All; filter by session and labels; tap a label or an assignee to filter),
+New task, and a detail with Overview (description and labels, waiting sessions), Decisions
+(answer with an option or your own text, plus a note), Todo (three states per item, add and
+remove), Comments and History. Status, title, assignee and todo text are not editable here, as in
+the web. The list refreshes live while the tab is on screen; there is no badge or notification.
+Everything is paged with Prev and Next, no animations, 48 dp targets, forms are full screen.
+
 Test on the device with `docs/device-checklist.md`.
 
 ## Build

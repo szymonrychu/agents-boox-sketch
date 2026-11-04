@@ -1,6 +1,10 @@
 package io.github.szymonrychu.booxsketch.api
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** Connector error body: `{"error": <code>, "detail": <text>}`. */
 @Serializable
@@ -55,6 +59,17 @@ sealed class ApiError(
         val retryAfterS: Long?,
     ) : ApiError("rate limited")
 
+    /** 412 stale_version: the task changed since it was loaded. */
+    data object StaleVersion : ApiError("stale_version")
+
+    /** 409 already_answered: the decision was answered or withdrawn meanwhile. */
+    data object AlreadyAnswered : ApiError("already_answered")
+
+    /** 503 `taskboard_unavailable` or `taskboard_unconfigured`: the connector cannot reach the taskboard. */
+    data class Unavailable(
+        val code: String,
+    ) : ApiError("unavailable: $code")
+
     /** Any other non-success status (5xx and unmapped 4xx). */
     data class Server(
         val status: Int,
@@ -75,14 +90,87 @@ internal fun mapError(
     retryAfter: String?,
 ): ApiError =
     when (status) {
-        400 -> if (code == "invalid_code") ApiError.InvalidCode else ApiError.Server(status)
-        401 -> ApiError.Unauthorized
-        404 -> ApiError.NotFound(code)
-        409 -> if (code == "in_progress") ApiError.InProgress else ApiError.Conflict(code)
-        413 -> ApiError.TooLarge(code)
-        410 -> ApiError.Purged
-        415 -> ApiError.Unsupported
-        422 -> ApiError.Invalid(code, detail)
-        429 -> ApiError.RateLimited(retryAfter?.trim()?.toLongOrNull())
-        else -> ApiError.Server(status)
+        400 -> {
+            if (code == "invalid_code") ApiError.InvalidCode else ApiError.Server(status)
+        }
+
+        401 -> {
+            ApiError.Unauthorized
+        }
+
+        404 -> {
+            ApiError.NotFound(code)
+        }
+
+        409 -> {
+            conflictOf(code)
+        }
+
+        412 -> {
+            ApiError.StaleVersion
+        }
+
+        413 -> {
+            ApiError.TooLarge(code)
+        }
+
+        410 -> {
+            ApiError.Purged
+        }
+
+        415 -> {
+            ApiError.Unsupported
+        }
+
+        422 -> {
+            ApiError.Invalid(code, detail)
+        }
+
+        429 -> {
+            ApiError.RateLimited(retryAfter?.trim()?.toLongOrNull())
+        }
+
+        503 -> {
+            unavailableOf(status, code)
+        }
+
+        else -> {
+            ApiError.Server(status)
+        }
     }
+
+private fun conflictOf(code: String): ApiError =
+    when (code) {
+        "in_progress" -> ApiError.InProgress
+        "already_answered" -> ApiError.AlreadyAnswered
+        else -> ApiError.Conflict(code)
+    }
+
+private fun unavailableOf(
+    status: Int,
+    code: String,
+): ApiError = if (code in UNAVAILABLE_CODES) ApiError.Unavailable(code) else ApiError.Server(status)
+
+private val UNAVAILABLE_CODES = setOf("taskboard_unavailable", "taskboard_unconfigured")
+
+/**
+ * The (code, detail) of an error body in either shape: the connector's `{"error": "<code>", "detail": "<text>"}` or the
+ * taskboard's `{"error": {"code": "<code>", "message": "<text>"}}`. Null when the body is neither.
+ */
+internal fun parseErrorBody(text: String): Pair<String, String>? {
+    val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return null
+    return when (val error = root["error"]) {
+        is JsonPrimitive -> {
+            error.contentOrNull?.let { it to (root["detail"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
+        }
+
+        is JsonObject -> {
+            val code = (error["code"] as? JsonPrimitive)?.contentOrNull
+            code?.let { it to (error["message"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
+        }
+
+        else -> {
+            null
+        }
+    }
+}

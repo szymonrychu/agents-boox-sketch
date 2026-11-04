@@ -1,0 +1,236 @@
+package io.github.szymonrychu.booxsketch.tasks
+
+import io.github.szymonrychu.booxsketch.api.ApiError
+import io.github.szymonrychu.booxsketch.api.TaskDto
+import io.github.szymonrychu.booxsketch.api.TaskEvents
+import io.github.szymonrychu.booxsketch.api.TasksClient
+import io.github.szymonrychu.booxsketch.api.TodoItemDto
+import io.github.szymonrychu.booxsketch.model.LabelResult
+import io.github.szymonrychu.booxsketch.model.TaskLabels
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+const val MAX_TODO = 200
+
+data class TaskDetailState(
+    val task: TaskDto? = null,
+    val notFound: Boolean = false,
+    val loading: Boolean = true,
+    val busy: Boolean = false,
+    val staleBanner: Boolean = false,
+    val error: String? = null,
+    val labelError: String? = null,
+    val todoError: String? = null,
+    val editingBody: Boolean = false,
+    /** Decisions with an answer in flight; a second Submit tap is ignored. */
+    val answering: Set<Long> = emptySet(),
+    /** A per-decision message, for example [ALREADY_ANSWERED_TEXT]. */
+    val decisionNotice: Map<Long, String> = emptyMap(),
+)
+
+/**
+ * One task: the loaded JSON plus the edits the web allows (description, labels; more in the other tabs). Every write
+ * runs one at a time; a 412 reloads the task and shows [STALE_TEXT]; a 404 shows the not-found state.
+ */
+@Suppress("TooManyFunctions") // one entry point per user action
+class TaskDetailViewModel(
+    internal val client: TasksClient,
+    val key: String,
+    private val events: Flow<String>,
+    private val scope: CoroutineScope,
+    private val onUnauthorized: () -> Unit = {},
+    private val coalesceMs: Long = TaskListViewModel.COALESCE_MS,
+) {
+    private val mutable = MutableStateFlow(TaskDetailState())
+    val state: StateFlow<TaskDetailState> = mutable.asStateFlow()
+
+    init {
+        reload()
+    }
+
+    /** Loads the task again; the stale banner and errors clear when it succeeds. */
+    fun reload() {
+        scope.launch { load(keepBanner = false) }
+    }
+
+    fun startEditBody() = mutable.update { it.copy(editingBody = true) }
+
+    fun cancelEditBody() = mutable.update { it.copy(editingBody = false) }
+
+    fun saveBody(text: String) {
+        val task = mutable.value.task ?: return
+        write { client.patchBody(key, task.version, text) }
+    }
+
+    fun addLabel(raw: String) {
+        val task = mutable.value.task ?: return
+        when (val result = TaskLabels.add(task.labels, raw)) {
+            is LabelResult.Added -> write { client.patchLabels(key, task.version, result.labels) }
+            LabelResult.Duplicate -> mutable.update { it.copy(labelError = null) }
+            is LabelResult.Invalid -> mutable.update { it.copy(labelError = result.reason) }
+            LabelResult.TooMany -> mutable.update { it.copy(labelError = "At most ${TaskLabels.MAX_LABELS} labels") }
+        }
+    }
+
+    fun removeLabel(label: String) {
+        val task = mutable.value.task ?: return
+        if (label !in task.labels) return
+        write { client.patchLabels(key, task.version, task.labels - label) }
+    }
+
+    /** Sets one todo row to `todo`, `inprogress` or `done`. */
+    fun setTodoStatus(
+        itemId: Long,
+        status: String,
+    ) {
+        write { client.setTodoStatus(key, itemId, status) }
+    }
+
+    /** Adds a todo row (newlines stripped, at most [MAX_TODO] characters) by replacing the whole list. */
+    fun addTodo(raw: String) {
+        val task = mutable.value.task ?: return
+        val text = raw.replace(Regex("[\\r\\n]+"), " ").trim()
+        when {
+            text.isEmpty() -> return
+            text.length > MAX_TODO -> mutable.update { it.copy(todoError = "A todo item is at most $MAX_TODO characters") }
+            else -> write { client.putTodo(key, task.todo + TodoItemDto(text = text)) }
+        }
+    }
+
+    /** Removes one todo row by replacing the whole list without it. */
+    fun removeTodo(itemId: Long) {
+        val task = mutable.value.task ?: return
+        write { client.putTodo(key, task.todo.filterNot { it.id == itemId }) }
+    }
+
+    fun addComment(body: String) {
+        if (body.isBlank()) return
+        write { client.comment(key, body.trim()) }
+    }
+
+    /** Answers an open decision with option index [choice] or free [text]. 409 shows "Already answered" and reloads. */
+    fun answer(
+        decisionId: Long,
+        choice: Int?,
+        text: String?,
+        note: String?,
+    ) {
+        if (decisionId in mutable.value.answering) return
+        mutable.update { it.copy(answering = it.answering + decisionId, decisionNotice = it.decisionNotice - decisionId, error = null) }
+        scope.launch {
+            try {
+                client.answer(key, decisionId, choice, text, note)
+                load(keepBanner = false, quiet = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: ApiError.AlreadyAnswered) {
+                mutable.update { it.copy(decisionNotice = it.decisionNotice + (decisionId to ALREADY_ANSWERED_TEXT)) }
+                load(keepBanner = false, quiet = true)
+            } catch (e: ApiError) {
+                fail(e)
+            } finally {
+                mutable.update { it.copy(answering = it.answering - decisionId) }
+            }
+        }
+    }
+
+    /** Runs [call] as a write that answers with the whole task; ignored while another write runs. */
+    internal fun write(call: suspend () -> TaskDto) {
+        if (mutable.value.busy) return
+        mutable.update { it.copy(busy = true, error = null, labelError = null, todoError = null, staleBanner = false) }
+        scope.launch {
+            try {
+                guarded { adopt(call()) }
+            } finally {
+                mutable.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    /** Runs [call] under the shared error handling (stale, not found, 401, others);. */
+    internal suspend fun guarded(call: suspend () -> Unit) {
+        try {
+            call()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiError) {
+            fail(e)
+        }
+    }
+
+    internal fun adopt(task: TaskDto) =
+        mutable.update {
+            it.copy(task = task, editingBody = false, error = null, notFound = false)
+        }
+
+    /** Collects change hints while the caller is active; a hint for this task (or a lost stream) reloads it once per window. */
+    suspend fun observe() =
+        coroutineScope {
+            var pending: Job? = null
+            events.collect { hint ->
+                if ((hint == key || hint == TaskEvents.REFRESH) && pending?.isActive != true) {
+                    pending =
+                        launch {
+                            delay(coalesceMs)
+                            load(keepBanner = true, quiet = true)
+                        }
+                }
+            }
+        }
+
+    private suspend fun load(
+        keepBanner: Boolean,
+        quiet: Boolean = false,
+    ) {
+        if (!quiet) mutable.update { it.copy(loading = it.task == null) }
+        try {
+            val task = client.get(key)
+            mutable.update {
+                it.copy(
+                    task = task,
+                    notFound = false,
+                    loading = false,
+                    error = null,
+                    staleBanner = it.staleBanner && keepBanner,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiError) {
+            fail(e)
+        }
+    }
+
+    private fun fail(e: ApiError) {
+        when (e) {
+            ApiError.Unauthorized -> {
+                onUnauthorized()
+            }
+
+            is ApiError.NotFound -> {
+                mutable.update { it.copy(notFound = true, loading = false) }
+                return
+            }
+
+            ApiError.StaleVersion -> {
+                mutable.update { it.copy(staleBanner = true, editingBody = false) }
+                scope.launch { load(keepBanner = true, quiet = true) }
+                return
+            }
+
+            else -> {
+                Unit
+            }
+        }
+        mutable.update { it.copy(loading = false, error = e.userText()) }
+    }
+}

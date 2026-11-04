@@ -1,0 +1,45 @@
+{
+  "items": [
+    {
+      "key": "T-12",
+      "title": "Wire the tasks tab",
+      "body": "",
+      "kind": "task",
+      "status": "open",
+      "labels": ["boox", "ui"],
+      "assignee_session": "sess-a",
+      "version": 3,
+      "created_at": "2026-11-01T10:00:00Z",
+      "updated_at": "2026-11-02T10:00:00Z",
+      "blocked": true,
+      "open_decisions": 1,
+      "waiting_sessions": [{"session_id": "sess-a", "slug": "alpha-fox"}],
+      "todo": [],
+      "decisions": [],
+      "comments": [],
+      "events": [],
+      "url": "https://web.example/tasks/T-12"
+    },
+    {
+      "key": "T-11",
+      "title": "Write the docs",
+      "body": "Short",
+      "kind": "idea",
+      "status": "idea",
+      "labels": [],
+      "assignee_session": null,
+      "version": 1,
+      "created_at": "2026-10-30T10:00:00Z",
+      "updated_at": "2026-10-30T10:00:00Z",
+      "blocked": false,
+      "open_decisions": 0,
+      "waiting_sessions": [],
+      "todo": [],
+      "decisions": [],
+      "comments": [],
+      "events": [],
+      "url": "https://web.example/tasks/T-11"
+    }
+  ],
+  "next_cursor": "c-11"
+}

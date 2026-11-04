@@ -16,6 +16,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.tasks.TASKS_TAB_ID
 import io.github.szymonrychu.booxsketch.ui.BOARD_TAB_ID
 import io.github.szymonrychu.booxsketch.ui.ShellState
 import io.github.szymonrychu.booxsketch.ui.TAG_TAB_BAR
@@ -43,16 +44,12 @@ class MainActivityShellTest {
     }
 
     @Test
-    fun launch_has_no_tab_bar_with_only_drawing_tab() {
+    fun launch_registers_the_drawing_and_tasks_tabs() {
         waitFor(TAG_DOCK)
         val container = (compose.activity.application as App).container
-        assertThat(container.tabs.tabs.map { it.id }).containsExactly(BOARD_TAB_ID)
-        assertThat(
-            container.tabs.tabs
-                .single()
-                .title,
-        ).isEqualTo("Drawing")
-        compose.onNodeWithTag(TAG_TAB_BAR).assertDoesNotExist()
+        assertThat(container.tabs.tabs.map { it.id }).containsExactly(BOARD_TAB_ID, TASKS_TAB_ID).inOrder()
+        assertThat(container.tabs.tabs.map { it.title }).containsExactly("Drawing", "Tasks").inOrder()
+        compose.onNodeWithTag(TAG_TAB_BAR).assertExists()
     }
 
     @Test

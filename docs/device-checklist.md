@@ -213,3 +213,20 @@ with its exception.
       problem; look at the SDK pen redraw instead.
 - [ ] Fountain width: at the same selected width, the committed fountain stroke is as wide as the
       live ink was (not about 3 px fatter).
+
+## Tasks tab
+
+- [ ] Open Tasks from the tab bar: the list says "Loading" briefly, then shows up to ten rows
+      with key, title, status chip and labels; the pen does not ink on this tab.
+- [ ] Tap the Session or Label field: the BOOX keyboard opens and the field stays visible above
+      it. Close the keyboard: the screen gets one clean partial refresh, no ghost of the keys.
+- [ ] Every control (rows, chips, Prev, Next, segments, radio rows) is reachable with a finger
+      without a mis-tap; nothing is smaller than a fingertip.
+- [ ] Create a task with a title, description and a label; double tap Create: one task appears.
+- [ ] In a task with an open decision, pick an option and Submit: it shows "Answer: ..."; answer
+      the same decision from the web first and Submit here: "Already answered" appears.
+- [ ] Change a todo item, add one, remove one, add a comment; each shows after the request.
+- [ ] Edit the description from the web while the task is open here: within a few seconds the
+      page updates once, without a flash on unchanged pages.
+- [ ] Revoke the device on the web Devices page, then tap anything in Tasks: the pairing screen
+      appears.
