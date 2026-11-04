@@ -555,7 +555,7 @@ Lessons that outlive a session. Newest first.
 - Feedback is shown apart from the document: a one-line latest strip and a "Notes (N)" list overlay, never inside
   the paginated markdown. Answering stays the existing typed-message path (not changed here).
 - `[[red]]`-style markers (black, blue, green, orange, purple too, case-insensitive) render as a bold `[red]`
-  label in the ink colour, in the spec pages (MarkdownPaginator text blocks, not code or tables) and in feedback
+  label in the ink colour, in the spec pages (MarkdownPaginator text blocks, including inline code spans, not code blocks or tables) and in feedback
   text. Why the label stays: on greyscale e-ink the colour alone would vanish. `[[?word]]` and `[[illegible]]`
   stay as written. Pure parsing is `splitColourMarkers` in :core:model.
 - `core/api/src/test/resources/openapi.json` refreshed from connector 2.0.0; plan and contract agreed

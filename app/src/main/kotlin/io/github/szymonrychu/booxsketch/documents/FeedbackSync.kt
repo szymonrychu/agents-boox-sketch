@@ -56,7 +56,7 @@ class FeedbackSync(
                     page.items.map { FeedbackEntity(serverId, it.id, it.kind, it.text, it.where, it.specVersion, it.createdAt) },
                 )
                 fetched += page.items.size
-                have = page.items.maxOf { it.id }
+                have = maxOf(page.cursor, page.items.maxOf { it.id })
             }
         } catch (_: ApiError.Unauthorized) {
             return Outcome(fetched, stop = true)
