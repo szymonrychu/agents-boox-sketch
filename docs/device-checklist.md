@@ -68,6 +68,8 @@ Then:
       the right of the strip at that button's height; tap it a third time: the popup closes.
 - [ ] Pen popup: six pen types (fountain, brush, ballpoint, charcoal, charcoal_v2, marker) are told apart
       by their glyph and label; the width slider changes the stroke width, and a draw right after uses it.
+- [ ] Draw one stroke per pen type at the same slider width: its width while the pen moves equals its width
+      after the app redraws it (undo then redo, or switch page and back), marker and charcoal_v2 included.
 - [ ] Rectangle or arrow selected, popup open: only the six colours, no slider; draw a rectangle after
       moving the pen slider: its width is the same fixed one every time.
 - [ ] Colour popup: six colours in a 3x2 grid, the selected one framed with a white centre mark; the colour

@@ -233,7 +233,7 @@ class OnyxStrokeInput(
     }
 
     private fun applyBrush(d: RawDrawing) {
-        d.setBrush(BrushMapping.style(tool), BrushMapping.width(width), color.argb)
+        d.setBrush(BrushMapping.style(tool), BrushMapping.width(tool, width), color.argb)
     }
 
     override fun setTool(
