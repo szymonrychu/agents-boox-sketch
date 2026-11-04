@@ -284,3 +284,7 @@ Lessons that outlive a session. Newest first.
 - Conversation buttons carry an explicit 48 dp minimum height (E-ink touch target rule).
 - Known, not done: duplicate local row if a refresh runs between upload ack and setServerId, and
   server-deleted conversations are not pruned locally (low severity, noted in review).
+
+- 2026-11-04: the POST_NOTIFICATIONS request moved from launch to the first send. Why: the
+  permission dialog at launch left MainActivity PAUSED on the CI emulator and failed LaunchTest
+  (expects RESUMED); MainActivityPermissionTest guards it.

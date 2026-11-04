@@ -29,14 +29,18 @@ class MainActivity : ComponentActivity() {
     // A denial only loses the background "pair again" notification; uploads work either way.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
-        super.onCreate(savedInstanceState)
+    /** Asked on a send, not at launch: a dialog at launch leaves the activity paused. */
+    private fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
         val container = (application as App).container
         setContent {
             EinkTheme {
@@ -68,7 +72,10 @@ class MainActivity : ComponentActivity() {
                             vm = container.boardViewModel,
                             input = input,
                             setEraser = container::setEraser,
-                            onSend = container::onSend,
+                            onSend = { all, caption ->
+                                askNotificationPermission()
+                                container.onSend(all, caption)
+                            },
                         )
                     },
                     panel = { PanelShell() },
