@@ -12,9 +12,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import io.github.szymonrychu.booxsketch.AppContainer
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val FEEDBACK_REFRESH_MS = 20_000L
+
 /** Shows the document [row] full screen until Close; owns its view model. [input] is the pen input shared with the board. */
+@Suppress("LongMethod")
 @Composable
 fun DocumentHost(
     container: AppContainer,
@@ -26,7 +30,14 @@ fun DocumentHost(
     val vm = remember(row.conversationLocalId) { container.documentViewModel(row) }
     val state by vm.state.collectAsState()
     val versions by vm.versions.collectAsState()
-    LaunchedEffect(row.conversationLocalId) { container.conversations.refresh() }
+    val feedback by vm.feedback.collectAsState()
+    // The refresh syncs specs and feedback: on open, then every 20 s so new translator notes show up.
+    LaunchedEffect(row.conversationLocalId) {
+        while (true) {
+            container.conversations.refresh()
+            delay(FEEDBACK_REFRESH_MS)
+        }
+    }
     var showSources by remember { mutableStateOf(false) }
     if (showSources) {
         val sourcesVm = remember(row.serverId, state.version) { container.sourcesViewModel(row.serverId, state.version) }
@@ -40,6 +51,7 @@ fun DocumentHost(
         title = row.title,
         state = state,
         versions = versions,
+        feedback = feedback,
         onClose = { container.openDocument.value = null },
         onSelectVersion = vm::selectVersion,
         onShare = {

@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.ConversationEntity
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -151,5 +152,17 @@ class DocumentViewModelTest {
                     listOf(RenderedPage(Bitmap.createBitmap(40, 60, Bitmap.Config.ARGB_8888), IntRange.EMPTY))
                 }, store, layout, scope)
             assertThat(vm.until { true }.pages).hasSize(1)
+        }
+
+    @Test
+    fun feedback_follows_the_database_newest_first() =
+        runBlocking<Unit> {
+            val vm = vm()
+            assertThat(withTimeout(10_000) { vm.feedback.first { true } }).isEmpty()
+            db.feedbackDao().upsert(FeedbackEntity("srv-1", 1, "note", "one", null, null, "x"))
+            db.feedbackDao().upsert(FeedbackEntity("srv-1", 2, "question", "two", "top", 1, "x"))
+            db.feedbackDao().upsert(FeedbackEntity("srv-other", 3, "note", "other", null, null, "x"))
+            val items = withTimeout(10_000) { vm.feedback.first { it.size == 2 } }
+            assertThat(items.map { it.id }).containsExactly(2, 1).inOrder()
         }
 }

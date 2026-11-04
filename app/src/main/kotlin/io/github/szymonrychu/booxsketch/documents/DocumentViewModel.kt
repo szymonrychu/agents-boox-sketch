@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.documents
 
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,13 @@ class DocumentViewModel(
     /** The stored versions, ascending: the version picker's entries. */
     val versions: StateFlow<List<Int>> = _versions.asStateFlow()
 
+    private val _feedback = MutableStateFlow<List<FeedbackEntity>>(emptyList())
+
+    /** The translator's feedback of this conversation, newest first. */
+    val feedback: StateFlow<List<FeedbackEntity>> = _feedback.asStateFlow()
+
     init {
+        scope.launch { db.feedbackDao().observe(serverId).collect { _feedback.value = it } }
         scope.launch {
             db.specDao().observeVersions(serverId).collect { list ->
                 _versions.value = list

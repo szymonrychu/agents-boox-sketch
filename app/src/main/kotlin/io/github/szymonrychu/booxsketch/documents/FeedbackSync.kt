@@ -27,9 +27,9 @@ class FeedbackSync(
             val latest = latestIds()
             var fetched = 0
             for (conversation in db.conversationDao().all()) {
-                val serverId = conversation.serverId ?: continue
-                val top = latest[serverId] ?: continue
-                val outcome = syncConversation(c, serverId, top)
+                val serverId = conversation.serverId
+                val top = serverId?.let(latest::get)
+                val outcome = if (serverId == null || top == null) Outcome(0, stop = false) else syncConversation(c, serverId, top)
                 fetched += outcome.fetched
                 if (outcome.stop) break
             }
