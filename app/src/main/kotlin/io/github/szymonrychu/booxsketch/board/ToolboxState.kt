@@ -1,0 +1,63 @@
+package io.github.szymonrychu.booxsketch.board
+
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import io.github.szymonrychu.booxsketch.model.Tool
+
+/** What a popup next to the tool strip is about. PEN, ERASER and SHAPE belong to the selected tool. */
+enum class ToolPopup { PEN, ERASER, SHAPE, COLOUR, PAGES, SEND }
+
+/** What a tap on a strip button asks of the caller. */
+enum class TapResult {
+    /** An unselected tool was tapped: select it, no popup. */
+    SelectOnly,
+
+    /** The popup of the button opened or closed. */
+    TogglePopup,
+}
+
+/**
+ * The popup of the tool strip: at most one is open. A tap on an unselected tool selects it and closes any
+ * popup; a tap on the selected tool, or on the colour, pages or send button, toggles its popup.
+ * Every change of [popup] goes through [gate] with the new target, so the board can hold raw drawing
+ * around it; [gate] must call `apply` exactly once. Not saved across rotation (the activity handles
+ * the configuration change and keeps this instance).
+ */
+@Stable
+class ToolboxState(
+    private val gate: (target: ToolPopup?, apply: () -> Unit) -> Unit = { _, apply -> apply() },
+) {
+    var popup: ToolPopup? by mutableStateOf(null)
+        private set
+
+    /** Last pen type, so the pen button restores it after a shape or the eraser. */
+    var lastPen: Tool by mutableStateOf(Tool.BALLPOINT)
+
+    private fun set(target: ToolPopup?) {
+        if (target != popup) gate(target) { popup = target }
+    }
+
+    fun tap(
+        target: ToolPopup,
+        alreadySelected: Boolean,
+    ): TapResult {
+        val toolBound = target == ToolPopup.PEN || target == ToolPopup.ERASER || target == ToolPopup.SHAPE
+        if (toolBound && !alreadySelected) {
+            set(null)
+            return TapResult.SelectOnly
+        }
+        set(if (popup == target) null else target)
+        return TapResult.TogglePopup
+    }
+
+    fun close() = set(null)
+
+    /** The selected tool kind changed: closes the popup of a tool that is no longer selected. */
+    fun onToolChanged(selected: ToolPopup?) {
+        val p = popup ?: return
+        val toolBound = p == ToolPopup.PEN || p == ToolPopup.ERASER || p == ToolPopup.SHAPE
+        if (toolBound && p != selected) set(null)
+    }
+}
