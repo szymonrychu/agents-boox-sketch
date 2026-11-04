@@ -98,27 +98,44 @@ fun TaskDetailScreen(
         }
 
         else -> {
-            Column(
-                modifier
-                    .fillMaxSize()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                BackButton(onBack)
-                TaskHeader(task)
-                if (state.staleBanner) Text(STALE_TEXT, Modifier.testTag(TAG_DETAIL_STALE))
-                state.error?.let { Text(it, Modifier.testTag(TAG_DETAIL_ERROR)) }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SubTab.entries.forEach { t -> Segment(t.label, t == tab, { tab = t }, Modifier.testTag(subTabTag(t))) }
-                }
-                when (tab) {
-                    SubTab.OVERVIEW -> OverviewTab(task, state, vm, onFilterSession)
-                    SubTab.DECISIONS -> DecisionsTab(task, state, vm::answer)
-                    else -> Unit
-                }
-            }
+            DetailBody(task, state, vm, tab, { tab = it }, onBack, onFilterSession, modifier)
+        }
+    }
+}
+
+@Suppress("LongParameterList")
+@Composable
+private fun DetailBody(
+    task: TaskDto,
+    state: TaskDetailState,
+    vm: TaskDetailViewModel,
+    tab: SubTab,
+    onTab: (SubTab) -> Unit,
+    onBack: () -> Unit,
+    onFilterSession: (String) -> Unit,
+    modifier: Modifier,
+) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BackButton(onBack)
+        TaskHeader(task)
+        if (state.staleBanner) Text(STALE_TEXT, Modifier.testTag(TAG_DETAIL_STALE))
+        state.error?.let { Text(it, Modifier.testTag(TAG_DETAIL_ERROR)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SubTab.entries.forEach { t -> Segment(t.label, t == tab, { onTab(t) }, Modifier.testTag(subTabTag(t))) }
+        }
+        when (tab) {
+            SubTab.OVERVIEW -> OverviewTab(task, state, vm, onFilterSession)
+            SubTab.DECISIONS -> DecisionsTab(task, state, vm::answer)
+            SubTab.TODO -> TodoTab(task, state, vm)
+            SubTab.COMMENTS -> CommentsTab(task, vm::addComment)
+            SubTab.HISTORY -> HistoryTab(task)
         }
     }
 }

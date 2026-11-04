@@ -4,6 +4,7 @@ import io.github.szymonrychu.booxsketch.api.ApiError
 import io.github.szymonrychu.booxsketch.api.TaskDto
 import io.github.szymonrychu.booxsketch.api.TaskEvents
 import io.github.szymonrychu.booxsketch.api.TasksClient
+import io.github.szymonrychu.booxsketch.api.TodoItemDto
 import io.github.szymonrychu.booxsketch.model.LabelResult
 import io.github.szymonrychu.booxsketch.model.TaskLabels
 import kotlinx.coroutines.CancellationException
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+const val MAX_TODO = 200
+
 data class TaskDetailState(
     val task: TaskDto? = null,
     val notFound: Boolean = false,
@@ -26,6 +29,7 @@ data class TaskDetailState(
     val staleBanner: Boolean = false,
     val error: String? = null,
     val labelError: String? = null,
+    val todoError: String? = null,
     val editingBody: Boolean = false,
     /** Decisions with an answer in flight; a second Submit tap is ignored. */
     val answering: Set<Long> = emptySet(),
@@ -83,6 +87,36 @@ class TaskDetailViewModel(
         write { client.patchLabels(key, task.version, task.labels - label) }
     }
 
+    /** Sets one todo row to `todo`, `inprogress` or `done`. */
+    fun setTodoStatus(
+        itemId: Long,
+        status: String,
+    ) {
+        write { client.setTodoStatus(key, itemId, status) }
+    }
+
+    /** Adds a todo row (newlines stripped, at most [MAX_TODO] characters) by replacing the whole list. */
+    fun addTodo(raw: String) {
+        val task = mutable.value.task ?: return
+        val text = raw.replace(Regex("[\\r\\n]+"), " ").trim()
+        when {
+            text.isEmpty() -> return
+            text.length > MAX_TODO -> mutable.update { it.copy(todoError = "A todo item is at most $MAX_TODO characters") }
+            else -> write { client.putTodo(key, task.todo + TodoItemDto(text = text)) }
+        }
+    }
+
+    /** Removes one todo row by replacing the whole list without it. */
+    fun removeTodo(itemId: Long) {
+        val task = mutable.value.task ?: return
+        write { client.putTodo(key, task.todo.filterNot { it.id == itemId }) }
+    }
+
+    fun addComment(body: String) {
+        if (body.isBlank()) return
+        write { client.comment(key, body.trim()) }
+    }
+
     /** Answers an open decision with option index [choice] or free [text]. 409 shows "Already answered" and reloads. */
     fun answer(
         decisionId: Long,
@@ -112,7 +146,7 @@ class TaskDetailViewModel(
     /** Runs [call] as a write that answers with the whole task; ignored while another write runs. */
     internal fun write(call: suspend () -> TaskDto) {
         if (mutable.value.busy) return
-        mutable.update { it.copy(busy = true, error = null, labelError = null, staleBanner = false) }
+        mutable.update { it.copy(busy = true, error = null, labelError = null, todoError = null, staleBanner = false) }
         scope.launch { guarded { adopt(call()) } }
     }
 
