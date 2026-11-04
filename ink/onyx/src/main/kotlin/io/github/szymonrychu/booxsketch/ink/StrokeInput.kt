@@ -49,6 +49,13 @@ interface StrokeInput {
         width: Float,
     )
 
+    /**
+     * The strip's eraser: while [on], the pen tip erases what it touches (as [StrokeEvent.Erase])
+     * instead of drawing, and a raw pen input must not draw its own ink meanwhile. The stylus
+     * eraser end erases whatever this says.
+     */
+    fun setEraser(on: Boolean) = Unit
+
     /** Pen colour of the ink drawn live and of the strokes committed from now on. */
     fun setColor(color: PenColor) = Unit
 

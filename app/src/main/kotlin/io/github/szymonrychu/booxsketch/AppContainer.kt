@@ -128,7 +128,7 @@ class AppContainer(
 
     val boardViewModel: BoardViewModel by lazy { BoardViewModel(notebookStore, appScope, Dispatchers.IO) }
 
-    /** The plain touch input; also the one the Eraser chip drives. */
+    /** The plain touch input: the fallback, and the pen path of shape tools and the eraser on the Onyx path. */
     val touchInput: TouchStrokeInput by lazy { TouchStrokeInput(fingerEnabled = ::fingerEnabled) }
 
     @Volatile
@@ -165,14 +165,6 @@ class AppContainer(
             onyxFactory = onyxFactory,
             touchFactory = { touchInput },
         )
-    }
-
-    /**
-     * Mirrors the Eraser chip into the touch input. The Onyx raw path erases with the stylus
-     * eraser end only, so it needs nothing.
-     */
-    fun setEraser(on: Boolean) {
-        touchInput.eraserMode = on
     }
 
     // Send flow, outbox worker and conversations (Task 21).

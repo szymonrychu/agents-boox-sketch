@@ -2,6 +2,25 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Strip eraser erases with the pen tip on the Onyx path (boox-eraser)
+
+- Device report on v0.11.2: the eraser does not work. Root cause: the eraser selection only ever
+  reached `TouchStrokeInput.eraserMode` (`AppContainer.setEraser`, wired by `BoardScreen`'s
+  `LaunchedEffect(eraser)`); `OnyxStrokeInput` had no eraser state, so with the eraser selected raw
+  drawing stayed on and the pen tip inked a stroke. On the Onyx path only the stylus eraser end
+  (`onRawErasing*`) erased. That code is identical at v0.10.0 (#44 changed only the strip UI, which
+  sets `vm.eraser` correctly), so it is not provable from code why the eraser "worked before":
+  either that run was on the touch fallback (Diagnostics "Input path"), or erasing was done with
+  the eraser end. `git diff v0.10.0..v0.11.2 -- ink/` touches only the brush width.
+- Fix: `StrokeInput.setEraser(on)` replaces the `setEraser` lambda chain (no second path). The
+  eraser runs like a shape tool: `OnyxStrokeInput.active()` is false while it is on (raw drawing off,
+  derived state, cannot get stuck), and `OnyxWithFallback` moves the pen to `TouchStrokeInput`
+  (`touchDriven` = shape tool or eraser; view listener plus window feed), which erases in its
+  eraser mode. Picking a pen turns raw drawing back on. `OnyxEraserTest` drives the strip tap and a
+  window pen-tip drag through the real board and the real Onyx input.
+- Not verified on the device: that the window feed delivers the pen-tip drag while raw drawing is
+  open but disabled (same open question as shape drags; checklist).
+
 ## 2026-11-04 Live ink width matches the redrawn stroke (boox-ink-width)
 
 - Root cause: the raw brush got the slider width as is (`BrushMapping.width(width)`), while

@@ -73,7 +73,6 @@ fun DocumentHost(
                 input = input,
                 turner = turner,
                 onFingerSwipe = { container.inputSelector.onFingerSwipe = it },
-                setEraser = container::setEraser,
                 onSendNotes = { caption -> container.onSendNotes(vm, caption) },
                 modifier = modifier,
                 onReadOnlySwipe = { dir ->

@@ -43,7 +43,9 @@ private fun RawDrawing.openIdleTimed() {
  *
  * A shape tool keeps raw drawing off for as long as it is selected (part of [active], not a
  * nested hold, so it cannot get stuck): the shape drag is drawn by the app from plain touch
- * events, and raw ink must not draw freehand on top. The selected colour is part of the raw brush.
+ * events, and raw ink must not draw freehand on top. The eraser ([setEraser]) keeps raw drawing off
+ * the same way: the pen tip then erases through plain touch events. The selected colour is part of
+ * the raw brush.
  */
 class OnyxStrokeInput(
     @Suppress("unused") private val context: Context,
@@ -85,6 +87,9 @@ class OnyxStrokeInput(
 
     @Volatile
     private var color = PenColor.BLACK
+
+    @Volatile
+    private var eraser = false
 
     private val callback =
         object : RawInputCallback() {
@@ -215,8 +220,8 @@ class OnyxStrokeInput(
         d.setEnabled(active())
     }
 
-    /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool. */
-    private fun active() = !paused && holds == 0 && gated == null && !tool.isShape
+    /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool, no eraser. */
+    private fun active() = !paused && holds == 0 && gated == null && !tool.isShape && !eraser
 
     override val rawActive: Boolean get() = drawing != null && active()
 
@@ -254,6 +259,17 @@ class OnyxStrokeInput(
     override fun setColor(color: PenColor) {
         this.color = color
         drawing?.let { applyBrush(it) }
+    }
+
+    override fun setEraser(on: Boolean) {
+        if (on == eraser) return
+        eraser = on
+        val d = drawing ?: return
+        if (on) {
+            disable(d)
+        } else if (active()) {
+            enable(d)
+        }
     }
 
     override fun pause() {
