@@ -1,0 +1,162 @@
+package io.github.szymonrychu.booxsketch.onyx
+
+import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.Paint
+import com.onyx.android.sdk.data.note.ShapeCreateArgs
+import com.onyx.android.sdk.data.note.TouchPoint
+import com.onyx.android.sdk.pen.NeoBrushPenWrapper
+import com.onyx.android.sdk.pen.NeoCharcoalPenV2Wrapper
+import com.onyx.android.sdk.pen.NeoCharcoalPenWrapper
+import com.onyx.android.sdk.pen.NeoFountainPenWrapper
+import com.onyx.android.sdk.pen.NeoPenConfig
+import com.onyx.android.sdk.pen.PenRenderArgs
+import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.model.Tool
+
+/** Draws a committed stroke with a vendor pen; false leaves it to the caller's own renderer. */
+fun interface PenRenderer {
+    fun draw(
+        canvas: Canvas,
+        stroke: Stroke,
+        scale: Float,
+        dx: Float,
+        dy: Float,
+    ): Boolean
+}
+
+/** The Onyx pens whose look the app's renderer cannot reproduce (native pressure curve, texture). */
+enum class SdkPen { FOUNTAIN, BRUSH, CHARCOAL, CHARCOAL_V2 }
+
+/** One stroke as the SDK pens take it: canvas pixels, raw pressure up to [maxPressure]. */
+data class SdkStroke(
+    val pen: SdkPen,
+    val points: List<TouchPoint>,
+    val width: Float,
+    val color: Int,
+    val maxPressure: Float,
+)
+
+/** The SDK's offline pen renderers; a seam because they need the native libneopen_jni (device only). */
+fun interface OnyxPens {
+    fun draw(
+        canvas: Canvas,
+        stroke: SdkStroke,
+    )
+}
+
+/**
+ * Redraws fountain, brush, charcoal and charcoal_v2 strokes with the Onyx SDK's own pens, the
+ * ones behind the live raw ink, so the committed stroke looks like the live one: the native
+ * pressure and velocity curve of fountain and brush, and the charcoal textures. The stroke is
+ * handed over as the raw input drew it: canvas pixels, the raw brush width
+ * ([BrushMapping.width]) and raw pressure. Without the native library (JVM tests, a non-Onyx
+ * device) the first failure turns it off for good and every stroke falls back to the caller.
+ */
+class OnyxPenRenderer internal constructor(
+    private val pens: OnyxPens,
+    private val maxPressure: () -> Float,
+) : PenRenderer {
+    constructor() : this(SdkOnyxPens, Epd::maxTouchPressure)
+
+    @Volatile
+    private var broken = false
+
+    @Suppress("TooGenericExceptionCaught")
+    override fun draw(
+        canvas: Canvas,
+        stroke: Stroke,
+        scale: Float,
+        dx: Float,
+        dy: Float,
+    ): Boolean {
+        if (broken) return false
+        val pen = pen(stroke.tool) ?: return false
+        if (stroke.points.size < 2) return false
+        val max = maxPressure().let { if (it.isNaN() || it <= 0f) OnyxStrokeInput.FALLBACK_MAX_PRESSURE else it }
+        val width = BrushMapping.width(stroke.tool, stroke.width * scale)
+        val points = stroke.points.map { TouchPoint(it.x * scale + dx, it.y * scale + dy, it.pressure * max, width, it.tMs) }
+        return try {
+            pens.draw(canvas, SdkStroke(pen, points, width, stroke.color.argb, max))
+            true
+        } catch (_: LinkageError) {
+            broken = true
+            false
+        } catch (_: RuntimeException) {
+            broken = true
+            false
+        }
+    }
+
+    private fun pen(tool: Tool): SdkPen? =
+        when (tool) {
+            Tool.FOUNTAIN -> SdkPen.FOUNTAIN
+            Tool.BRUSH -> SdkPen.BRUSH
+            Tool.CHARCOAL -> SdkPen.CHARCOAL
+            Tool.CHARCOAL_V2 -> SdkPen.CHARCOAL_V2
+            Tool.BALLPOINT, Tool.MARKER, Tool.RECTANGLE, Tool.ARROW -> null
+        }
+
+    companion object {
+        /** The SDK pen renderer on an Onyx device with the pen SDK, else null (the app renderer only). */
+        fun onDevice(): PenRenderer? = if (OnyxProbe.available().available) OnyxPenRenderer() else null
+    }
+}
+
+/** The SDK calls, as the vendor demo redraws raw strokes (decompiled onyxsdk-pen 1.5.8). */
+internal object SdkOnyxPens : OnyxPens {
+    private const val DISPLAY_SCALE = 1f
+
+    override fun draw(
+        canvas: Canvas,
+        stroke: SdkStroke,
+    ) {
+        when (stroke.pen) {
+            SdkPen.FOUNTAIN -> {
+                NeoFountainPenWrapper.drawStroke(
+                    canvas,
+                    paint(stroke.color),
+                    stroke.points,
+                    DISPLAY_SCALE,
+                    stroke.width,
+                    stroke.maxPressure,
+                    false,
+                )
+            }
+
+            SdkPen.BRUSH -> {
+                NeoBrushPenWrapper.drawStroke(canvas, paint(stroke.color), stroke.points, stroke.width, stroke.maxPressure, false)
+            }
+
+            SdkPen.CHARCOAL -> {
+                NeoCharcoalPenWrapper.drawNormalStroke(charcoalArgs(canvas, stroke))
+            }
+
+            SdkPen.CHARCOAL_V2 -> {
+                NeoCharcoalPenV2Wrapper.drawNormalStroke(charcoalArgs(canvas, stroke))
+            }
+        }
+    }
+
+    fun paint(color: Int): Paint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+        }
+
+    /** Points are already canvas pixels, so the screen matrix is the identity. */
+    fun charcoalArgs(
+        canvas: Canvas,
+        stroke: SdkStroke,
+    ): PenRenderArgs =
+        PenRenderArgs()
+            .setCanvas(canvas)
+            .setPaint(paint(stroke.color))
+            .setPenType(
+                if (stroke.pen == SdkPen.CHARCOAL_V2) NeoPenConfig.NEOPEN_PEN_TYPE_CHARCOAL_V2 else NeoPenConfig.NEOPEN_PEN_TYPE_CHARCOAL,
+            ).setColor(stroke.color)
+            .setStrokeWidth(stroke.width)
+            .setCreateArgs(ShapeCreateArgs().setMaxPressure(stroke.maxPressure))
+            .setScreenMatrix(Matrix())
+            .setErase(false)
+            .setPoints(stroke.points)
+}

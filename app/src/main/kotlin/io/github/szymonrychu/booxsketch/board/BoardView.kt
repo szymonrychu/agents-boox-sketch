@@ -34,6 +34,7 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.shapeOutline
 import io.github.szymonrychu.booxsketch.onyx.Epd
 import io.github.szymonrychu.booxsketch.onyx.FullRefreshDebouncer
+import io.github.szymonrychu.booxsketch.onyx.OnyxPenRenderer
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.StrokeRenderer
 import kotlin.math.min
@@ -207,7 +208,7 @@ internal class TapDetector(
  */
 class BoardSurfaceView(
     context: Context,
-    private val renderer: StrokeRenderer = CanvasStrokeRenderer(),
+    private val renderer: StrokeRenderer = CanvasStrokeRenderer(OnyxPenRenderer.onDevice()),
 ) : SurfaceView(context),
     SurfaceHolder.Callback,
     CommittedInkSurface {

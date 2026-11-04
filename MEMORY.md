@@ -21,6 +21,35 @@ Lessons that outlive a session. Newest first.
 - Not verified on the device: that the window feed delivers the pen-tip drag while raw drawing is
   open but disabled (same open question as shape drags; checklist).
 
+## 2026-11-04 Redraw uses the Onyx SDK pens for fountain, brush and charcoal (boox-ink-match)
+
+- Device report after #47: ballpoint matched, fountain and brush still changed on redraw, charcoal
+  and charcoal_v2 looked right live but like a pen after the redraw.
+- Root cause (decompiled onyxsdk-pen 1.5.8 and onyxsdk-penbrush 1.1.2, javap notes in the
+  `boox-ink-match` scratchpad): the SDK pens behind the live ink compute per-point widths natively
+  (`NeoPenUtils.computeStrokePoints` -> `NeoFountainPen`/`NeoBrushPen` in libneopen_jni, `NeoPenConfig`
+  defaults pressureSensitivity 0.3, velocitySensitivity 0.5, smoothLevel 0.6) and draw charcoal as
+  texture bitmaps (`NeoCharcoalPen(V2)` -> `readTextureResult` -> `drawBitmap`). `CanvasStrokeRenderer`
+  drew a linear pressure ramp (fountain 0.35-1.0x, brush 0.2-1.0x, no velocity, no smoothing) and
+  charcoal as a smooth translucent line, so no width factor could fix it and the curve is not in Java.
+- Fix: `OnyxPenRenderer` (`:ink:onyx`) redraws those four pens with the SDK's own offline renderers,
+  as the vendor demo does: `NeoFountainPenWrapper.drawStroke`, `NeoBrushPenWrapper.drawStroke`,
+  `NeoCharcoalPenWrapper`/`NeoCharcoalPenV2Wrapper.drawNormalStroke` (identity screen matrix,
+  points already in canvas pixels). Input is what the raw input drew: canvas pixels, width
+  `BrushMapping.width(tool, width * scale)` (so charcoal_v2 keeps 1.2x on both sides), raw pressure
+  (normalised * device max, fallback 4096) with the same max. Ballpoint, marker, shapes and single
+  points stay with the app renderer.
+- Seam: `CanvasStrokeRenderer(pen: PenRenderer?)` offers each freehand stroke to the pen first.
+  `OnyxPenRenderer.onDevice()` is non-null only when `OnyxProbe` passes, and only the board surface
+  and the document page view use it; PNG and Send exports keep the plain renderer. On JVM,
+  Robolectric and screenshots the pen is null (or the native library is missing: the first
+  `LinkageError`/`RuntimeException` turns it off for good), so the fallback renderer and every
+  screenshot are unchanged. `drawBigStroke` (needs a content rect and render matrix) is not used.
+- Redraws stay incremental (the idle sync still draws only strokes in the dirty rect); each SDK call
+  creates and destroys a native pen per stroke, which may cost time on full redraws of charcoal-heavy
+  pages. Device-only: that the SDK pens match the firmware live ink exactly (dpi 320 default) and
+  that full redraws stay fast; see the device checklist section "Redraw matches the live ink".
+
 ## 2026-11-04 Live ink width matches the redrawn stroke (boox-ink-width)
 
 - Root cause: the raw brush got the slider width as is (`BrushMapping.width(width)`), while
