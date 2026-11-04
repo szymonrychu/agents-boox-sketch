@@ -260,3 +260,7 @@ Lessons that outlive a session. Newest first.
   see pen colours; grayscale would drop them. Size is measured by `dense_colour_page_stays_under_1mb`
   and the 0.85x shrink loop still guards `max_png_bytes`. Bounds use `shapeOutline` so arrow heads
   and rectangle corners are never clipped by the crop.
+
+## 2026-11-03 strokes.json v2
+
+- strokes.json v2, decoder v2 only: upload-only format, no stored v1 files; outbox v1 bytes still upload unchanged (C5).
