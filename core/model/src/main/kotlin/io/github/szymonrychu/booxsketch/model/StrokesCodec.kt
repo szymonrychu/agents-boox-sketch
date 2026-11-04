@@ -14,9 +14,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
-/** strokes.json wire format, version 1. Point times are relative to the first point of the page; tilt is dropped. */
+/** strokes.json wire format, version 2. Point times are relative to the first point of the page; tilt is dropped. */
 object StrokesCodec {
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     fun encode(
         canvas: Canvas,
@@ -46,6 +46,7 @@ object StrokesCodec {
                             add(
                                 buildJsonObject {
                                     put("tool", s.tool.wire)
+                                    put("color", s.color.wire)
                                     put("width", s.width)
                                     put(
                                         "points",
@@ -85,13 +86,16 @@ object StrokesCodec {
                     val o = el.jsonObject
                     val name = o.getValue("tool").jsonPrimitive.content
                     val tool = requireNotNull(Tool.entries.firstOrNull { it.wire == name }) { "unknown tool: $name" }
+                    val colorName = o.getValue("color").jsonPrimitive.content
+                    val color = requireNotNull(PenColor.entries.firstOrNull { it.wire == colorName }) { "unknown color: $colorName" }
                     val pts =
                         o.getValue("points").jsonArray.map { pe ->
                             val a = pe.jsonArray
                             require(a.size == 4) { "point needs 4 values" }
                             Point(a[0].jsonPrimitive.float, a[1].jsonPrimitive.float, a[2].jsonPrimitive.float, a[3].jsonPrimitive.long)
                         }
-                    Stroke("s$i", tool, o.getValue("width").jsonPrimitive.float, pts)
+                    require(!tool.isShape || pts.size == 2) { "shape needs exactly 2 points" }
+                    Stroke("s$i", tool, o.getValue("width").jsonPrimitive.float, pts, color)
                 }
             return canvas to strokes
         } catch (e: NoSuchElementException) {

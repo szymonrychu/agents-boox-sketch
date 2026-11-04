@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.board
 
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
@@ -178,5 +179,110 @@ class BoardViewModelTest {
                 v.notebook.value.pages[0]
                     .strokes,
             ).hasSize(1)
+        }
+
+    private fun shape(
+        id: String,
+        tool: Tool,
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+    ) = Stroke(id, tool, 4f, listOf(Point(x0, y0, 0.5f, 0L), Point(x1, y1, 0.5f, 5L)))
+
+    private fun BoardViewModel.strokes() = notebook.value.pages[notebook.value.current].strokes
+
+    @Test
+    fun set_color_is_kept_and_clears_eraser() =
+        runTest {
+            val v = vm()
+            assertThat(v.color.value).isEqualTo(PenColor.BLACK)
+            v.setEraser(true)
+            v.setColor(PenColor.PURPLE)
+            assertThat(v.color.value).isEqualTo(PenColor.PURPLE)
+            assertThat(v.eraser.value).isFalse()
+        }
+
+    @Test
+    fun shape_drag_updates_preview_with_snap() =
+        runTest {
+            val v = vm()
+            v.onStroke(shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f))
+            val drag = shape("a", Tool.ARROW, 500f, 500f, 310f, 205f)
+            v.onShapeDrag(drag)
+            val p = v.preview.value!!
+            assertThat(p.points).hasSize(2)
+            assertThat(p.points.last().x).isEqualTo(300f)
+            assertThat(p.points.last().y).isEqualTo(200f)
+        }
+
+    @Test
+    fun shape_commit_snaps_arrow_to_rectangle_and_clears_preview() =
+        runTest {
+            val v = vm()
+            v.onStroke(shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f))
+            val drag = shape("a", Tool.ARROW, 500f, 500f, 310f, 205f)
+            v.onShapeDrag(drag)
+            val previewed = v.preview.value
+            v.onStroke(drag)
+            assertThat(v.preview.value).isNull()
+            val added = v.strokes().last()
+            assertThat(added.points).isEqualTo(previewed!!.points)
+            assertThat(added.points.last().x).isEqualTo(300f)
+            assertThat(added.points.last().y).isEqualTo(200f)
+        }
+
+    @Test
+    fun tiny_shape_is_dropped_and_not_undoable() =
+        runTest {
+            val v = vm()
+            v.onShapeDrag(shape("t", Tool.RECTANGLE, 10f, 10f, 12f, 13f))
+            assertThat(v.preview.value).isNull()
+            v.onStroke(shape("t", Tool.RECTANGLE, 10f, 10f, 12f, 13f))
+            assertThat(v.strokes()).isEmpty()
+            assertThat(v.canUndo.value).isFalse()
+        }
+
+    @Test
+    fun shape_cancel_clears_preview() =
+        runTest {
+            val v = vm()
+            v.onShapeDrag(shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f))
+            assertThat(v.preview.value).isNotNull()
+            v.onShapeCancel()
+            assertThat(v.preview.value).isNull()
+        }
+
+    @Test
+    fun page_switch_clears_preview() =
+        runTest {
+            val v = vm()
+            v.addPage()
+            v.onShapeDrag(shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f))
+            assertThat(v.preview.value).isNotNull()
+            v.selectPage(0)
+            assertThat(v.preview.value).isNull()
+        }
+
+    @Test
+    fun erasing_rectangle_keeps_snapped_arrow() =
+        runTest {
+            val v = vm()
+            v.onStroke(shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f))
+            v.onStroke(shape("a", Tool.ARROW, 500f, 500f, 310f, 205f))
+            v.onErase(100f, 150f, 5f)
+            assertThat(v.strokes().map { it.tool }).containsExactly(Tool.ARROW)
+            val arrow = v.strokes().single()
+            assertThat(arrow.points.last().x).isEqualTo(300f)
+        }
+
+    @Test
+    fun undo_removes_shape() =
+        runTest {
+            val v = vm()
+            v.onStroke(shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f))
+            assertThat(v.strokes()).hasSize(1)
+            v.undo()
+            assertThat(v.strokes()).isEmpty()
         }
 }

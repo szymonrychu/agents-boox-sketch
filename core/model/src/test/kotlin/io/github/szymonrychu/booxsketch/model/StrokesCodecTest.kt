@@ -19,7 +19,8 @@ class StrokesCodecTest {
         Page(
             listOf(
                 Stroke("a", Tool.FOUNTAIN, 4f, listOf(p(10f, 20f, 0.5f, 1000, 0.1f), p(30f, 40f, 0.75f, 1016))),
-                Stroke("b", Tool.CHARCOAL_V2, 8f, listOf(p(100f, 100f, 1f, 1500))),
+                Stroke("b", Tool.RECTANGLE, 4f, listOf(p(100f, 100f, 1f, 1500), p(400f, 300f, 1f, 1900)), PenColor.RED),
+                Stroke("c", Tool.ARROW, 4f, listOf(p(400f, 200f, 1f, 2200), p(700f, 200f, 1f, 2500)), PenColor.BLUE),
             ),
             true,
         )
@@ -37,14 +38,54 @@ class StrokesCodecTest {
         val bytes = StrokesCodec.encode(canvas, page)
         val (c, strokes) = StrokesCodec.decode(bytes)
         assertThat(c).isEqualTo(canvas)
-        assertThat(strokes.map { it.tool }).containsExactly(Tool.FOUNTAIN, Tool.CHARCOAL_V2).inOrder()
+        assertThat(strokes.map { it.tool }).containsExactly(Tool.FOUNTAIN, Tool.RECTANGLE, Tool.ARROW).inOrder()
         assertThat(strokes.flatMap { it.points }.all { it.tiltX == null && it.tiltY == null }).isTrue()
         assertThat(StrokesCodec.encode(c, Page(strokes, true))).isEqualTo(bytes)
     }
 
     @Test
     fun unknown_tool_rejected() {
-        val json = """{"version":1,"canvas":{"w":1,"h":1,"dpi":1.0},"strokes":[{"tool":"crayon","width":1.0,"points":[[0,0,1,0]]}]}"""
-        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(json.toByteArray()) }
+        val bytes = doc(stroke = """{"tool":"crayon","color":"black","width":1.0,"points":[[0,0,1,0]]}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
+    }
+
+    private fun doc(
+        version: Int = 2,
+        stroke: String,
+    ) = """{"version":$version,"canvas":{"w":1,"h":1,"dpi":1.0},"strokes":[$stroke]}""".toByteArray()
+
+    private val pts2 = """[[0,0,1,0],[1,1,1,5]]"""
+
+    @Test
+    fun version_1_rejected() {
+        val bytes = doc(1, """{"tool":"fountain","color":"black","width":1.0,"points":$pts2}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
+    }
+
+    @Test
+    fun missing_color_rejected() {
+        val bytes = doc(stroke = """{"tool":"fountain","width":1.0,"points":$pts2}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
+    }
+
+    @Test
+    fun unknown_color_rejected() {
+        val bytes = doc(stroke = """{"tool":"fountain","color":"pink","width":1.0,"points":$pts2}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
+    }
+
+    @Test
+    fun shape_with_three_points_rejected() {
+        val three = """[[0,0,1,0],[1,1,1,5],[2,2,1,9]]"""
+        val bytes = doc(stroke = """{"tool":"rectangle","color":"red","width":1.0,"points":$three}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
+    }
+
+    @Test
+    fun colour_and_shapes_roundtrip() {
+        val (_, strokes) = StrokesCodec.decode(StrokesCodec.encode(canvas, page))
+        assertThat(strokes.map { it.color }).containsExactly(PenColor.BLACK, PenColor.RED, PenColor.BLUE).inOrder()
+        assertThat(strokes[1].points).hasSize(2)
+        assertThat(strokes[2].tool).isEqualTo(Tool.ARROW)
     }
 }

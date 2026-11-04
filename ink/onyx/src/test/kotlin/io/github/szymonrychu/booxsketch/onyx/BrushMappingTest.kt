@@ -17,11 +17,18 @@ class BrushMappingTest {
                 Tool.CHARCOAL_V2 to TouchHelper.STROKE_STYLE_CHARCOAL_V2,
                 Tool.MARKER to TouchHelper.STROKE_STYLE_MARKER,
             )
-        assertThat(Tool.entries).hasSize(6)
-        for (tool in Tool.entries) {
+        val pens = Tool.entries.filterNot { it.isShape }
+        assertThat(pens).hasSize(6)
+        for (tool in pens) {
             assertThat(BrushMapping.style(tool)).isEqualTo(expected.getValue(tool))
         }
-        assertThat(Tool.entries.map { BrushMapping.style(it) }.toSet()).hasSize(6)
+        assertThat(pens.map { BrushMapping.style(it) }.toSet()).hasSize(6)
+    }
+
+    @Test
+    fun shape_tools_map_to_pencil() {
+        assertThat(BrushMapping.style(Tool.RECTANGLE)).isEqualTo(TouchHelper.STROKE_STYLE_PENCIL)
+        assertThat(BrushMapping.style(Tool.ARROW)).isEqualTo(TouchHelper.STROKE_STYLE_PENCIL)
     }
 
     @Test
