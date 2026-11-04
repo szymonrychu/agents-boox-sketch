@@ -7,8 +7,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.szymonrychu.booxsketch.board.TAG_PAGE_LABEL
-import io.github.szymonrychu.booxsketch.board.TAG_SEND
+import io.github.szymonrychu.booxsketch.board.stripTag
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -22,8 +21,8 @@ class MainActivityBoardTest {
 
     @Test
     fun launchingShowsTheBoardToolbar() {
-        compose.onNodeWithTag(TAG_SEND).assertExists()
-        compose.onNodeWithTag(TAG_PAGE_LABEL).assertExists()
+        compose.onNodeWithTag(stripTag("send")).assertExists()
+        compose.onNodeWithTag(stripTag("pages")).assertExists()
     }
 
     @Test
@@ -47,7 +46,7 @@ class MainActivityBoardTest {
                 .boundsInRoot.height
         val bottom =
             compose
-                .onNodeWithTag(TAG_SEND)
+                .onNodeWithTag(stripTag("send"))
                 .fetchSemanticsNode()
                 .boundsInRoot.bottom
         assertTrue("toolbar bottom $bottom is under the $bar px nav bar (height $height)", bottom <= height - bar)

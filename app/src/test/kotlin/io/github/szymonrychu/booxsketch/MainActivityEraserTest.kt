@@ -7,6 +7,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.board.TAG_PANEL_INDICATOR
+import io.github.szymonrychu.booxsketch.board.stripTag
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,14 +20,15 @@ class MainActivityEraserTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun eraser_chip_reaches_the_touch_input() {
+    fun eraser_button_reaches_the_touch_input() {
         val container = ApplicationProvider.getApplicationContext<App>().container
         assertThat(container.touchInput.eraserMode).isFalse()
-        compose.onNodeWithText("Eraser").performClick()
+        compose.onNodeWithTag(stripTag("eraser")).performClick()
         compose.waitForIdle()
         assertThat(container.boardViewModel.eraser.value).isTrue()
         assertThat(container.touchInput.eraserMode).isTrue()
-        compose.onNodeWithText("Eraser").performClick()
+        // A second tap on the selected eraser opens its popup (T-36 Q4); picking the pen leaves the eraser.
+        compose.onNodeWithTag(stripTag("pen")).performClick()
         compose.waitForIdle()
         assertThat(container.touchInput.eraserMode).isFalse()
     }
@@ -38,6 +40,6 @@ class MainActivityEraserTest {
         compose.waitForIdle()
         compose.onNodeWithText("No conversations yet. Send a sketch to start one.").assertExists()
         compose.onNodeWithText("Diagnostics").assertExists()
-        compose.onNodeWithText("Undo").assertExists()
+        compose.onNodeWithTag(stripTag("undo")).assertExists()
     }
 }

@@ -794,4 +794,177 @@ class BoardChromeWiringTest {
         // Released with the rects measured before: the exclude is not empty.
         assertThat(emptyStartsWhileEnabled()).isEmpty()
     }
+
+    private fun openPenPopup() {
+        // The default pen is selected, so the first tap on the pen button opens its popup.
+        compose.onNodeWithTag(stripTag("pen")).performClick()
+        drawFrames()
+    }
+
+    /** The harness traverses the view tree only on a layout request: ask for one so the refresher's wait for the next draw ends. */
+    private fun drawFrames() {
+        compose.waitForIdle()
+        compose.runOnUiThread { host!!.rootView.requestLayout() }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun strip_keeps_clear_of_system_bars() {
+        show(insets = WindowInsets(30, 40, 0, 40))
+        compose.waitForIdle()
+        val dock = rectOf(TAG_DOCK)
+        assertThat(dock.left).isAtLeast(30)
+        assertThat(dock.top).isAtLeast(40)
+    }
+
+    @Test
+    fun popup_open_holds_raw_until_strip_and_popup_rects_are_excluded() {
+        show()
+        createSurface()
+        input.log.clear()
+
+        openPenPopup()
+        val popup = rectOf(TAG_POPUP)
+        val strip = rectOf(TAG_DOCK)
+
+        assertThat(input.log.first()).isEqualTo("hold")
+        val started = lastStartWith(popup)
+        assertThat(started).isAtLeast(0)
+        assertThat(input.log[started]).contains(strip.toString())
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun popup_open_never_starts_input_with_empty_excludes() {
+        show()
+        createSurface()
+        openPenPopup()
+        compose.onNodeWithTag(stripTag("send")).performClick()
+        drawFrames()
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun switching_popups_waits_for_the_new_popup_rect() {
+        show()
+        createSurface()
+        openPenPopup()
+        input.log.clear()
+        compose.onNodeWithTag(stripTag("send")).performClick()
+        drawFrames()
+        val popup = rectOf(TAG_POPUP)
+        // The window is narrower than the send popup, so the start carries it clipped: match on its top-left corner.
+        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains("Rect(${popup.left}, ${popup.top} -") }
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun popup_close_releases_once_and_drops_the_popup_rect() {
+        show()
+        createSurface()
+        openPenPopup()
+        val popup = rectOf(TAG_POPUP)
+        input.log.clear()
+
+        openPenPopup()
+
+        compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
+        assertThat(input.log.first()).isEqualTo("hold")
+        assertThat(lastStart()).doesNotContain(popup.toString())
+        assertThat(lastStart()).contains(rectOf(TAG_DOCK).toString())
+        assertThat(holds()).isAtMost(2)
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun tap_on_board_closes_popup_panel_and_strip_in_one_burst() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        openPenPopup()
+        input.log.clear()
+
+        fingerTap()
+
+        compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
+        assertThat(input.log.first()).isEqualTo("hold")
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(holds()).isAtMost(2)
+        assertThat(releases()).isEqualTo(holds())
+        assertThat(lastStart()).contains(rectOf(TAG_INDICATOR).toString())
+        assertThat(lastStart()).contains(rectOf(TAG_PANEL_INDICATOR).toString())
+    }
+
+    @Test
+    fun auto_hide_closes_open_popup() {
+        show()
+        createSurface()
+        openPenPopup()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        commitStroke()
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun auto_hide_refused_during_stroke_keeps_popup() {
+        show()
+        createSurface()
+        openPenPopup()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        commitStroke()
+        compose.mainClock.advanceTimeBy(100)
+        input.strokeInProgress = true
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS * 3)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(TAG_POPUP).assertIsDisplayed()
+        assertThat(input.log).isEmpty()
+    }
+
+    @Test
+    fun panel_and_strip_hidden_both_have_nonempty_excludes() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_HIDE).performClick()
+        compose.waitForIdle()
+        val start = lastStart()
+        assertThat(start).contains(rectOf(TAG_INDICATOR).toString())
+        assertThat(start).contains(rectOf(TAG_PANEL_INDICATOR).toString())
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+    }
+
+    @Test
+    fun rotation_closes_an_open_popup_and_releases_every_hold() {
+        show()
+        createSurface()
+        openPenPopup()
+        input.log.clear()
+
+        rotate()
+        drawFrames()
+
+        compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
 }

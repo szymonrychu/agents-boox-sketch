@@ -4,10 +4,11 @@ import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.core.app.ApplicationProvider
@@ -38,30 +39,34 @@ private class RecordingUi : UiRefresh {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [35], qualifiers = "w600dp-h900dp-xhdpi")
 class UiRefreshWiringTest {
     @get:Rule val compose = createComposeRule()
 
     @get:Rule val tmp = TemporaryFolder()
 
+    private var host: View? = null
+
     private fun vm() =
         BoardViewModel(NotebookStore(File(tmp.root, "n.json")), CoroutineScope(Dispatchers.Unconfined), Dispatchers.Unconfined)
 
     @Test
-    fun toolbar_buttons_report_settled_changes() {
+    fun strip_buttons_report_settled_changes() {
         val ui = RecordingUi()
-        compose.setContent { BoardToolbar(vm(), ui = ui) }
-        compose.onNodeWithText(Tool.entries.first().wire).performClick()
-        compose.onNodeWithText("Clear").performClick()
-        compose.onNodeWithText("Add page").performClick()
-        compose.onNodeWithText("Previous").performClick()
-        assertThat(ui.calls).containsExactly(true, true, true, true)
+        val state = ToolboxState()
+        val vm = vm()
+        compose.setContent { ToolStrip(vm, state, {}, ui) }
+        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("eraser")).performClick()
+        compose.onNodeWithTag(stripTag("pen")).performClick()
+        assertThat(ui.calls).containsExactly(true, true, true)
     }
 
     @Test
     fun width_drag_reports_unsettled_changes_then_one_settled_on_release() {
         val ui = RecordingUi()
-        compose.setContent { BoardToolbar(vm(), ui = ui) }
+        val vm = vm()
+        compose.setContent { ToolPopupContent(ToolPopup.PEN, vm, ToolboxState(), { _, _ -> }, ui) }
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress)).performSemanticsAction(SemanticsActions.SetProgress) {
             it(10f)
         }
@@ -73,13 +78,19 @@ class UiRefreshWiringTest {
         val input = FreezingInput()
         val vm = vm()
         compose.mainClock.autoAdvance = false
-        compose.setContent { BoardScreen(vm, input) }
+        compose.setContent {
+            host = LocalView.current
+            BoardScreen(vm, input)
+        }
         assertThat(input.log.firstOrNull()).isEqualTo("hold")
         compose.mainClock.autoAdvance = true
         compose.waitForIdle()
         assertThat(input.log).containsExactly("hold", "release").inOrder()
 
-        compose.onNodeWithText(Tool.entries.first().wire).performClick()
+        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.waitForIdle()
+        // The harness traverses the view tree only on a layout request (the old chips' ripple did that): ask for one.
+        compose.runOnUiThread { host!!.rootView.requestLayout() }
         compose.waitForIdle()
         assertThat(input.log).containsExactly("hold", "release", "hold", "release").inOrder()
 
@@ -100,7 +111,7 @@ class UiRefreshWiringTest {
         // Robolectric draws the first frame during setContent, so a toolbar change provides the
         // outstanding hold: the click and leaving the board run in one main-thread task, before
         // that change's frame is drawn.
-        val click = compose.onNodeWithText(Tool.entries.first().wire).fetchSemanticsNode().config[SemanticsActions.OnClick]
+        val click = compose.onNodeWithTag(stripTag("rectangle")).fetchSemanticsNode().config[SemanticsActions.OnClick]
         compose.runOnUiThread {
             click.action?.invoke()
             assertThat(input.log.count { it == "hold" }).isGreaterThan(input.log.count { it == "release" })
@@ -118,5 +129,44 @@ class UiRefreshWiringTest {
     fun touch_input_gets_the_no_op_refresh() {
         val view = View(ApplicationProvider.getApplicationContext())
         assertThat(UiRefresher.forView(view, TouchStrokeInput())).isSameInstanceAs(UiRefresh.None)
+    }
+
+    @Test
+    fun send_popup_taps_reach_the_container_callback_through_the_dock() {
+        val input = FreezingInput()
+        val calls = mutableListOf<Pair<Boolean, String?>>()
+        compose.setContent { BoardScreen(vm(), input, onSend = { all, caption -> calls += all to caption }) }
+        compose.onNodeWithTag(stripTag("send")).performClick()
+        compose.onNodeWithTag(TAG_SEND).performClick()
+        compose.onNodeWithTag(stripTag("send")).performClick()
+        compose.onNodeWithTag(TAG_SEND_ALL).performClick()
+        assertThat(calls).containsExactly(false to null, true to null).inOrder()
+    }
+
+    @Test
+    fun strip_state_changes_reach_the_refresher_as_one_bracket_each() {
+        val input = FreezingInput()
+        compose.setContent {
+            host = LocalView.current
+            BoardScreen(vm(), input)
+        }
+        compose.waitForIdle()
+        input.log.clear()
+        for (name in listOf("rectangle", "arrow", "eraser", "pen")) {
+            compose.onNodeWithTag(stripTag(name)).performClick()
+            compose.waitForIdle()
+            compose.runOnUiThread { host!!.rootView.requestLayout() }
+            compose.waitForIdle()
+        }
+        assertThat(input.log.count { it == "hold" }).isEqualTo(4)
+        assertThat(input.log.count { it == "release" }).isEqualTo(4)
+        input.log.clear()
+        // A popup open is a burst of its own: the refresher's hold plus the dock's, both released.
+        compose.onNodeWithTag(stripTag("pen")).performClick()
+        compose.waitForIdle()
+        compose.runOnUiThread { host!!.rootView.requestLayout() }
+        compose.waitForIdle()
+        assertThat(input.log.count { it == "hold" }).isEqualTo(input.log.count { it == "release" })
+        assertThat(input.log.count { it == "hold" }).isAtLeast(1)
     }
 }

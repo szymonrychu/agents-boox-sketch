@@ -285,4 +285,54 @@ class BoardViewModelTest {
             v.undo()
             assertThat(v.strokes()).isEmpty()
         }
+
+    @Test
+    fun shape_tools_use_fixed_width() =
+        runTest {
+            val v = vm()
+            v.setWidth(12f)
+            assertThat(v.effectiveWidth.value).isEqualTo(12f)
+            v.setTool(Tool.RECTANGLE)
+            assertThat(v.effectiveWidth.value).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+            v.setTool(Tool.ARROW)
+            assertThat(v.effectiveWidth.value).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+        }
+
+    @Test
+    fun width_slider_value_survives_a_shape_tool() =
+        runTest {
+            val v = vm()
+            v.setTool(Tool.RECTANGLE)
+            v.setWidth(17f)
+            assertThat(v.width.value).isEqualTo(17f)
+            assertThat(v.effectiveWidth.value).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+            v.setTool(Tool.MARKER)
+            assertThat(v.effectiveWidth.value).isEqualTo(17f)
+        }
+
+    @Test
+    fun committed_rectangle_has_shape_width_even_if_input_sent_other_width() =
+        runTest {
+            val v = vm()
+            val wide = shape("r", Tool.RECTANGLE, 100f, 100f, 300f, 200f).copy(width = 20f)
+            v.onStroke(wide)
+            assertThat(v.strokes().single().width).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+        }
+
+    @Test
+    fun shape_preview_has_shape_width() =
+        runTest {
+            val v = vm()
+            v.onShapeDrag(shape("r", Tool.ARROW, 100f, 100f, 300f, 200f).copy(width = 20f))
+            assertThat(v.preview.value!!.width).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+        }
+
+    @Test
+    fun committed_pen_stroke_keeps_slider_width() =
+        runTest {
+            val v = vm()
+            v.setWidth(9f)
+            v.onStroke(stroke("a").copy(width = 9f))
+            assertThat(v.strokes().single().width).isEqualTo(9f)
+        }
 }

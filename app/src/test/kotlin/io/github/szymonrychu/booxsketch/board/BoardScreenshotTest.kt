@@ -1,7 +1,6 @@
 package io.github.szymonrychu.booxsketch.board
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
@@ -11,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
+import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
@@ -59,10 +59,10 @@ class BoardScreenshotTest {
         vm.selectPage(1)
         compose.setContent {
             MaterialTheme {
-                Column {
+                Row {
                     val nb by vm.notebook.collectAsState()
-                    BoardPreviewCanvas(nb.canvas, nb.pages[nb.current], Modifier.fillMaxWidth().height(400.dp))
-                    BoardToolbar(vm)
+                    ToolStrip(vm, ToolboxState(), {}, UiRefresh.None)
+                    BoardPreviewCanvas(nb.canvas, nb.pages[nb.current], Modifier.weight(1f).height(400.dp))
                 }
             }
         }
@@ -97,10 +97,10 @@ class BoardScreenshotTest {
         vm.setTool(Tool.RECTANGLE)
         compose.setContent {
             MaterialTheme {
-                Column {
+                Row {
                     val nb by vm.notebook.collectAsState()
-                    BoardPreviewCanvas(nb.canvas, nb.pages[nb.current], Modifier.fillMaxWidth().height(400.dp))
-                    BoardToolbar(vm)
+                    ToolStrip(vm, ToolboxState(), {}, UiRefresh.None)
+                    BoardPreviewCanvas(nb.canvas, nb.pages[nb.current], Modifier.weight(1f).height(400.dp))
                 }
             }
         }
