@@ -9,8 +9,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -28,6 +30,7 @@ import org.json.JSONObject
 class WebViewCapture(
     private val context: Context,
     private val timeoutMs: Long = MermaidRenderer.TIMEOUT_MS,
+    private val viewFactory: (Context) -> WebView = ::WebView,
 ) : WebCapture {
     private val main = Handler(Looper.getMainLooper())
 
@@ -41,12 +44,13 @@ class WebViewCapture(
         main.post {
             val view =
                 try {
-                    WebView(context)
+                    viewFactory(context)
                 } catch (e: Exception) {
                     onDone(CaptureResult.Failed(DiagramFailure.WebViewUnavailable(e.message ?: e.javaClass.simpleName)))
                     return@post
                 }
             var finished = false
+            val notes = CaptureNotes()
 
             @Suppress("TooGenericExceptionCaught") // destroying a broken web view must not hide the result
             fun finish(result: CaptureResult) {
@@ -67,24 +71,14 @@ class WebViewCapture(
             view.settings.blockNetworkLoads = true
             view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
             view.addJavascriptInterface(
-                object {
-                    @JavascriptInterface
-                    fun done(heightCss: Int) {
-                        view.post { if (!finished) drawAfterFrame(view, widthPx, heightCss, { finished }, ::finish) }
-                    }
-
-                    @JavascriptInterface
-                    fun fail(
-                        kind: String,
-                        message: String,
-                    ) {
-                        view.post {
-                            failWith(
-                                if (kind == KIND_PARSE) DiagramFailure.Parse(message) else DiagramFailure.WebViewUnavailable(message),
-                            )
-                        }
-                    }
-                },
+                CaptureBridge(
+                    post = { main.post(it) },
+                    onDone = { heightCss -> if (!finished) drawAfterFrame(view, widthPx, heightCss, { finished }, ::finish) },
+                    onFail = { kind, message ->
+                        notes.js(message)
+                        failWith(if (kind == KIND_PARSE) DiagramFailure.Parse(message) else DiagramFailure.WebViewUnavailable(message))
+                    },
+                ),
                 "Android",
             )
             view.webViewClient =
@@ -92,7 +86,14 @@ class WebViewCapture(
                     override fun shouldInterceptRequest(
                         v: WebView,
                         request: WebResourceRequest,
-                    ): WebResourceResponse? = if (isAllowedUrl(request.url.toString())) null else forbidden()
+                    ): WebResourceResponse? {
+                        val url = request.url.toString()
+                        val allowed = isAllowedUrl(url)
+                        Log.d(DiagramFailure.TAG, (if (allowed) "allow " else "block ") + url)
+                        if (allowed) return null
+                        notes.blocked(url)
+                        return forbidden()
+                    }
 
                     override fun onPageFinished(
                         v: WebView,
@@ -106,6 +107,8 @@ class WebViewCapture(
                         request: android.webkit.WebResourceRequest,
                         error: android.webkit.WebResourceError,
                     ) {
+                        Log.w(DiagramFailure.TAG, "load error ${error.description} for ${request.url}")
+                        notes.loadError(request.url.toString(), error.description.toString())
                         if (request.isForMainFrame) failWith(DiagramFailure.WebViewUnavailable("load error ${error.description}"))
                     }
 
@@ -117,7 +120,16 @@ class WebViewCapture(
                         return true
                     }
                 }
-            main.postDelayed({ failWith(DiagramFailure.Timeout(timeoutMs)) }, timeoutMs)
+            view.webChromeClient =
+                object : WebChromeClient() {
+                    override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                        Log.d(DiagramFailure.TAG, "console ${message.messageLevel()}: ${message.message()}")
+                        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) notes.js(message.message())
+                        return true
+                    }
+                }
+            // Fires before the renderer's own wait ends, so the failure carries the hint.
+            main.postDelayed({ failWith(DiagramFailure.Timeout(timeoutMs, notes.hint())) }, (timeoutMs - HOST_EARLY_MS).coerceAtLeast(1))
             layoutAt(view, widthPx, INITIAL_HEIGHT)
             view.loadUrl("file:///android_asset/${MermaidRenderer.ASSET_DIR}/render.html")
         }
@@ -167,7 +179,7 @@ class WebViewCapture(
             System.nanoTime(),
             object : WebView.VisualStateCallback() {
                 override fun onComplete(requestId: Long) {
-                    view.postOnAnimation { drawOnce() }
+                    main.post { drawOnce() }
                 }
             },
         )
@@ -182,9 +194,61 @@ class WebViewCapture(
         /** The only URLs the view may load: the bundled mermaid asset directory. */
         fun isAllowedUrl(url: String): Boolean = url.startsWith(ALLOWED_PREFIX) && !url.contains("..")
 
+        private const val HOST_EARLY_MS = 500L
         private const val HTTP_FORBIDDEN = 403
         private const val INITIAL_HEIGHT = 800
         private const val MAX_HEIGHT = 8_000
         private const val FRAME_FALLBACK_MS = 700L
+    }
+}
+
+/**
+ * What the page was seen doing, for the timeout caption. A blocked request is the most telling (the page's own script
+ * never ran), then a load error, then the first console or script error.
+ */
+class CaptureNotes {
+    private var blocked: String? = null
+    private var loadError: String? = null
+    private var js: String? = null
+
+    fun blocked(url: String) {
+        if (blocked == null) blocked = url
+    }
+
+    fun loadError(
+        url: String,
+        description: String,
+    ) {
+        if (loadError == null) loadError = "$description $url"
+    }
+
+    fun js(message: String) {
+        if (js == null) js = message
+    }
+
+    fun hint(): String = blocked?.let { "blocked: $it" } ?: loadError?.let { "load error: $it" } ?: js?.let { "js: $it" } ?: ""
+}
+
+/**
+ * The `Android` object the page calls. Its callbacks arrive on a web view thread and must reach the main thread through
+ * [post] (the host's main handler), never through `View.post`: the capture view is never attached to a window, and
+ * `View.post` on an unattached view queues the runnable until attach, so it never ran and every render timed out.
+ */
+class CaptureBridge(
+    private val post: (Runnable) -> Unit,
+    private val onDone: (Int) -> Unit,
+    private val onFail: (String, String) -> Unit,
+) {
+    @JavascriptInterface
+    fun done(heightCss: Int) {
+        post(Runnable { onDone(heightCss) })
+    }
+
+    @JavascriptInterface
+    fun fail(
+        kind: String,
+        message: String,
+    ) {
+        post(Runnable { onFail(kind, message) })
     }
 }

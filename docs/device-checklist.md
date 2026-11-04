@@ -127,6 +127,10 @@ Open the Documents tab (side panel), pick a document with at least one spec vers
       render a deliberately broken one (`graph TD; A-->`), it shows the code plus a caption
       "diagram failed: mermaid parse error: ...". Check logcat tag `BooxMermaid` for the same
       reason, and that reopening the unannotated document retries the render.
+- [ ] Mermaid never times out on a simple flowchart (fix/mermaid-timeout): it shows a picture
+      within a few seconds. If a caption still says "timed out after 20 s", its bracket names the
+      cause ("blocked: <url>" or "js: <first console error>"); logcat tag `BooxMermaid` has the
+      allow/block decisions and console lines.
 - [ ] Rotate the tablet: the page is scaled to fit and centred and the ink stays aligned with
       the text it was written over.
 - [ ] Open an older version from the "v3" picker: it is read-only ("Read only"), saved ink of
