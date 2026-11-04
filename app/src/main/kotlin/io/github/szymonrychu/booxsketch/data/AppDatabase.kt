@@ -29,6 +29,8 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun cursorDao(): CursorDao
 
+    abstract fun documentDao(): DocumentDao
+
     companion object {
         /** Every migration, in order. There is no destructive fallback: a missing step must fail loudly. */
         val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2)

@@ -14,6 +14,11 @@ import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
+import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ID
+import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ORDER
+import io.github.szymonrychu.booxsketch.documents.DocumentRow
+import io.github.szymonrychu.booxsketch.documents.DocumentsTab
+import io.github.szymonrychu.booxsketch.documents.DocumentsViewModel
 import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
@@ -189,6 +194,11 @@ class AppContainer(
         )
     }
 
+    /** The document the user opened from the Documents tab; null shows the board and panel. */
+    val openDocument = MutableStateFlow<DocumentRow?>(null)
+
+    val documentsViewModel: DocumentsViewModel by lazy { DocumentsViewModel(database, appScope) { openDocument.value = it } }
+
     /** Copies spec versions into Room: after a conversations refresh and while the Documents tab is shown. */
     val specSync: SpecSync by lazy { SpecSync(database, ::connector, { conversations.latestSpecVersions }) }
 
@@ -280,6 +290,7 @@ class AppContainer(
         // One line per feature, added by its task.
         PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
         PanelTabs.register(PanelTab(CONVERSATIONS_TAB_ID, "Conversations", order = 0) { ConversationsTab() })
+        PanelTabs.register(PanelTab(DOCUMENTS_TAB_ID, "Documents", DOCUMENTS_TAB_ORDER) { DocumentsTab() })
         PanelTabs.onOpenConversations = { PanelTabs.select(CONVERSATIONS_TAB_ID) }
     }
 
