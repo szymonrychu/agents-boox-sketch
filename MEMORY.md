@@ -2,6 +2,39 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Pen ink latency after #40 (boox-latency)
+
+- While raw drawing is live (`StrokeInput.rawLive`: Onyx raw drawing open and enabled, no fallback)
+  a committed pen stroke does not touch the board surface at all: `BoardSurfaceView.show` only adds
+  the stroke's view-pixel bounds to a pending dirty rect. Why: #40 (`drawCommitted`) posted a full
+  SurfaceView frame (`lockCanvas()` without a dirty rect, every stroke of the page) on every pen-up
+  while the panel was in handwriting DRAWING state; folding that frame into the scribble layer
+  stalled the next stroke's firmware ink, and quick writing queued the stalls ("unbearable" lag
+  against stock BOOX apps). Stock apps leave committed ink in the overlay and sync their own view
+  only when the pen is idle or before leaving scribble mode.
+- The surface catches up through `CommittedInkSurface.syncCommitted` (dirty rect only,
+  `lockCanvas(rect)`, clipped, freehand strokes outside skipped, raw drawing left on): when the pen
+  goes idle (the SDK's `RawInputCallback.onPenUpRefresh`, re-armed on every pen-up and cancelled on
+  a press; `setPenUpRefreshTimeMs(700)` after every open, default 500, so a pause between letters
+  does not count; skipped while the pen is down again), and in `OnyxStrokeInput.disable`/`close`
+  and before a re-open for new rects, i.e. before every hold, pause, refresh bracket (undo, redo,
+  erase, clear, page switch, full refresh), shape tool and stop (leaving the board, surface gone,
+  fallback). `show` also syncs before it shows any other change. So the surface holds every
+  committed stroke before the overlay goes, and the #40 blink cannot return. The input finds the
+  surface as its host view (`host as? CommittedInkSurface`), so nothing is registered or leaked.
+- Send and PNG export read the notebook model, not the surface; the Send tap and its outcome
+  dialog go through the toolbar hold and `pause`, which sync first anyway.
+- Touch fallback and shape tools are unchanged (`rawLive` false: the committer path as before).
+  `OnyxStrokeInput.drawCommitted`'s raw-active branch is no longer reached from the board.
+- `PenUpReplayTest`'s #40 assertion (a `draw` at pen-up while raw stays on) encoded the lag and was
+  replaced; its undo/erase test now expects the dirty flush before the bracket, and the test
+  settles the debounced load full refresh first (it landed inside the undo step on slow runs and
+  made the test flaky at 85b124e).
+- Not verified on the device: whether the panel shows the idle sync frame or keeps it frozen
+  until the next legitimate refresh (either is invisible), and that `onPenUpRefresh` arrives at
+  all on the Note Air 6C (`SFTouchRender`). If it never arrives, the surface still syncs before
+  every raw-off; add a 700 ms timer from `onEndRawDrawing` only then (one mechanism).
+
 ## 2026-11-04 Documents tab and handwritten notes (plan boox-sketch-app 3.6)
 
 - Frozen pages: a document version is paginated once into page PNGs (`AnnotationStore`, `layout.json` written last as the
@@ -198,8 +231,9 @@ Lessons that outlive a session. Newest first.
   about one frame, without a full flash; the pen keeps drawing with the new tool afterwards.
 - Dragging the width slider: the thumb follows in steps (about every 150 ms) and lands on the
   final value on release. If GU leaves ghosting or does nothing, try `refreshScreenRegion` or GC.
-- Drawing strokes never flashes the toolbar. A committed stroke redraws without a raw drawing
-  toggle (`drawCommitted`); undo, erase, clear and page switch still toggle by design.
+- Drawing strokes never flashes the toolbar. A committed stroke does not touch the surface while
+  raw drawing is live (2026-11-04 latency entry); undo, erase, clear and page switch still toggle by
+  design, after a dirty-rect sync.
 - Draw ten quick strokes: each stays visible the whole time (no vanish-then-reappear); then undo,
   erase and a page switch still show the right ink afterwards.
 
