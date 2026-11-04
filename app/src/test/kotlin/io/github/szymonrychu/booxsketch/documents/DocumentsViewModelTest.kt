@@ -100,7 +100,7 @@ class DocumentsViewModelTest {
             assertThat(first.rows).hasSize(10)
             assertThat(first.hasPrev).isFalse()
             vm.next()
-            val second = settled { it.index == 1 }
+            val second = settled { it.index == 1 && it.rows.size == 3 }
             assertThat(second.rows).hasSize(3)
             assertThat(second.hasNext).isFalse()
             vm.next()
