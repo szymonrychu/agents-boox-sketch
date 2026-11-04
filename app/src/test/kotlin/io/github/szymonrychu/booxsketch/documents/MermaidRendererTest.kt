@@ -31,6 +31,15 @@ class MermaidRendererTest {
     private fun failure(r: DiagramResult) = (r as DiagramResult.Failed).failure
 
     @Test
+    fun only_the_bundled_asset_directory_may_load() {
+        assertThat(WebViewCapture.isAllowedUrl("file:///android_asset/mermaid/render.html")).isTrue()
+        assertThat(WebViewCapture.isAllowedUrl("file:///android_asset/mermaid/mermaid.min.js")).isTrue()
+        assertThat(WebViewCapture.isAllowedUrl("https://example.com/x.js")).isFalse()
+        assertThat(WebViewCapture.isAllowedUrl("file:///data/data/app/files/x")).isFalse()
+        assertThat(WebViewCapture.isAllowedUrl("file:///android_asset/mermaid/../secret")).isFalse()
+    }
+
+    @Test
     fun timeout_names_the_reason() {
         val renderer = MermaidRenderer({ _, _, _ -> }, timeoutMs = 50)
         val f = failure(renderer.renderDiagram("graph TD; A-->B", 400))

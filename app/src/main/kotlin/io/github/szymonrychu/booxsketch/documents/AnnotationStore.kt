@@ -74,7 +74,7 @@ class AnnotationStore(
     }
 
     /**
-     * True when the freeze holds a diagram that fell back to code text and nothing was drawn or sent on it yet, so the
+     * True when the freeze holds a diagram that fell back to code text and no stroke was drawn and nothing was sent on it yet, so the
      * freeze can still be replaced by a better one (no ink can move). A failed render is never final.
      */
     @Synchronized
@@ -83,7 +83,9 @@ class AnnotationStore(
         version: Int,
     ): Boolean {
         val dir = dir(conversationLocalId, version)
-        return File(dir, DIAGRAM_FAILED_FILE).isFile && !File(dir, NOTEBOOK_FILE).isFile && !File(dir, SENT_FILE).isFile
+        if (!File(dir, DIAGRAM_FAILED_FILE).isFile || File(dir, SENT_FILE).isFile) return false
+        // Showing a version saves an empty notebook, so the file's presence says nothing: only a stroke does.
+        return notebookStore(conversationLocalId, version).load()?.pages?.none { it.strokes.isNotEmpty() } ?: true
     }
 
     /** Drops a freeze that [needsDiagramRetry] so the next [freeze] writes a new one. */

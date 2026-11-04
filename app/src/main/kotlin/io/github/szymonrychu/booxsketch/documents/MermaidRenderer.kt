@@ -1,18 +1,9 @@
 package io.github.szymonrychu.booxsketch.documents
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.view.View
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -36,6 +27,8 @@ sealed class DiagramFailure(
     data class WebViewUnavailable(
         val message: String,
     ) : DiagramFailure("web view unavailable: " + oneLine(message))
+
+    data object Budget : DiagramFailure("skipped, document diagram time used up")
 
     data object NoImage : DiagramFailure("renderer returned no image")
 
@@ -111,7 +104,7 @@ class MermaidRenderer(
     private val capture: WebCapture,
     private val timeoutMs: Long = TIMEOUT_MS,
 ) : DiagramRenderer {
-    constructor(context: Context) : this(WebViewCapture(context.applicationContext))
+    constructor(context: Context) : this(WebViewCapture(context.applicationContext, TIMEOUT_MS), TIMEOUT_MS)
 
     override fun renderDiagram(
         source: String,
@@ -193,6 +186,9 @@ class MermaidRenderer(
     companion object {
         /** Per attempt. See MEMORY.md 2026-11-04 for why 20 s. */
         const val TIMEOUT_MS = 20_000L
+
+        /** Total diagram time per document (see [MarkdownPaginator]); later diagrams become captioned code. */
+        const val DOCUMENT_BUDGET_MS = 60_000L
         const val ASSET_DIR = "mermaid"
 
         /** sha256 of the bundled `mermaid.min.js` (mermaid 11.4.1, MIT); also recorded in MEMORY.md. */

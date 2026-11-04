@@ -7,9 +7,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONObject
@@ -19,10 +22,12 @@ import org.json.JSONObject
  * into a bitmap. The view is never attached to a window, so it gets an explicit measured and laid-out size, and the
  * draw waits for mermaid's render promise (the page calls `Android.done` only after it resolved and two animation
  * frames ran) and then for a post-layout visual state before drawing. Verified on the device only (see the device
- * checklist).
+ * checklist). The host destroys its view on every path, including its own [timeoutMs] timer, and loads nothing but the
+ * bundled asset directory (network loads are blocked and any other request is answered with 403).
  */
 class WebViewCapture(
     private val context: Context,
+    private val timeoutMs: Long = MermaidRenderer.TIMEOUT_MS,
 ) : WebCapture {
     private val main = Handler(Looper.getMainLooper())
 
@@ -43,22 +48,29 @@ class WebViewCapture(
                 }
             var finished = false
 
+            @Suppress("TooGenericExceptionCaught") // destroying a broken web view must not hide the result
             fun finish(result: CaptureResult) {
                 if (finished) return
                 finished = true
-                view.destroy()
+                try {
+                    view.destroy()
+                } catch (e: Exception) {
+                    Log.w(DiagramFailure.TAG, "web view destroy failed", e)
+                }
                 onDone(result)
             }
 
             fun failWith(failure: DiagramFailure) = finish(CaptureResult.Failed(failure))
             view.settings.javaScriptEnabled = true
             view.settings.allowFileAccess = false
+            view.settings.allowContentAccess = false
+            view.settings.blockNetworkLoads = true
             view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
             view.addJavascriptInterface(
                 object {
                     @JavascriptInterface
                     fun done(heightCss: Int) {
-                        view.post { drawAfterFrame(view, widthPx, heightCss, ::finish) }
+                        view.post { if (!finished) drawAfterFrame(view, widthPx, heightCss, { finished }, ::finish) }
                     }
 
                     @JavascriptInterface
@@ -77,6 +89,11 @@ class WebViewCapture(
             )
             view.webViewClient =
                 object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        v: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? = if (isAllowedUrl(request.url.toString())) null else forbidden()
+
                     override fun onPageFinished(
                         v: WebView,
                         url: String,
@@ -100,6 +117,7 @@ class WebViewCapture(
                         return true
                     }
                 }
+            main.postDelayed({ failWith(DiagramFailure.Timeout(timeoutMs)) }, timeoutMs)
             layoutAt(view, widthPx, INITIAL_HEIGHT)
             view.loadUrl("file:///android_asset/${MermaidRenderer.ASSET_DIR}/render.html")
         }
@@ -122,19 +140,27 @@ class WebViewCapture(
         view: WebView,
         widthPx: Int,
         heightCss: Int,
+        isFinished: () -> Boolean,
         finish: (CaptureResult) -> Unit,
     ) {
         val heightPx = (heightCss * context.resources.displayMetrics.density).toInt().coerceIn(1, MAX_HEIGHT)
         layoutAt(view, widthPx, heightPx)
         var drawn = false
 
+        @Suppress("TooGenericExceptionCaught") // a bitmap that cannot be allocated or drawn is a failed diagram, not a crash
         fun drawOnce() {
-            if (drawn) return
+            if (drawn || isFinished()) return
             drawn = true
-            val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-            bitmap.eraseColor(Color.WHITE)
-            view.draw(Canvas(bitmap))
-            finish(CaptureResult.Success(bitmap))
+            try {
+                val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(Color.WHITE)
+                view.draw(Canvas(bitmap))
+                finish(CaptureResult.Success(bitmap))
+            } catch (e: Exception) {
+                finish(CaptureResult.Failed(DiagramFailure.Crashed(e.message ?: e.javaClass.simpleName)))
+            } catch (e: OutOfMemoryError) {
+                finish(CaptureResult.Failed(DiagramFailure.Crashed("out of memory drawing ${widthPx}x$heightPx: ${e.message}")))
+            }
         }
         main.postDelayed({ drawOnce() }, FRAME_FALLBACK_MS)
         view.postVisualStateCallback(
@@ -149,6 +175,14 @@ class WebViewCapture(
 
     companion object {
         const val KIND_PARSE = "parse"
+        private const val ALLOWED_PREFIX = "file:///android_asset/${MermaidRenderer.ASSET_DIR}/"
+
+        private fun forbidden() = WebResourceResponse("text/plain", "utf-8", HTTP_FORBIDDEN, "Forbidden", emptyMap(), null)
+
+        /** The only URLs the view may load: the bundled mermaid asset directory. */
+        fun isAllowedUrl(url: String): Boolean = url.startsWith(ALLOWED_PREFIX) && !url.contains("..")
+
+        private const val HTTP_FORBIDDEN = 403
         private const val INITIAL_HEIGHT = 800
         private const val MAX_HEIGHT = 8_000
         private const val FRAME_FALLBACK_MS = 700L

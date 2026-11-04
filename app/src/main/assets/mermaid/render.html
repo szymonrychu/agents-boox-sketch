@@ -16,7 +16,11 @@ async function renderDiagram(source) {
     const result = await mermaid.render("diagram", source);
     document.getElementById("out").innerHTML = result.svg;
     if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
-    await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
+    // An unattached web view may never run animation frames: the timer wins the race then.
+    await new Promise(function (r) {
+      setTimeout(r, 300);
+      requestAnimationFrame(function () { requestAnimationFrame(r); });
+    });
     Android.done(Math.ceil(document.body.getBoundingClientRect().height));
   } catch (e) {
     Android.fail("parse", String((e && e.message) || e));

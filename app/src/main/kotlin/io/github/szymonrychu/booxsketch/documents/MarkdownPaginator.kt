@@ -24,6 +24,7 @@ import org.intellij.markdown.parser.MarkdownParser
 class MarkdownPaginator(
     private val layout: DocumentLayout,
     private val mermaid: BlockImage? = null,
+    private val diagramBudgetMs: Long = MermaidRenderer.DOCUMENT_BUDGET_MS,
 ) {
     private val styles = TextStyles(layout)
     private val flavour = GFMFlavourDescriptor()
@@ -59,6 +60,7 @@ class MarkdownPaginator(
         /** Indexes (in [blocks]) of diagram blocks that fell back to code text. */
         val failedDiagrams = HashSet<Int>()
         private var fenceFailed = false
+        private var diagramSpentMs = 0L
 
         fun blocks(): List<RenderedBlock> {
             val out = ArrayList<RenderedBlock>()
@@ -224,8 +226,22 @@ class MarkdownPaginator(
             return TextBlock(styles.measure(s, styles.paint(styles.body * TABLE_SCALE, mono = true)), styles.spacing, from, to)
         }
 
-        @Suppress("TooGenericExceptionCaught") // a renderer failure of any kind is the captioned text fallback
         private fun diagramResult(
+            hook: BlockImage,
+            code: String,
+        ): DiagramResult {
+            // The document is unusable until it is laid out, so rendering diagrams has a total budget.
+            if (diagramSpentMs >= diagramBudgetMs) return DiagramResult.Failed(DiagramFailure.Budget)
+            val started = System.nanoTime()
+            try {
+                return renderOne(hook, code)
+            } finally {
+                diagramSpentMs += (System.nanoTime() - started) / NANOS_PER_MS
+            }
+        }
+
+        @Suppress("TooGenericExceptionCaught") // a renderer failure of any kind is the captioned text fallback
+        private fun renderOne(
             hook: BlockImage,
             code: String,
         ): DiagramResult =
@@ -411,6 +427,8 @@ class MarkdownPaginator(
     }
 
     private companion object {
+        private const val NANOS_PER_MS = 1_000_000L
+
         val HEADING_LEVELS: Map<IElementType, Int> =
             mapOf(
                 MarkdownElementTypes.ATX_1 to 1,

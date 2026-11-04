@@ -147,6 +147,26 @@ class MarkdownPaginatorTest {
     }
 
     @Test
+    fun diagrams_after_the_document_budget_are_skipped_with_a_reason() {
+        var calls = 0
+        val renderer =
+            object : DiagramRenderer {
+                override fun renderDiagram(
+                    source: String,
+                    widthPx: Int,
+                ): DiagramResult {
+                    calls++
+                    return DiagramResult.Failed(DiagramFailure.Timeout(20_000))
+                }
+            }
+        val md = "```mermaid\na\n```\n\n```mermaid\nb\n```"
+        val texts = MarkdownPaginator(DocumentLayout(600, 800), renderer, diagramBudgetMs = 0).textBlocks(md)
+        assertThat(calls).isEqualTo(0)
+        assertThat(texts).hasSize(2)
+        assertThat(texts[1]).endsWith("diagram failed: skipped, document diagram time used up")
+    }
+
+    @Test
     fun plain_hook_returning_null_is_captioned_too() {
         val p = paginator(mermaid = { _, _ -> null })
         assertThat(p.textBlocks("```mermaid\nx\n```").single()).endsWith("diagram failed: renderer returned no image")

@@ -665,6 +665,14 @@ Lessons that outlive a session. Newest first.
   first render on an e-ink CPU, which was never measured below 5 s on the device. 20 s only delays a doc that would
   have shown code text anyway, and pagination already runs off the main thread. Revisit once the device logs show real times.
 - A failed render is never final: pages with a failed diagram are flagged (`RenderedPage.diagramFailed`), the freeze
-  writes a `diagram-failed` marker, and opening the version again discards that freeze and paginates anew while no ink
-  (`notebook.json`) and no sent mark exist. After ink or send the freeze stays, as ink is in page coordinates and must not move.
+  writes a `diagram-failed` marker, and opening the version again discards that freeze and paginates anew while no stroke
+  exists in the saved notebook and no sent mark exists. The test is "any stroke", not "notebook.json exists", because
+  showing a page saves an empty notebook (review finding). After ink or send the freeze stays, as ink is in page coordinates.
+- Review fixes (PR #50): `render.html` races a 300 ms timer against the two animation frames (an unattached web view may
+  never run frames; covered by `scripts/tests/test_render_html.py`, node). The host destroys the view on every path,
+  including its own timeout timer, and draws inside try/catch (failure -> `Crashed` reason; no draw after finish).
+  Network is blocked (`blockNetworkLoads`, no content/file access, `shouldInterceptRequest` answers 403 for anything but
+  the `mermaid` asset dir). Not made asynchronous: the freeze is the ink coordinate system, so a placeholder swap would move
+  pages under ink; instead a total budget of 60 s per document (`MermaidRenderer.DOCUMENT_BUDGET_MS`) after which
+  remaining diagrams become captioned code ("skipped, document diagram time used up") and are retried on the next open.
 - Tests changed because the `WebCapture` callback now reports `CaptureResult` instead of `Bitmap?` (MermaidRendererTest only).
