@@ -10,6 +10,8 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.Window
+import io.github.szymonrychu.booxsketch.documents.SwipeDir
+import io.github.szymonrychu.booxsketch.documents.ThresholdPageSwipe
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
@@ -81,6 +83,10 @@ class InputSelector(
 
     private var onyxInput: OnyxWithFallback? = null
 
+    /** Receives finger swipes seen by the window callback while an Onyx input is active; null (default) ignores them. */
+    @Volatile
+    var onFingerSwipe: ((SwipeDir) -> Unit)? = null
+
     private val _shapeDrags = MutableStateFlow(ShapeDragCounts())
 
     /** Shape drag events per source since process start; shows on device whether the board view still gets them. */
@@ -94,7 +100,7 @@ class InputSelector(
         onyxInput = null
         touchReason()?.let { return touch(it) }
         return try {
-            OnyxWithFallback(onyxFactory(), counted(touchFactory()), recording(), scope, mainExecutor).also {
+            OnyxWithFallback(onyxFactory(), counted(touchFactory()), recording(), scope, mainExecutor, swipes = { onFingerSwipe }).also {
                 onyxInput = it
                 _status.value = InputStatus(InputPath.ONYX_RAW, null)
             }
@@ -193,8 +199,11 @@ private class OnyxWithFallback(
     private val diagnostics: OnyxDiagnostics,
     private val scope: CoroutineScope,
     private val mainExecutor: Executor,
+    swipes: () -> ((SwipeDir) -> Unit)? = { null },
 ) : StrokeInput,
     StylusDownObserver {
+    private val fingerSwipes = FingerSwipeTracker(ThresholdPageSwipe(), swipes)
+
     override val events: Flow<StrokeEvent> = merge(onyx.events, touch.events)
 
     /** Only touch (fallback or shape drags) has a stroke in progress to draw; raw ink is drawn by the vendor SDK. */
@@ -277,6 +286,7 @@ private class OnyxWithFallback(
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                     if (isStylusDown(event)) onStylusDownInWindow(event.x, event.y)
                     feedShapeDrag(event)
+                    fingerSwipes.feed(event)
                     return original.dispatchTouchEvent(event)
                 }
             }

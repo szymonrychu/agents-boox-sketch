@@ -1,7 +1,9 @@
 package io.github.szymonrychu.booxsketch.board
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
@@ -117,6 +119,7 @@ class BoardSurfaceView(
     private var page: PageCanvas = PageCanvas(1, 1, 1f)
     private var shownIndex: Int? = null
     private var preview: Stroke? = null
+    private var background: Bitmap? = null
     private var ready = false
     private var live: Stroke? = null
     private var handwriting = false
@@ -144,17 +147,23 @@ class BoardSurfaceView(
 
     fun geometry() = BoardGeometry(width, height, page)
 
-    /** Shows [strokes] of page [index] plus the shape [preview] (page-canvas pixels, drawn over the page). */
+    /**
+     * Shows [strokes] of page [index] plus the shape [preview] (page-canvas pixels, drawn over the page). A [background]
+     * (a document page, in page-canvas pixels) is drawn first; another background instance counts as a page change.
+     */
     fun show(
         page: PageCanvas,
         strokes: List<Stroke>,
         index: Int,
         preview: Stroke? = null,
+        background: Bitmap? = null,
     ) {
-        val samePage = page == this.page && strokes == this.strokes && index == shownIndex
+        val sameBackground = background === this.background
+        val samePage = page == this.page && strokes == this.strokes && index == shownIndex && sameBackground
         if (samePage && preview == this.preview) return
-        val full = needsFullRefresh(shownIndex, this.strokes, index, strokes)
+        val full = needsFullRefresh(shownIndex, this.strokes, index, strokes) || (shownIndex != null && !sameBackground)
         val dragging = preview != null && samePage
+        this.background = background
         this.page = page
         this.strokes = strokes
         shownIndex = index
@@ -192,6 +201,14 @@ class BoardSurfaceView(
         try {
             canvas.drawColor(Color.WHITE)
             val g = geometry()
+            background?.let {
+                val m =
+                    Matrix().apply {
+                        postScale(g.scale * page.w / it.width, g.scale * page.h / it.height)
+                        postTranslate(g.dx, g.dy)
+                    }
+                canvas.drawBitmap(it, m, null)
+            }
             renderer.draw(canvas, strokes, g.scale, g.dx, g.dy)
             preview?.let { renderer.draw(canvas, listOf(it), g.scale, g.dx, g.dy) }
             live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
@@ -253,6 +270,7 @@ fun BoardView(
     preview: Stroke? = null,
     onShapeDrag: (Stroke) -> Unit = {},
     onShapeCancel: () -> Unit = {},
+    background: Bitmap? = null,
 ) {
     val surface = remember { arrayOfNulls<BoardSurfaceView>(1) }
     val strokeCb by rememberUpdatedState(onStroke)
@@ -277,7 +295,7 @@ fun BoardView(
                 v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> startOn(v) }
             }
         },
-        update = { it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current, preview) },
+        update = { it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current, preview, background) },
         onRelease = { input.stop() },
     )
     LaunchedEffect(exclude) { surface[0]?.let { startOn(it) } }
