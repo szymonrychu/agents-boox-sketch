@@ -22,6 +22,23 @@ data class ConfigDto(
     @SerialName("api_version") val apiVersion: Int,
 )
 
+/** `POST /pair` request: the 6-digit pairing code shown on the Devices page. */
+@Serializable
+data class PairIn(
+    val code: String,
+)
+
+/** `POST /pair` answer: the device and its token, shown once. Never log it. */
+@Serializable
+data class PairedDto(
+    @SerialName("device_id") val deviceId: String,
+    val name: String,
+    val plugin: String,
+    val token: String,
+) {
+    override fun toString() = "PairedDto(deviceId=$deviceId, name=$name, plugin=$plugin, token=***)"
+}
+
 /** One page entry of the upload `meta`: its index and canvas. */
 @Serializable
 data class PageMetaDto(

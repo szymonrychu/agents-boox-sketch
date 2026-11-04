@@ -34,6 +34,18 @@ class ConnectorClient(
         return builder
     }
 
+    /** Exchanges a 6-digit pairing code for the device token. Public route: sends no Authorization header. */
+    suspend fun pair(code: String): PairedDto {
+        val body = json.encodeToString(PairIn(code)).toRequestBody(JSON_TYPE)
+        return call(
+            Request
+                .Builder()
+                .url("$base/pair")
+                .post(body)
+                .build(),
+        )
+    }
+
     suspend fun config(): ConfigDto = call(authedRequest("/config").get().build())
 
     suspend fun uploadSketch(

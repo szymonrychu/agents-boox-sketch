@@ -17,6 +17,9 @@ sealed class ApiError(
     /** 401: the token is missing, wrong or revoked. */
     data object Unauthorized : ApiError("unauthorized")
 
+    /** 400 invalid_code: the pairing code is wrong, expired, used or locked (the server does not say which). */
+    data object InvalidCode : ApiError("invalid_code")
+
     /** 409 in_progress: a request with the same client id is still being handled. */
     data object InProgress : ApiError("in_progress")
 
@@ -72,6 +75,7 @@ internal fun mapError(
     retryAfter: String?,
 ): ApiError =
     when (status) {
+        400 -> if (code == "invalid_code") ApiError.InvalidCode else ApiError.Server(status)
         401 -> ApiError.Unauthorized
         404 -> ApiError.NotFound(code)
         409 -> if (code == "in_progress") ApiError.InProgress else ApiError.Conflict(code)
