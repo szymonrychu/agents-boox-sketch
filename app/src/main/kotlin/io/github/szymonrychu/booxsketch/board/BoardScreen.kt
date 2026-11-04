@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -34,6 +35,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.onyx.UiRefresher
 import io.github.szymonrychu.booxsketch.ui.BoardChrome
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -183,7 +185,7 @@ internal fun BoardScreenWith(
         }
         if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
     }
-    RelayoutOnConfigurationChange(holds, ui)
+    RelayoutOnConfigurationChange(holds, ui, chrome, hasPanel = panel != null)
     // Settled: this composition hands BoardView the exclude list of every overlay state that was asked for.
     val settled = holds.settled
     LaunchedEffect(settled, exclude) {
@@ -201,12 +203,14 @@ internal fun BoardScreenWith(
  * tree is laid out with the new size, so raw drawing is off before the board restarts its input
  * with the new limit. The full refresh is asked for at the same moment: the refresher runs it after
  * the next draw, which is the new layout (asked later, no further draw might ever come). The hold
- * is released through the usual [ChromeHolds] settle, one frame after the new layout reported.
+ * is released through the usual [ChromeHolds] settle, once the dock and panel reported rects for the new layout.
  */
 @Composable
 private fun RelayoutOnConfigurationChange(
     holds: ChromeHolds,
     ui: UiRefresh,
+    chrome: BoardChrome?,
+    hasPanel: Boolean,
 ) {
     val context = LocalContext.current
     val provider = context.findConfigurationProvider() ?: return
@@ -232,8 +236,10 @@ private fun RelayoutOnConfigurationChange(
     LaunchedEffect(changes) {
         if (changes > 0) {
             // Launched by the recomposition of the new layout; one frame on it has been measured and
-            // placed and the overlays reported their new rects.
+            // placed. Then wait, like the dock and panel show or hide, until the dock (and the panel,
+            // when composed) report non-empty rects for the state they are in.
             withFrameNanos { }
+            snapshotFlow { holds.overlaysReported(chrome, hasPanel) }.first { it }
             holds.report(LAYOUT_KEY, true, emptyList())
         }
     }
@@ -327,3 +333,14 @@ internal fun dockSettled(
     visible: Boolean,
     rects: List<Rect>,
 ): Boolean = awaiting != null && overlaySettled(awaiting, needsRects = true, visible = visible, rects = rects)
+
+/**
+ * True when the dock (and the panel, when composed) reported non-empty rects for the state [chrome] shows;
+ * with no chrome there is nothing to wait for.
+ */
+private fun ChromeHolds.overlaysReported(
+    chrome: BoardChrome?,
+    hasPanel: Boolean,
+): Boolean =
+    chrome == null ||
+        (reported(DOCK_KEY, chrome.visible) && (!hasPanel || reported(PANEL_KEY, chrome.panelVisible)))

@@ -48,6 +48,12 @@ internal class ChromeHolds(
                     r != null && overlaySettled(p.target, p.needsRects, r.visible, r.rects)
                 }
 
+    /** True when overlay [key] last reported [visible] with non-empty rects. */
+    fun reported(
+        key: String,
+        visible: Boolean,
+    ): Boolean = reports[key]?.let { overlaySettled(visible, needsRects = true, visible = it.visible, rects = it.rects) } ?: false
+
     /** Runs [apply] (the state flip of overlay [key] to [target]), holding raw drawing if nothing was pending. */
     fun change(
         key: String,

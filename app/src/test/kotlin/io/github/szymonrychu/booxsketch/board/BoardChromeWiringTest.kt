@@ -654,4 +654,46 @@ class BoardChromeWiringTest {
         assertThat(emptyStartsWhileEnabled()).isEmpty()
         assertThat(releases()).isEqualTo(holds())
     }
+
+    @Test
+    fun relayout_hold_waits_for_the_dock_to_report_non_empty_rects() {
+        val measured = mutableStateOf(true)
+        val dock: DockContent =
+            { p ->
+                val rects = if (measured.value) listOf(Rect(0, 500, 400, 600)) else emptyList()
+                var reported by remember { mutableStateOf<List<Rect>?>(null) }
+                SideEffect {
+                    if (rects != reported) {
+                        reported = rects
+                        p.onExcludeChange(rects)
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        // The new layout has not measured the dock yet: it reports no rect.
+        compose.runOnUiThread { measured.value = false }
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.runOnUiThread {
+            val activity = host!!.context as android.app.Activity
+            val config = android.content.res.Configuration(activity.resources.configuration)
+            config.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT
+            config.screenWidthDp += 10
+            (activity as androidx.activity.ComponentActivity).onConfigurationChanged(config)
+        }
+        compose.waitForIdle()
+        // Raw drawing stays held while the dock has no rect in the new layout (the layout hold and the
+        // refresher's hold for the full refresh, which only a real draw releases).
+        assertThat(holds()).isEqualTo(2)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.runOnUiThread { measured.value = true }
+        compose.waitForIdle()
+        // The layout hold is released once, after the input restarted with the new rects.
+        assertThat(releases()).isEqualTo(1)
+        assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfLast { it.startsWith("start:") } - 1)
+    }
 }
