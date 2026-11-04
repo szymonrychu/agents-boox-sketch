@@ -5,7 +5,6 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.api.OutboxKind
@@ -15,7 +14,7 @@ import io.github.szymonrychu.booxsketch.data.OutboxEntity
 import io.github.szymonrychu.booxsketch.pairing.FakeKeyProvider
 import io.github.szymonrychu.booxsketch.pairing.TAG_ORIGIN
 import io.github.szymonrychu.booxsketch.pairing.TAG_PAIR
-import io.github.szymonrychu.booxsketch.pairing.TAG_TOKEN
+import io.github.szymonrychu.booxsketch.pairing.keyTag
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -36,7 +35,9 @@ private const val CONFIG_JSON =
     """{"max_long_edge_px":1,"max_png_bytes":2,"max_strokes_bytes":3,"max_pages":4,""" +
         """"max_upload_bytes":5,"min_edge_px":6,"api_version":1}"""
 
-/** Paired app whose server answers `GET /config` with 200 and counts [repaired] calls. */
+private const val PAIRED_JSON = """{"device_id":"d1","name":"Tab","plugin":"sketch","token":"fresh-token"}"""
+
+/** Paired app whose server answers `POST /pair` and `GET /config` with 200 and counts [repaired] calls. */
 class RepairableApp : App() {
     override fun newContainer(): AppContainer =
         AppContainer(
@@ -46,13 +47,23 @@ class RepairableApp : App() {
                 OkHttpClient
                     .Builder()
                     .addInterceptor { chain ->
+                        val body =
+                            if (chain
+                                    .request()
+                                    .url.encodedPath
+                                    .endsWith("/pair")
+                            ) {
+                                PAIRED_JSON
+                            } else {
+                                CONFIG_JSON
+                            }
                         Response
                             .Builder()
                             .request(chain.request())
                             .protocol(Protocol.HTTP_1_1)
                             .code(200)
                             .message("ok")
-                            .body(CONFIG_JSON.toResponseBody("application/json".toMediaType()))
+                            .body(body.toResponseBody("application/json".toMediaType()))
                             .build()
                     }.build()
             },
@@ -103,7 +114,7 @@ class MainActivityRepairTest {
         assertThat(runBlocking { container.database.outboxDao().get(1) }).isNotNull()
         assertThat(RepairableApp.repaired).isEqualTo(0)
 
-        compose.onNodeWithTag(TAG_TOKEN).performTextInput("test-token")
+        "123456".forEach { compose.onNodeWithTag(keyTag(it)).performClick() }
         compose.onNodeWithTag(TAG_PAIR).performClick()
         waitFor(TAG_SEND)
         assertThat(RepairableApp.repaired).isEqualTo(1)

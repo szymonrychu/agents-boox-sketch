@@ -40,6 +40,39 @@ class ConnectorClientTest {
     ) = MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody(body)
 
     @Test
+    fun pair_posts_code_without_authorization_and_parses_token() =
+        runTest {
+            server.enqueue(json("""{"device_id":"d1","name":"Tab","plugin":"sketch","token":"test-token"}"""))
+            val paired = client.pair("123456")
+            val r = server.takeRequest()
+            assertThat(r.method).isEqualTo("POST")
+            assertThat(r.path).isEqualTo("/app/v1/sketch/pair")
+            assertThat(r.getHeader("Authorization")).isNull()
+            assertThat(
+                Json
+                    .parseToJsonElement(r.body.readUtf8())
+                    .jsonObject["code"]!!
+                    .jsonPrimitive.content,
+            ).isEqualTo("123456")
+            assertThat(paired.token).isEqualTo("test-token")
+            assertThat(paired.deviceId).isEqualTo("d1")
+        }
+
+    @Test
+    fun pair_maps_400_to_invalid_code_and_429_to_rate_limited() =
+        runTest {
+            server.enqueue(json("""{"error":"invalid_code","detail":"x"}""", 400))
+            server.enqueue(json("""{"error":"rate_limited","detail":"x"}""", 429).setHeader("Retry-After", "42"))
+            server.enqueue(json("""{"error":"invalid_request","detail":"x"}""", 422))
+            val e1 = runCatching { client.pair("123456") }.exceptionOrNull()
+            val e2 = runCatching { client.pair("123456") }.exceptionOrNull()
+            val e3 = runCatching { client.pair("123456") }.exceptionOrNull()
+            assertThat(e1).isEqualTo(ApiError.InvalidCode)
+            assertThat(e2).isEqualTo(ApiError.RateLimited(42))
+            assertThat(e3).isInstanceOf(ApiError.Invalid::class.java)
+        }
+
+    @Test
     fun config_parses_limits() =
         runTest {
             server.enqueue(
