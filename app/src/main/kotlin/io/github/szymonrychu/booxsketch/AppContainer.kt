@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -8,12 +9,16 @@ import androidx.datastore.preferences.core.emptyPreferences
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.board.BoardViewModel
 import io.github.szymonrychu.booxsketch.board.NotebookStore
+import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
+import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
+import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
 import io.github.szymonrychu.booxsketch.ink.OnyxDiagnostics
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
+import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
@@ -21,15 +26,28 @@ import io.github.szymonrychu.booxsketch.pairing.AndroidKeystoreKeyProvider
 import io.github.szymonrychu.booxsketch.pairing.KeyProvider
 import io.github.szymonrychu.booxsketch.pairing.PairingRepository
 import io.github.szymonrychu.booxsketch.pairing.TokenStore
+import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
+import io.github.szymonrychu.booxsketch.render.PngExporter
+import io.github.szymonrychu.booxsketch.send.ConfigCache
+import io.github.szymonrychu.booxsketch.send.DrainSummary
+import io.github.szymonrychu.booxsketch.send.OutboxRunner
+import io.github.szymonrychu.booxsketch.send.OutboxScheduler
+import io.github.szymonrychu.booxsketch.send.SendBoard
+import io.github.szymonrychu.booxsketch.send.SendOutcome
+import io.github.szymonrychu.booxsketch.send.SendUseCase
+import io.github.szymonrychu.booxsketch.send.sendOutcomeText
 import io.github.szymonrychu.booxsketch.ui.DiagnosticsTab
 import io.github.szymonrychu.booxsketch.ui.PanelTab
 import io.github.szymonrychu.booxsketch.ui.PanelTabs
 import io.github.szymonrychu.booxsketch.ui.SplitStateStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
@@ -45,7 +63,7 @@ class AppContainer(
     private val onyxFactory: () -> StrokeInput = { OnyxStrokeInput(app) },
     private val keyProvider: KeyProvider = AndroidKeystoreKeyProvider(),
     private val httpFactory: () -> OkHttpClient = { OkHttpClient() },
-    /** Runs after a successful (re)pairing; Task 21 wires it to the outbox runner's resume. */
+    /** Extra hook run by [repaired] after a successful (re)pairing (tests count calls). */
     val onRepaired: () -> Unit = {},
 ) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -81,9 +99,12 @@ class AppContainer(
     suspend fun unpair() {
         withContext(Dispatchers.IO) {
             database.clearAllTables()
+            outboxRoot.deleteRecursively()
             notebookStore.delete()
             tokenStore.clear()
         }
+        outboxScheduler.cancelAll()
+        conversations.select(null)
         boardViewModel.reset()
     }
 
@@ -136,6 +157,110 @@ class AppContainer(
         touchInput.eraserMode = on
     }
 
+    // Send flow, outbox worker and conversations (Task 21).
+
+    val outboxRoot = File(dir, "outbox")
+    val configCache: ConfigCache by lazy { ConfigCache(File(dir, "connector-config.json")) }
+    private val outboxScheduler: OutboxScheduler by lazy { OutboxScheduler(app) }
+
+    /** A client for the paired origin and token; null when not paired. Waits for the stored token. */
+    suspend fun connector(): ConnectorClient? {
+        tokenStore.loaded.first { it }
+        val origin = tokenStore.originFlow.value ?: return null
+        if (tokenStore.token() == null) return null
+        return ConnectorClient(origin, tokenStore::token, okHttpClient)
+    }
+
+    val conversations: ConversationRepository by lazy {
+        ConversationRepository(
+            database,
+            ::connector,
+            app.getSharedPreferences("conversations", Context.MODE_PRIVATE),
+            outboxRoot,
+            onUnauthorized = pairingRepository::rejectToken,
+        )
+    }
+
+    /** A 401 pauses the queue (never fails items) and drops the token, so the gate shows Pairing. */
+    val outboxRunner: OutboxRunner by lazy {
+        OutboxRunner(database, ::connector, onNeedsPairing = pairingRepository::rejectToken, schedule = outboxScheduler::later)
+    }
+
+    val sendUseCase: SendUseCase by lazy {
+        SendUseCase(
+            db = database,
+            conversations = conversations,
+            board =
+                object : SendBoard {
+                    override fun notebook() = boardViewModel.notebook.value
+
+                    override suspend fun markSent(sent: Map<Int, Page>) =
+                        withContext(Dispatchers.Main.immediate) { boardViewModel.markSentIfUnchanged(sent) }
+                },
+            export = PngExporter(CanvasStrokeRenderer())::export,
+            limits = configCache::current,
+            outboxRoot = outboxRoot,
+            kick = ::kickOutbox,
+        )
+    }
+
+    private val _sendMessage = MutableStateFlow<String?>(null)
+
+    /** Why the last send was refused or failed, until [dismissSendMessage]; null after a queued send. */
+    val sendMessage: StateFlow<String?> = _sendMessage
+
+    /** The board's Send (tap: changed pages, long-press: all pages). */
+    fun onSend(
+        all: Boolean,
+        caption: String?,
+    ) {
+        appScope.launch { _sendMessage.value = runSend(all, caption) }
+    }
+
+    /**
+     * Any failure of the send (disk, Room, export) becomes a message: an exception escaping into
+     * [appScope] would crash the app. Cancellation still propagates.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    internal suspend fun runSend(
+        all: Boolean,
+        caption: String?,
+        send: suspend (Boolean, String?) -> SendOutcome = sendUseCase::send,
+    ): String? =
+        try {
+            sendOutcomeText(send(all, caption))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "send failed: $e")
+            "Not sent: the sketch could not be saved (${e.message ?: e.javaClass.simpleName})."
+        }
+
+    fun dismissSendMessage() {
+        _sendMessage.value = null
+    }
+
+    /** Refreshes the connector limits once per process, then sends every due outbox item. */
+    suspend fun drainOutbox(): DrainSummary {
+        if (!configCache.fetched) connector()?.let { configCache.refresh(it) }
+        return outboxRunner.drain()
+    }
+
+    /** Schedules the `outbox` work and, as the app is in the foreground, drains right away. */
+    fun kickOutbox() {
+        outboxScheduler.kick()
+        appScope.launch { drainOutbox() }
+    }
+
+    /** Called by the pairing gate after a successful (re)pairing: paused uploads resume. */
+    fun repaired() {
+        appScope.launch {
+            outboxRunner.resumeAfterPairing()
+            kickOutbox()
+        }
+        onRepaired()
+    }
+
     init {
         registerFeatures()
     }
@@ -143,6 +268,8 @@ class AppContainer(
     private fun registerFeatures() {
         // One line per feature, added by its task.
         PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
+        PanelTabs.register(PanelTab(CONVERSATIONS_TAB_ID, "Conversations", order = 0) { ConversationsTab() })
+        PanelTabs.onOpenConversations = { PanelTabs.select(CONVERSATIONS_TAB_ID) }
     }
 
     private companion object {

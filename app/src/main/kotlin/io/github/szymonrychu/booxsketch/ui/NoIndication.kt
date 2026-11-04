@@ -9,13 +9,16 @@ import androidx.compose.ui.node.DrawModifierNode
 
 /** Indication that draws nothing: e-ink panels ghost on ripples and animations. */
 object NoIndication : IndicationNodeFactory {
-    override fun create(interactionSource: InteractionSource): DelegatableNode = NoIndicationNode
+    // A fresh node per use: one Modifier.Node instance can only be delegated to once.
+    override fun create(interactionSource: InteractionSource): DelegatableNode = NoIndicationNode()
 
     override fun equals(other: Any?) = other === this
 
     override fun hashCode() = -1
 
-    private object NoIndicationNode : Modifier.Node(), DrawModifierNode {
+    private class NoIndicationNode :
+        Modifier.Node(),
+        DrawModifierNode {
         override fun ContentDrawScope.draw() = drawContent()
     }
 }

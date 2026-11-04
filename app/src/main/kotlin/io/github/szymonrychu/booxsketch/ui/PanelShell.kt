@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +42,7 @@ fun PanelShell(
     title: String = "Conversations",
 ) {
     val tabs = PanelTabs.tabs
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedId = PanelTabs.selectedId
     val selected = tabs.firstOrNull { it.id == selectedId } ?: tabs.firstOrNull()
     val view = LocalView.current
     var first by remember { mutableStateOf(true) }
@@ -59,7 +58,7 @@ fun PanelShell(
             tabs.forEach { tab ->
                 val on = tab.id == selected?.id
                 TextButton(
-                    onClick = { selectedId = tab.id },
+                    onClick = { PanelTabs.select(tab.id) },
                     modifier =
                         Modifier
                             .defaultMinSize(minHeight = 48.dp)

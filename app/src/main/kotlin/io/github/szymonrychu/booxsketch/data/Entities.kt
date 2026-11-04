@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 import io.github.szymonrychu.booxsketch.api.OutboxKind
 import io.github.szymonrychu.booxsketch.api.OutboxState
 
-enum class ThreadKind { SKETCH, FEEDBACK }
+enum class ThreadKind { SKETCH, FEEDBACK, HANDOFF }
 
 @Entity(tableName = "outbox")
 data class OutboxEntity(

@@ -11,10 +11,13 @@ import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
+import io.github.szymonrychu.booxsketch.send.SendOutcome
 import io.github.szymonrychu.booxsketch.ui.PanelTabs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -111,5 +114,37 @@ class AppContainerTest {
         val c = container(available = false)
         assertThat(c.splitStoreScope.coroutineContext[ContinuationInterceptor]).isEqualTo(Dispatchers.IO)
         assertThat(c.splitStoreScope).isNotSameInstanceAs(c.appScope)
+    }
+
+    @Test
+    fun send_failures_of_any_kind_become_a_message() =
+        runBlocking<Unit> {
+            val c = container(available = false)
+            val room = c.runSend(false, null) { _, _ -> throw android.database.sqlite.SQLiteException("disk full") }
+            assertThat(room).contains("disk full")
+            val other = c.runSend(true, null) { _, _ -> error("boom") }
+            assertThat(other).contains("boom")
+            val io = c.runSend(true, null) { _, _ -> throw java.io.IOException("no space") }
+            assertThat(io).contains("no space")
+            assertThat(c.runSend(false, null) { _, _ -> SendOutcome.NothingToSend }).isNotNull()
+        }
+
+    @Test
+    fun cancellation_is_not_swallowed_by_send() {
+        val c = container(available = false)
+        val thrown =
+            runCatching { runBlocking { c.runSend(false, null) { _, _ -> throw CancellationException("stop") } } }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(CancellationException::class.java)
+    }
+
+    @Test
+    fun conversations_tab_is_registered_and_the_title_button_selects_it() {
+        PanelTabs.clearForTest()
+        container(available = false)
+        assertThat(PanelTabs.tabs.map { it.id }).contains("conversations")
+        PanelTabs.select("other")
+        PanelTabs.onOpenConversations()
+        assertThat(PanelTabs.selectedId).isEqualTo("conversations")
+        PanelTabs.clearForTest()
     }
 }

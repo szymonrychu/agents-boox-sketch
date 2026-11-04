@@ -23,6 +23,14 @@ object PanelTabs {
     /** Registered tabs sorted by [PanelTab.order], then id. Reads are observed by Compose. */
     val tabs: List<PanelTab> get() = registered.sortedWith(compareBy({ it.order }, { it.id }))
 
+    /** Id of the selected tab; null selects the first. Survives recomposition and tab registration. */
+    var selectedId by mutableStateOf<String?>(null)
+        private set
+
+    fun select(id: String) {
+        selectedId = id
+    }
+
     /** Called by the conversation title button; the conversations feature sets it. */
     var onOpenConversations: () -> Unit = {}
 
@@ -32,6 +40,7 @@ object PanelTabs {
 
     internal fun clearForTest() {
         registered = emptyList()
+        selectedId = null
         onOpenConversations = {}
     }
 }

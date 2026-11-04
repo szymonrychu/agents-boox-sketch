@@ -295,3 +295,37 @@ Lessons that outlive a session. Newest first.
   hold that never releases would keep raw off. Both are bounded by `dockSettled` (non-empty rects of the
   requested state) and by the hold being released on dispose; `BoardChromeWiringTest` replays the log for
   each path. `strokeInProgress` of `OnyxWithFallback` follows whichever input is live (touch after fallback).
+
+## 2026-11-04 Send flow and conversations tab (Task 21)
+
+- Outbox drains are single-flight and FIFO per conversation; the conversation is resolved at the
+  first send of a local conversation. Why: items of one thread must reach the connector in order.
+- WorkManager names: `outbox` (kick, KEEP, no delay) and `outbox-later-a`/`-b` (backoff). Why:
+  REPLACE from inside the running worker cancelled that worker, and one shared name made a new
+  send wait behind a pending backoff delay. Unpair cancels all (superseded in part: see
+  2026-11-04 later() entry).
+- `AppContainer.runSend` catches every Exception (not only IOException) except cancellation, so a
+  Room or export failure becomes a message instead of crashing appScope.
+- On a refused token (401) the thread items of paused outbox rows become PAUSED; re-pairing sets
+  them back to QUEUED. The selected panel tab lives in `PanelTabs.selectedId` so
+  `onOpenConversations` can select the Conversations tab (order 0, Diagnostics stays at 900).
+- Conversation buttons carry an explicit 48 dp minimum height (E-ink touch target rule).
+
+- 2026-11-04: the POST_NOTIFICATIONS request moved from launch to the first send. Why: the
+  permission dialog at launch left MainActivity PAUSED on the CI emulator and failed LaunchTest
+  (expects RESUMED); MainActivityPermissionTest guards it.
+
+- 2026-11-04: `OutboxScheduler.later` keeps at most one pending backoff run. A pending run due at
+  or before the new one covers it; a later one is replaced (REPLACE) on a name that is not
+  running. Why: APPEND_OR_REPLACE chained runs, so a 1-5 s backoff waited behind an older 300 s
+  run; two alternating names let the running worker call later() without cancelling itself. The
+  runner calls it on Dispatchers.IO because it reads WorkInfos (blocking).
+- 2026-11-04: the main input is wrapped in `CountedPause` (MainActivity). Why: the lifecycle gate
+  (system POST_NOTIFICATIONS dialog) and the send outcome dialog both pause one input; a boolean
+  made the gate's resume un-pause input under the outcome dialog. Last resume wins now.
+- 2026-11-04: upload ack deletes any other row with the same serverId in the transaction that
+  sets serverId (a refresh in between inserted a twin). Refresh prunes local rows whose serverId is
+  missing from the successful `GET /conversations` (not paged, so success means complete; a failure
+  returns before any write). Only rows whose serverId was known before the request started, and
+  never rows with queued outbox items: a conversation acked while the request was in flight may
+  be missing from the answer.
