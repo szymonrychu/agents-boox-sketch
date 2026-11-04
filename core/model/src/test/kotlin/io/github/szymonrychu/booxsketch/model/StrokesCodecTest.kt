@@ -45,8 +45,8 @@ class StrokesCodecTest {
 
     @Test
     fun unknown_tool_rejected() {
-        val json = """{"version":2,"canvas":{"w":1,"h":1,"dpi":1.0},"strokes":[{"tool":"crayon","color":"black","width":1.0,"points":[[0,0,1,0]]}]}"""
-        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(json.toByteArray()) }
+        val bytes = doc(stroke = """{"tool":"crayon","color":"black","width":1.0,"points":[[0,0,1,0]]}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
     }
 
     private fun doc(
