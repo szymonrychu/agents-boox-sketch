@@ -13,6 +13,7 @@ import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
 import io.github.szymonrychu.booxsketch.ink.OnyxDiagnostics
@@ -178,8 +179,12 @@ class AppContainer(
             app.getSharedPreferences("conversations", Context.MODE_PRIVATE),
             outboxRoot,
             onUnauthorized = pairingRepository::rejectToken,
+            afterRefresh = { specSync.sync() },
         )
     }
+
+    /** Copies spec versions into Room: after a conversations refresh and while the Documents tab is shown. */
+    val specSync: SpecSync by lazy { SpecSync(database, ::connector, { conversations.latestSpecVersions }) }
 
     /** A 401 pauses the queue (never fails items) and drops the token, so the gate shows Pairing. */
     val outboxRunner: OutboxRunner by lazy {

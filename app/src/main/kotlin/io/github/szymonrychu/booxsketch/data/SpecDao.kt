@@ -16,6 +16,9 @@ interface SpecDao {
     @Query("SELECT * FROM specs WHERE conversationServerId = :serverId ORDER BY version")
     suspend fun all(serverId: String): List<SpecEntity>
 
+    @Query("SELECT version FROM specs WHERE conversationServerId = :serverId")
+    suspend fun versions(serverId: String): List<Int>
+
     @Query("DELETE FROM specs WHERE conversationServerId = :serverId")
     suspend fun deleteFor(serverId: String)
 }
