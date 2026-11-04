@@ -32,8 +32,11 @@ class BrushMappingTest {
     }
 
     @Test
-    fun width_is_passed_through_and_never_below_one_pixel() {
-        assertThat(BrushMapping.width(5f)).isEqualTo(5f)
-        assertThat(BrushMapping.width(0f)).isEqualTo(1f)
+    fun width_follows_the_redraw_factor_of_the_tool_and_is_never_below_one_pixel() {
+        assertThat(BrushMapping.width(Tool.BALLPOINT, 5f)).isEqualTo(5f)
+        assertThat(BrushMapping.width(Tool.FOUNTAIN, 5f)).isEqualTo(5f)
+        assertThat(BrushMapping.width(Tool.CHARCOAL_V2, 5f)).isEqualTo(6f)
+        assertThat(BrushMapping.width(Tool.MARKER, 5f)).isEqualTo(15f)
+        assertThat(BrushMapping.width(Tool.BALLPOINT, 0f)).isEqualTo(1f)
     }
 }

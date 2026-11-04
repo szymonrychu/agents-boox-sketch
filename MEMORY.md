@@ -2,6 +2,19 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Live ink width matches the redrawn stroke (boox-ink-width)
+
+- Root cause: the raw brush got the slider width as is (`BrushMapping.width(width)`), while
+  `CanvasStrokeRenderer.style` draws marker at 3x and charcoal_v2 at 1.2x that width, so a marker or
+  charcoal_v2 stroke changed width when the app redrew it. `BrushMapping.width(tool, width)` now
+  applies the same factors (full pressure; the SDK does its own pressure shaping live). The renderer
+  is unchanged.
+- No view-scale term: the slider width is in view pixels, the SDK `TouchHelper.setStrokeWidth` hands
+  it to the renderer in pixels (no density), and a commit stores `width / scale` and the redraw
+  multiplies by the same scale back. So rotation or relayout cannot skew it, and `setTool` (tool or
+  width change) plus `enable` already re-apply the brush. `LiveInkWidthTest` checks live equals redrawn
+  for every pen at three view scales. The factors in `BrushMapping` must follow `CanvasStrokeRenderer.style`.
+
 ## 2026-11-04 Pen ink latency after #40 (boox-latency)
 
 - While raw drawing is live (`StrokeInput.rawLive`: Onyx raw drawing open and enabled, no fallback)
