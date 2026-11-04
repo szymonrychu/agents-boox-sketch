@@ -130,4 +130,43 @@ class UiRefreshWiringTest {
         val view = View(ApplicationProvider.getApplicationContext())
         assertThat(UiRefresher.forView(view, TouchStrokeInput())).isSameInstanceAs(UiRefresh.None)
     }
+
+    @Test
+    fun send_popup_taps_reach_the_container_callback_through_the_dock() {
+        val input = FreezingInput()
+        val calls = mutableListOf<Pair<Boolean, String?>>()
+        compose.setContent { BoardScreen(vm(), input, onSend = { all, caption -> calls += all to caption }) }
+        compose.onNodeWithTag(stripTag("send")).performClick()
+        compose.onNodeWithTag(TAG_SEND).performClick()
+        compose.onNodeWithTag(stripTag("send")).performClick()
+        compose.onNodeWithTag(TAG_SEND_ALL).performClick()
+        assertThat(calls).containsExactly(false to null, true to null).inOrder()
+    }
+
+    @Test
+    fun strip_state_changes_reach_the_refresher_as_one_bracket_each() {
+        val input = FreezingInput()
+        compose.setContent {
+            host = LocalView.current
+            BoardScreen(vm(), input)
+        }
+        compose.waitForIdle()
+        input.log.clear()
+        for (name in listOf("rectangle", "arrow", "eraser", "pen")) {
+            compose.onNodeWithTag(stripTag(name)).performClick()
+            compose.waitForIdle()
+            compose.runOnUiThread { host!!.rootView.requestLayout() }
+            compose.waitForIdle()
+        }
+        assertThat(input.log.count { it == "hold" }).isEqualTo(4)
+        assertThat(input.log.count { it == "release" }).isEqualTo(4)
+        input.log.clear()
+        // A popup open is a burst of its own: the refresher's hold plus the dock's, both released.
+        compose.onNodeWithTag(stripTag("pen")).performClick()
+        compose.waitForIdle()
+        compose.runOnUiThread { host!!.rootView.requestLayout() }
+        compose.waitForIdle()
+        assertThat(input.log.count { it == "hold" }).isEqualTo(input.log.count { it == "release" })
+        assertThat(input.log.count { it == "hold" }).isAtLeast(1)
+    }
 }
