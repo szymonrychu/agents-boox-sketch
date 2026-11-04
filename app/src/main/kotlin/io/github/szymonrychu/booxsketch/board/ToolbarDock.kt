@@ -6,6 +6,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -126,6 +128,8 @@ private fun BoxScope.DockPanel(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                // Swallow every pointer event, so a tap between the toolbar's buttons never reaches the board.
+                .pointerInput(Unit) { awaitEachGesture { awaitPointerEvent() } }
                 .background(Color.White)
                 .drawBehind { drawLine(Color.Black, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) }
                 .testTag(TAG_DOCK)

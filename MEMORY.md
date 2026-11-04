@@ -37,6 +37,26 @@ Lessons that outlive a session. Newest first.
   all on the Note Air 6C (`SFTouchRender`). If it never arrives, the surface still syncs before
   every raw-off; add a 700 ms timer from `onEndRawDrawing` only then (one mechanism).
 
+## 2026-11-04 Board overlays: ChromeHolds, side panel, tap to dismiss (board wave A, PR 1)
+
+- Every overlay over the board (dock, side panel; popups next) changes state through
+  `ChromeHolds`: the first change of a burst takes one `holdUi`, each overlay reports its state
+  and rects, and the hold is released once, one frame after every awaited overlay reported the
+  requested state with non-empty rects. Why: a tap that hides dock and panel together must not
+  release after the first report and run raw drawing with the second overlay's stale rect.
+  A panel key is awaited only while a panel host is composed (no host, no report, stuck hold).
+- `ShellState.hide()` hides the panel too, so the dock's hide button, the auto-hide and a board
+  tap all hide dock and panel in one burst (`OverlayControl.hideAll`).
+- Pen taps dismiss through the stroke auto-hide, finger taps through `onBoardTap`. Why: a pen tap
+  in raw mode is a stroke. The finger tap is detected in `BoardSurfaceView.dispatchTouchEvent`,
+  before whichever touch listener the input installed (the shape drag and touch fallback inputs
+  replace the view listener and may consume the event), so the plan's window-callback fallback
+  was not needed for the listener swap. Whether the firmware still delivers finger events to the
+  view while raw drawing is on is device-only (checklist item); if it does not, feed the detector
+  from the `OnyxWithFallback` window callback mapped into view pixels.
+- The panel and the dock swallow every pointer event (`awaitEachGesture { awaitPointerEvent() }`),
+  so a tap between their buttons never falls through to the board and dismisses them.
+
 ## 2026-11-04 Documents tab and handwritten notes (plan boox-sketch-app 3.6)
 
 - Frozen pages: a document version is paginated once into page PNGs (`AnnotationStore`, `layout.json` written last as the

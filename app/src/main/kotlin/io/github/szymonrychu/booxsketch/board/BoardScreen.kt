@@ -130,10 +130,7 @@ internal fun BoardScreenWith(
             if (input.strokeInProgress) {
                 false
             } else {
-                if (control.anyVisible) {
-                    ui.chromeChanged()
-                    control.hideAll()
-                }
+                control.dismissAll(ui)
                 true
             }
         }
@@ -155,6 +152,8 @@ internal fun BoardScreenWith(
             onShapeDrag = vm::onShapeDrag,
             onShapeCancel = vm::onShapeCancel,
             background = background,
+            // A finger tap on the board dismisses every overlay in one burst.
+            onBoardTap = { control.dismissAll(ui) },
         )
         // The board ignores system bars; the panel and the dock keep clear of them. The dock is drawn on top.
         if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
@@ -210,6 +209,13 @@ private class OverlayControl(
     fun showPanel() = change(PANEL_KEY, chrome != null && hasPanel, true) { chrome?.showPanel() }
 
     fun hidePanel() = change(PANEL_KEY, chrome != null && hasPanel, false) { chrome?.hidePanel() }
+
+    /** Full refresh plus [hideAll] when anything is shown; with everything hidden it does nothing (no refresh). */
+    fun dismissAll(ui: UiRefresh) {
+        if (!anyVisible) return
+        ui.chromeChanged()
+        hideAll()
+    }
 
     /** Hides the dock and the panel in one burst: one hold, released once both report their hidden state. */
     fun hideAll() {

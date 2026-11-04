@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.board
 
 import android.graphics.Rect
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.clickable
@@ -562,5 +563,73 @@ class BoardChromeWiringTest {
         assertThat(state.panelVisible).isFalse()
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(releases()).isEqualTo(holds())
+    }
+
+    private fun fingerTap() {
+        fun ev(
+            action: Int,
+            time: Long,
+        ): MotionEvent {
+            val props =
+                MotionEvent.PointerProperties().also {
+                    it.id = 0
+                    it.toolType = MotionEvent.TOOL_TYPE_FINGER
+                }
+            val coords =
+                MotionEvent.PointerCoords().also {
+                    it.x = 200f
+                    it.y = 200f
+                }
+            return MotionEvent.obtain(1_000L, time, action, 1, arrayOf(props), arrayOf(coords), 0, 0, 1f, 1f, 0, 0, 0, 0)
+        }
+        val v = surface()!!
+        compose.runOnUiThread {
+            v.dispatchTouchEvent(ev(MotionEvent.ACTION_DOWN, 1_000L))
+            v.dispatchTouchEvent(ev(MotionEvent.ACTION_UP, 1_050L))
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun tap_on_board_hides_dock_and_panel_with_one_hold_release_pair() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        input.log.clear()
+
+        fingerTap()
+
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
+        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
+        val panelIndicator = rectOf(TAG_PANEL_INDICATOR).toString()
+        val dockIndicator = rectOf(TAG_INDICATOR).toString()
+        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(panelIndicator) && it.contains(dockIndicator) }
+        assertThat(input.log.first()).isEqualTo("hold")
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        // One board hold for both overlays, plus at most the refresher's own hold for the full refresh.
+        assertThat(holds()).isAtMost(2)
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun tap_with_everything_hidden_changes_nothing() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_HIDE).performClick()
+        compose.waitForIdle()
+        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
+        input.log.clear()
+
+        fingerTap()
+
+        assertThat(input.log).isEmpty()
+        compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).assertIsDisplayed()
     }
 }
