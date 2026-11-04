@@ -8,6 +8,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.RectF
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.planExport
+import io.github.szymonrychu.booxsketch.model.shapeOutline
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.zip.CRC32
@@ -30,7 +31,7 @@ sealed interface ExportResult {
     ) : ExportResult
 }
 
-/** Renders a page to a white-background 8-bit grayscale PNG within the connector limits. */
+/** Renders a page to a white-background 8-bit RGB PNG (colour type 2) within the connector limits. */
 class PngExporter(
     private val renderer: StrokeRenderer,
 ) {
@@ -44,7 +45,7 @@ class PngExporter(
         var h = plan.outH
         var scale = plan.scale
         while (true) {
-            val png = encodeGray(render(page.strokes, w, h, scale, plan.cropLeft, plan.cropTop), w, h)
+            val png = encodeRgb(render(page.strokes, w, h, scale, plan.cropLeft, plan.cropTop), w, h)
             if (png.size <= cfg.maxPngBytes) return ExportResult.Exported(png, w, h)
             val nw = (w * SHRINK).roundToInt()
             val nh = (h * SHRINK).roundToInt()
@@ -58,16 +59,17 @@ class PngExporter(
         }
     }
 
-    private fun bounds(strokes: List<Stroke>): RectF? {
+    internal fun bounds(strokes: List<Stroke>): RectF? {
         var l = Float.MAX_VALUE
         var t = Float.MAX_VALUE
         var r = -Float.MAX_VALUE
         var b = -Float.MAX_VALUE
         var any = false
         for (s in strokes) {
-            // Pad by the widest rendered width (marker is 3x) so the crop never clips ink.
+            // Pad by the widest rendered width (marker is 3x) so the crop never clips ink; the outline
+            // includes arrow wings and rectangle corners, which lie beyond the raw points.
             val half = s.width * 3f / 2f
-            for (p in s.points) {
+            for (p in shapeOutline(s).flatten()) {
                 any = true
                 l = min(l, p.x - half)
                 t = min(t, p.y - half)
@@ -96,18 +98,21 @@ class PngExporter(
         return px
     }
 
-    private fun encodeGray(
+    private fun encodeRgb(
         argb: IntArray,
         w: Int,
         h: Int,
     ): ByteArray {
-        val raw = ByteArray((w + 1) * h)
+        val stride = 1 + 3 * w
+        val raw = ByteArray(stride * h)
         for (y in 0 until h) {
-            val row = y * (w + 1)
+            val row = y * stride
             for (x in 0 until w) {
                 val p = argb[y * w + x]
-                val g = (0.299 * Color.red(p) + 0.587 * Color.green(p) + 0.114 * Color.blue(p)).roundToInt()
-                raw[row + 1 + x] = g.toByte()
+                val o = row + 1 + 3 * x
+                raw[o] = Color.red(p).toByte()
+                raw[o + 1] = Color.green(p).toByte()
+                raw[o + 2] = Color.blue(p).toByte()
             }
         }
         val out = ByteArrayOutputStream()
@@ -120,7 +125,7 @@ class PngExporter(
                 .putInt(w)
                 .putInt(h)
                 .put(8)
-                .put(0)
+                .put(2)
                 .put(0)
                 .put(0)
                 .put(0)

@@ -4,10 +4,12 @@ import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Command
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.hitStrokes
+import io.github.szymonrychu.booxsketch.model.snapShape
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -20,6 +22,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /** Board state: the notebook, pen settings and per-page undo. Autosaves 500 ms after the last change. */
+@Suppress("TooManyFunctions") // one small intent method per board action (tools, colours, pages, undo, send)
 class BoardViewModel(
     private val store: NotebookStore,
     private val scope: CoroutineScope,
@@ -41,6 +44,14 @@ class BoardViewModel(
     private val _eraser = MutableStateFlow(false)
     val eraser: StateFlow<Boolean> = _eraser.asStateFlow()
 
+    private val _color = MutableStateFlow(PenColor.BLACK)
+    val color: StateFlow<PenColor> = _color.asStateFlow()
+
+    private val _preview = MutableStateFlow<Stroke?>(null)
+
+    /** The snapped shape the current drag would commit, null when no shape drag is active. */
+    val preview: StateFlow<Stroke?> = _preview.asStateFlow()
+
     private val _canUndo = MutableStateFlow(false)
     val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
 
@@ -57,6 +68,11 @@ class BoardViewModel(
         _eraser.value = false
     }
 
+    fun setColor(color: PenColor) {
+        _color.value = color
+        _eraser.value = false
+    }
+
     fun setWidth(width: Float) {
         _width.value = width
     }
@@ -65,7 +81,25 @@ class BoardViewModel(
         _eraser.value = on
     }
 
-    fun onStroke(stroke: Stroke) = update { undoStack.apply(it, Command.AddStroke(stroke)) }
+    private val currentStrokes: List<Stroke>
+        get() = _notebook.value.let { it.pages[it.current].strokes }
+
+    /** Shape tools: previews the snapped shape for a drag in canvas pixels (same call as the commit). */
+    fun onShapeDrag(drag: Stroke) {
+        _preview.value = snapShape(drag, currentStrokes)
+    }
+
+    fun onShapeCancel() {
+        _preview.value = null
+    }
+
+    /** Commits a stroke; a shape-tool drag is snapped like its preview and dropped when too small. */
+    fun onStroke(stroke: Stroke) {
+        if (!stroke.tool.isShape) return update { undoStack.apply(it, Command.AddStroke(stroke)) }
+        _preview.value = null
+        val shape = snapShape(stroke, currentStrokes) ?: return
+        update { undoStack.apply(it, Command.AddStroke(shape)) }
+    }
 
     /** Erases the strokes of the current page hit by a circle at (x, y), in canvas pixels; undoable. */
     fun onErase(
@@ -125,6 +159,7 @@ class BoardViewModel(
         _canUndo.value = undoStack.canUndo(after)
         _canRedo.value = undoStack.canRedo(after)
         if (after == before) return
+        if (after.current != before.current) _preview.value = null
         _notebook.value = after
         scheduleSave()
     }
