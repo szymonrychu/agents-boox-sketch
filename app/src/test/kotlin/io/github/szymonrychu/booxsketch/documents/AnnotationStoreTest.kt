@@ -14,6 +14,13 @@ import io.github.szymonrychu.booxsketch.data.ConversationEntity
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Point
+import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.model.Tool
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
@@ -43,6 +50,49 @@ class AnnotationStoreTest {
         assertThat(dir.list()!!.toList()).containsAtLeast("page.0.png", "page.1.png", "layout.json")
         assertThat(doc.pages).hasSize(2)
         assertThat(doc.layout).isEqualTo(layout)
+    }
+
+    private fun failedPages() = listOf(RenderedPage(Bitmap.createBitmap(60, 80, Bitmap.Config.ARGB_8888), 0..3, diagramFailed = true))
+
+    @Test
+    fun failed_diagram_freeze_is_retried_until_ink_or_send() {
+        val s = store()
+        s.freeze("c1", 2, failedPages(), layout)
+        assertThat(s.needsDiagramRetry("c1", 2)).isTrue()
+        s.discardForRetry("c1", 2)
+        assertThat(s.frozen("c1", 2)).isNull()
+        s.freeze("c1", 2, pages(), layout)
+        assertThat(s.needsDiagramRetry("c1", 2)).isFalse()
+
+        s.freeze("c1", 3, failedPages(), layout)
+        val inked = Notebook(Canvas(60, 80, 300f), listOf(Page(listOf(stroke()), false)), 0)
+        s.notebookStore("c1", 3).save(inked)
+        assertThat(s.needsDiagramRetry("c1", 3)).isFalse()
+        s.discardForRetry("c1", 3)
+        assertThat(s.frozen("c1", 3)).isNotNull()
+
+        s.freeze("c1", 4, failedPages(), layout)
+        s.markSent("c1", 4)
+        assertThat(s.needsDiagramRetry("c1", 4)).isFalse()
+    }
+
+    private fun stroke() = Stroke("a", Tool.BALLPOINT, 4f, listOf(Point(10f, 10f, 0.5f, 0), Point(40f, 40f, 0.5f, 10)))
+
+    @Test
+    fun retry_still_fires_after_the_page_view_saved_its_empty_notebook() {
+        val s = store()
+        s.freeze("c1", 2, failedPages(), layout)
+        // The real open sequence: showing the page creates the board, which saves an empty notebook.json.
+        val scope = CoroutineScope(Job() + Dispatchers.Unconfined)
+        val board = DocumentInk(s, scope, Dispatchers.Unconfined).board("c1", 2, 1, Canvas(60, 80, 300f))
+        assertThat(File(s.dir("c1", 2), "notebook.json").isFile).isTrue()
+        assertThat(s.needsDiagramRetry("c1", 2)).isTrue()
+        runBlocking {
+            board.onStroke(stroke())
+            board.flush()
+        }
+        assertThat(s.needsDiagramRetry("c1", 2)).isFalse()
+        scope.cancel()
     }
 
     @Test

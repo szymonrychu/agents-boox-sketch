@@ -81,6 +81,7 @@ class DocumentViewModel(
         _state.value = DocumentViewState(version = version, latestVersion = latest, loaded = false)
         val frozen =
             withContext(io) {
+                store.discardForRetry(conversationLocalId, version)
                 store.frozen(conversationLocalId, version) ?: run {
                     val markdown =
                         db
