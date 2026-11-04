@@ -46,7 +46,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Full-screen board with the tool strip dock overlaid on the left edge (popups to its right). [chrome] carries the shell state
  * (dock visibility, tab bar rects, stroke feedback); null, as in previews and tests, keeps the dock
- * always visible. [setEraser] mirrors the eraser toggle into inputs that need it.
+ * always visible. The eraser selection reaches [input] through [StrokeInput.setEraser].
  * [overlays] are window-coordinate rects of anything drawn over the board; they and the toolbar
  * are excluded from raw pen input. For inputs that freeze the e-ink panel, raw drawing starts only
  * after the first frame and toolbar changes are refreshed through a [UiRefresher].
@@ -59,7 +59,6 @@ fun BoardScreen(
     vm: BoardViewModel,
     input: StrokeInput,
     modifier: Modifier = Modifier,
-    setEraser: (Boolean) -> Unit = {},
     onSend: (all: Boolean, caption: String?) -> Unit = { _, _ -> },
     overlays: List<Rect> = emptyList(),
     chrome: BoardChrome? = null,
@@ -70,7 +69,6 @@ fun BoardScreen(
     vm,
     input,
     modifier,
-    setEraser,
     onSend,
     overlays,
     chrome,
@@ -123,7 +121,6 @@ internal fun BoardScreenWith(
     vm: BoardViewModel,
     input: StrokeInput,
     modifier: Modifier = Modifier,
-    setEraser: (Boolean) -> Unit = {},
     onSend: (all: Boolean, caption: String?) -> Unit = { _, _ -> },
     overlays: List<Rect> = emptyList(),
     chrome: BoardChrome? = null,
@@ -140,7 +137,7 @@ internal fun BoardScreenWith(
     val preview by vm.preview.collectAsState()
     LaunchedEffect(tool, width) { input.setTool(tool, width) }
     LaunchedEffect(color) { input.setColor(color) }
-    LaunchedEffect(eraser) { setEraser(eraser) }
+    LaunchedEffect(eraser) { input.setEraser(eraser) }
     val scope = rememberCoroutineScope()
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { scope.launch { vm.flush() } }
     val view = LocalView.current

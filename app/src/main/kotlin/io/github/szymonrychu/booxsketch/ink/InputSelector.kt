@@ -191,6 +191,9 @@ class InputSelector(
  * firmware may still claim a stylus drag for the open but disabled raw layer, and then the view
  * listener gets nothing; touch handles each event once, whichever copy comes first. Selecting a
  * shape tool cancels an armed watch; no hold is taken, so nothing can stay held.
+ *
+ * The eraser ([setEraser]) runs the same way as a shape tool ([touchDriven]): raw drawing off and
+ * the pen on [touch], which erases in its eraser mode.
  */
 @Suppress("TooManyFunctions") // every StrokeInput member plus the watch and the switch to touch
 private class OnyxWithFallback(
@@ -223,6 +226,7 @@ private class OnyxWithFallback(
     private var tool = Tool.BALLPOINT
     private var width = 4f
     private var color = PenColor.BLACK
+    private var eraser = false
     private var paused = false
     private var fellBack = false
     private var stopped = false
@@ -239,6 +243,9 @@ private class OnyxWithFallback(
         }
     }
 
+    /** The pen runs on [touch] although the Onyx path is in use: a shape tool or the eraser is selected. Call under [lock]. */
+    private val touchDriven: Boolean get() = tool.isShape || eraser
+
     private fun confirm() =
         synchronized(lock) {
             confirmed = true
@@ -251,7 +258,7 @@ private class OnyxWithFallback(
         limit: Rect,
         exclude: List<Rect>,
     ) {
-        val (fallen, shape) =
+        val (fallen, onTouch) =
             synchronized(lock) {
                 // New rects re-open raw drawing: a stylus down before that can get no callback.
                 if (limit != this.limit || exclude != this.exclude) disarm()
@@ -259,10 +266,10 @@ private class OnyxWithFallback(
                 this.view = view
                 this.limit = limit
                 this.exclude = exclude
-                fellBack to tool.isShape
+                fellBack to touchDriven
             }
         if (fallen) return touch.start(view, limit, exclude)
-        if (shape) touch.start(view, limit, exclude) else watchView(view)
+        if (onTouch) touch.start(view, limit, exclude) else watchView(view)
         installWindowCallback(view.context)
         guarded { onyx.start(view, limit, exclude) }
     }
@@ -306,10 +313,10 @@ private class OnyxWithFallback(
         if (win != null && win.callback === wrapper) win.callback = original
     }
 
-    /** Hands a window [event] to [touch] in view pixels while a shape tool runs on it. */
+    /** Hands a window [event] to [touch] in view pixels while a shape tool or the eraser runs on it. */
     private fun feedShapeDrag(event: MotionEvent) {
         val feed = touch as? WindowTouchFeed ?: return
-        val v = synchronized(lock) { view.takeIf { !stopped && !fellBack && tool.isShape } } ?: return
+        val v = synchronized(lock) { view.takeIf { !stopped && !fellBack && touchDriven } } ?: return
         val loc = IntArray(2).also { v.getLocationInWindow(it) }
         val copy = MotionEvent.obtain(event)
         try {
@@ -370,24 +377,53 @@ private class OnyxWithFallback(
         tool: Tool,
         width: Float,
     ) {
-        val wasShape: Boolean
+        val wasOnTouch: Boolean
+        val onTouch: Boolean
         val fallen: Boolean
-        val v: View?
         synchronized(lock) {
-            wasShape = this.tool.isShape
+            wasOnTouch = touchDriven
             this.tool = tool
             this.width = width
+            onTouch = touchDriven
             // Raw drawing goes off for a shape tool: a watch armed before can get no callback.
             if (tool.isShape) disarm()
             fallen = fellBack
-            v = view.takeIf { !stopped }
         }
-        // Touch needs the tool when it draws: after the fallback, or for a shape drag (the fallback sets it on switch).
-        if (fallen || tool.isShape) touch.setTool(tool, width)
+        // Touch needs the tool when it draws: after the fallback, or on touch (the fallback sets it on switch).
+        if (fallen || onTouch) touch.setTool(tool, width)
         if (fallen) return
         guarded { onyx.setTool(tool, width) }
-        if (v == null || tool.isShape == wasShape) return
-        if (tool.isShape) {
+        moveThePen(wasOnTouch, onTouch)
+    }
+
+    override fun setEraser(on: Boolean) {
+        val wasOnTouch: Boolean
+        val onTouch: Boolean
+        val fallen: Boolean
+        synchronized(lock) {
+            wasOnTouch = touchDriven
+            eraser = on
+            onTouch = touchDriven
+            // Raw drawing goes off for the eraser: a watch armed before can get no callback.
+            if (on) disarm()
+            fallen = fellBack
+        }
+        // Touch erases in its eraser mode, after the fallback as on the Onyx path; it needs the width (erase radius).
+        touch.setEraser(on)
+        if (fallen) return
+        if (onTouch) synchronized(lock) { tool to width }.let { (t, w) -> touch.setTool(t, w) }
+        guarded { onyx.setEraser(on) }
+        moveThePen(wasOnTouch, onTouch)
+    }
+
+    /** Starts [touch] on the view when the pen moves to it (shape tool or eraser), stops it and re-arms the watch when it leaves. */
+    private fun moveThePen(
+        wasOnTouch: Boolean,
+        onTouch: Boolean,
+    ) {
+        val v = synchronized(lock) { view.takeIf { !stopped } }
+        if (v == null || onTouch == wasOnTouch) return
+        if (onTouch) {
             val (lim, exc) = synchronized(lock) { limit to exclude }
             touch.start(v, lim, exc)
         } else {
@@ -406,8 +442,8 @@ private class OnyxWithFallback(
         if (!fallen) guarded { onyx.setColor(color) }
     }
 
-    /** Shape drags run on [touch] while the Onyx path is still in use. */
-    private val shapeOnTouch: Boolean get() = synchronized(lock) { !fellBack && tool.isShape }
+    /** Shape drags and the eraser run on [touch] while the Onyx path is still in use. */
+    private val shapeOnTouch: Boolean get() = synchronized(lock) { !fellBack && touchDriven }
 
     override fun pause() {
         val fallen =
@@ -446,7 +482,7 @@ private class OnyxWithFallback(
     override val freezesUi: Boolean get() = onyx.freezesUi
 
     override val strokeInProgress: Boolean
-        get() = if (synchronized(lock) { fellBack || tool.isShape }) touch.strokeInProgress else onyx.strokeInProgress
+        get() = if (synchronized(lock) { fellBack || touchDriven }) touch.strokeInProgress else onyx.strokeInProgress
 
     override fun holdUi() {
         val fallen =

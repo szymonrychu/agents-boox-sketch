@@ -77,7 +77,6 @@ class MainActivity : ComponentActivity() {
                             BoardScreen(
                                 vm = container.boardViewModel,
                                 input = input,
-                                setEraser = container::setEraser,
                                 onSend = { all, caption ->
                                     askNotificationPermission()
                                     container.onSend(all, caption)

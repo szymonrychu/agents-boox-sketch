@@ -223,6 +223,25 @@ class OnyxRawSessionTest {
     }
 
     @Test
+    fun eraser_keeps_raw_drawing_off_across_pause_hold_and_refresh_until_it_is_left() {
+        input.start(view, limit(), emptyList())
+        drawFrame()
+        log.clear()
+        input.setEraser(true)
+        assertThat(log).containsExactly("enabled1:false")
+        log.clear()
+        input.pause()
+        input.resume()
+        input.holdUi()
+        input.releaseUi()
+        input.refresh { log += "redraw" }
+        assertThat(log).doesNotContain("enabled1:true")
+        log.clear()
+        input.setEraser(false)
+        assertThat(log).containsExactly("enabled1:true", "brush1").inOrder()
+    }
+
+    @Test
     fun start_while_paused_keeps_raw_drawing_disabled() {
         input.pause()
         input.start(view, limit(), emptyList())

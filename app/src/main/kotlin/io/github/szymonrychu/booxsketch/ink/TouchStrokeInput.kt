@@ -94,6 +94,10 @@ class TouchStrokeInput(
         this.width = width
     }
 
+    override fun setEraser(on: Boolean) {
+        eraserMode = on
+    }
+
     override fun setColor(color: PenColor) {
         this.color = color
     }

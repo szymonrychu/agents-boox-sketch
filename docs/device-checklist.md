@@ -26,6 +26,8 @@ Then:
 
 - [ ] Switch tools (fountain, brush, marker) with a colour selected: the colour is kept.
 - [ ] Eraser, undo and redo work on coloured strokes.
+- [ ] Tap the eraser in the strip: Diagnostics shows "Raw drawing enabled: no"; drag the pen tip
+      over a stroke: no ink is drawn and the stroke is erased. Tap the pen: raw ink draws again.
 - [ ] Diagnostics still says "Onyx raw", "Fallback reason: none".
 
 ## Rectangle and arrow snapping
