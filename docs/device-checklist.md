@@ -153,3 +153,29 @@ Open the Documents tab (side panel), pick a document with at least one spec vers
 - [ ] Pause about 1 s after writing: nothing visibly changes (no blink, no flash). Then undo,
       erase, switch page, open the toolbar, leave and return to the app: the right ink each time
       and no stroke vanishes.
+
+## Redraw matches the live ink (fountain, brush, charcoal, charcoal_v2)
+
+For each pen: write a word with light and heavy pressure, some fast and some slow strokes, then
+pause about 1 s (idle sync), then undo and redo, then switch page and back.
+
+- [ ] Fountain: after each step the strokes keep the width profile they had while the pen moved
+      (thin light and fast parts, thick heavy parts), not thinner or more uniform.
+- [ ] Brush: the same check; the tapering of the stroke ends is kept after the redraw.
+- [ ] Charcoal: after each step the stroke keeps its grainy charcoal texture and does not turn
+      into a smooth grey pen line.
+- [ ] Charcoal_v2: the same as charcoal, at the same (1.2x) width as the live stroke.
+- [ ] A page with many charcoal strokes: undo and page switch redraw without a noticeable pause,
+      and quick writing still keeps up with the nib (pen latency section).
+- [ ] Charcoal written with the pen held tilted: the redraw keeps the wider, softer tilted grain
+      (tilt is passed to the SDK pen) and the grain at the stroke edges is not cut off or left stale
+      after an idle sync next to it.
+- [ ] Drag a rectangle over a page with many charcoal strokes: the preview follows the pen without
+      lag (committed strokes are blitted from the cache, the preview is never drawn by the SDK pens).
+- [ ] Open a sent page in the document view and swipe between pages: charcoal looks as on the
+      board and swiping does not stall.
+- [ ] Charcoal pressure range is not flattened: a light stroke and a hard stroke redraw with visibly
+      different grain weight (the redraw divides pressure once; this was inferred from a native
+      string scan, not a decompile).
+- [ ] Known gap: PNG exports and the images sent to the connector keep the app's own (smooth)
+      look for these pens.

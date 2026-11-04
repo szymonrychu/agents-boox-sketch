@@ -47,4 +47,16 @@ class InkBoundsTest {
     fun a_stroke_without_points_has_no_bounds() {
         assertThat(g.inkBounds(Stroke("e", Tool.BALLPOINT, 4f, emptyList()))).isNull()
     }
+
+    @Test
+    fun charcoal_bounds_cover_the_texture_grain_past_the_line() {
+        for (tool in listOf(Tool.CHARCOAL, Tool.CHARCOAL_V2)) {
+            val b = g.inkBounds(shape(tool, 100f, 100f, 120f, 100f))!!
+            // 8x the width across: the tilt-scaled texture stamp reaches 4 widths from the line.
+            assertThat(b.top).isAtMost(100f - 4f * 4f)
+            assertThat(b.left).isAtMost(100f - 4f * 4f)
+            assertThat(b.right).isAtLeast(120f + 4f * 4f)
+        }
+        assertThat(g.inkBounds(shape(Tool.FOUNTAIN, 100f, 100f, 120f, 100f))!!.top).isGreaterThan(100f - 4f * 4f)
+    }
 }

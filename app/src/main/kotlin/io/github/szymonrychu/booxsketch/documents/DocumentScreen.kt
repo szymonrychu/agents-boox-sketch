@@ -39,6 +39,7 @@ import io.github.szymonrychu.booxsketch.board.BoardGeometry
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
+import io.github.szymonrychu.booxsketch.render.devicePenRenderer
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
 
 const val TAG_DOC_CLOSE = "doc_close"
@@ -162,7 +163,7 @@ fun DocumentPageView(
 ) {
     val bitmap: Bitmap? = remember(pagePath) { pagePath?.let { BitmapFactory.decodeFile(it) } }
     val swipe = ThresholdPageSwipe(with(LocalDensity.current) { ThresholdPageSwipe.DEFAULT_MIN_TRAVEL_PX.dp.toPx() })
-    val renderer = remember { CanvasStrokeRenderer() }
+    val renderer = remember { CanvasStrokeRenderer(devicePenRenderer()) }
     Canvas(modifier.background(Color.White).fingerSwipes(swipe, onSwipe)) {
         val b = bitmap ?: return@Canvas
         val g = BoardGeometry(size.width.toInt(), size.height.toInt(), PageCanvas(b.width, b.height, 1f))

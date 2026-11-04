@@ -9,6 +9,7 @@ import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.Vec
 import io.github.szymonrychu.booxsketch.model.arrowHead
 import io.github.szymonrychu.booxsketch.model.rectOf
+import io.github.szymonrychu.booxsketch.onyx.PenRenderer
 
 /** Draws strokes onto an Android canvas: canvas px * [scale] + ([dx], [dy]). */
 interface StrokeRenderer {
@@ -19,9 +20,26 @@ interface StrokeRenderer {
         dx: Float,
         dy: Float,
     )
+
+    /** As [draw], for what is redrawn on every input event (a stroke in progress, a shape drag): only cheap drawing. */
+    fun drawPreview(
+        canvas: Canvas,
+        strokes: List<Stroke>,
+        scale: Float,
+        dx: Float,
+        dy: Float,
+    ) = draw(canvas, strokes, scale, dx, dy)
 }
 
-class CanvasStrokeRenderer : StrokeRenderer {
+/**
+ * The app's own stroke drawing. A [pen] (the cached Onyx SDK pens on the device) gets every
+ * committed freehand stroke first and draws the ones it knows like the live ink; the rest, every
+ * [drawPreview], and everything when there is no [pen] (JVM tests, screenshots, other devices), is
+ * drawn here.
+ */
+class CanvasStrokeRenderer(
+    private val pen: PenRenderer? = null,
+) : StrokeRenderer {
     private val paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             strokeCap = Paint.Cap.ROUND
@@ -37,21 +55,34 @@ class CanvasStrokeRenderer : StrokeRenderer {
         dx: Float,
         dy: Float,
     ) {
-        for (s in strokes) drawStroke(canvas, s, scale, dx, dy)
+        for (s in strokes) drawStroke(canvas, s, scale, dx, dy, pen)
     }
 
+    override fun drawPreview(
+        canvas: Canvas,
+        strokes: List<Stroke>,
+        scale: Float,
+        dx: Float,
+        dy: Float,
+    ) {
+        for (s in strokes) drawStroke(canvas, s, scale, dx, dy, null)
+    }
+
+    @Suppress("LongParameterList")
     private fun drawStroke(
         canvas: Canvas,
         s: Stroke,
         scale: Float,
         dx: Float,
         dy: Float,
+        pen: PenRenderer?,
     ) {
         if (s.points.isEmpty()) return
         if (s.tool.isShape) {
             if (s.points.size >= 2) drawShape(canvas, s, scale, dx, dy)
             return
         }
+        if (pen?.draw(canvas, s, scale, dx, dy) == true) return
         val pts = s.points
         if (pts.size == 1) {
             val p = pts[0]

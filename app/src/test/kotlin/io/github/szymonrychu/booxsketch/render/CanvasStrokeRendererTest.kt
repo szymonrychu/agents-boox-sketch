@@ -8,6 +8,7 @@ import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.onyx.PenRenderer
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -132,5 +133,69 @@ class CanvasStrokeRendererTest {
         assertThat(bmp.getPixel(150, 204)).isEqualTo(PenColor.GREEN.argb)
         assertThat(bmp.getPixel(150, 190)).isEqualTo(Color.WHITE)
         assertThat(bmp.getPixel(150, 208)).isEqualTo(Color.WHITE)
+    }
+
+    private class RecordingPen(
+        private val claims: Boolean,
+    ) : PenRenderer {
+        val offered = mutableListOf<Tool>()
+
+        override fun draw(
+            canvas: Canvas,
+            stroke: Stroke,
+            scale: Float,
+            dx: Float,
+            dy: Float,
+        ): Boolean {
+            offered += stroke.tool
+            return claims
+        }
+    }
+
+    private fun renderWith(
+        pen: PenRenderer,
+        s: Stroke,
+    ): Bitmap {
+        val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(Color.WHITE)
+        CanvasStrokeRenderer(pen).draw(c, listOf(s), 1f, 0f, 0f)
+        return bmp
+    }
+
+    @Test
+    fun a_stroke_the_vendor_pen_draws_is_not_drawn_again_by_the_fallback() {
+        val pen = RecordingPen(claims = true)
+        val bmp = renderWith(pen, line(Tool.CHARCOAL, PenColor.BLACK))
+        assertThat(pen.offered).containsExactly(Tool.CHARCOAL)
+        assertThat(bmp.getPixel(200, 200)).isEqualTo(Color.WHITE)
+    }
+
+    @Test
+    fun a_stroke_the_vendor_pen_declines_is_drawn_by_the_fallback() {
+        val pen = RecordingPen(claims = false)
+        val bmp = renderWith(pen, line(Tool.BALLPOINT, PenColor.RED))
+        assertThat(pen.offered).containsExactly(Tool.BALLPOINT)
+        assertThat(bmp.getPixel(200, 200)).isEqualTo(PenColor.RED.argb)
+    }
+
+    @Test
+    fun shapes_are_never_offered_to_the_vendor_pen() {
+        val pen = RecordingPen(claims = true)
+        val rect = Stroke("r", Tool.RECTANGLE, 6f, listOf(Point(50f, 50f, 1f, 0), Point(150f, 150f, 1f, 1)), PenColor.BLUE)
+        val bmp = renderWith(pen, rect)
+        assertThat(pen.offered).isEmpty()
+        assertThat(bmp.getPixel(100, 50)).isEqualTo(PenColor.BLUE.argb)
+    }
+
+    @Test
+    fun a_preview_draw_never_runs_the_vendor_pen() {
+        val pen = RecordingPen(claims = true)
+        val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(Color.WHITE)
+        CanvasStrokeRenderer(pen).drawPreview(c, listOf(line(Tool.CHARCOAL, PenColor.RED)), 1f, 0f, 0f)
+        assertThat(pen.offered).isEmpty()
+        assertThat(Color.red(bmp.getPixel(200, 200))).isGreaterThan(Color.green(bmp.getPixel(200, 200)))
     }
 }
