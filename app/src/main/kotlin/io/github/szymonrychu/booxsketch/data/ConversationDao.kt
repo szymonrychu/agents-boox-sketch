@@ -22,6 +22,13 @@ interface ConversationDao {
         serverId: String,
     )
 
+    /** Drops every row for [serverId] except [keepLocalId] (a refresh may have inserted a twin). */
+    @Query("DELETE FROM conversations WHERE serverId = :serverId AND localId != :keepLocalId")
+    suspend fun deleteOthersWithServerId(
+        serverId: String,
+        keepLocalId: String,
+    )
+
     @Query("DELETE FROM conversations WHERE localId = :localId")
     suspend fun delete(localId: String)
 

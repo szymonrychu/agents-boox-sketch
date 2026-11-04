@@ -1,5 +1,6 @@
 package io.github.szymonrychu.booxsketch.send
 
+import androidx.room.withTransaction
 import io.github.szymonrychu.booxsketch.api.ApiError
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.api.DrainResult
@@ -77,7 +78,7 @@ class OutboxRunner(
                     }
                 }
             }
-            db.outboxDao().earliestDueMs()?.let { schedule((it - clock()).coerceAtLeast(0)) }
+            db.outboxDao().earliestDueMs()?.let { withContext(Dispatchers.IO) { schedule((it - clock()).coerceAtLeast(0)) } }
             DrainSummary(accepted, failed, needsPairing = false)
         }
 
@@ -144,8 +145,14 @@ class OutboxRunner(
                     // 202 and a 200 replay of the same client_id both count as accepted.
                     val result = c.uploadSketch(meta, pngs, strokes)
                     // Stored before the next item is resolved, so a later send in this new conversation reuses it.
-                    val row = db.conversationDao().get(item.conversationLocalId)
-                    if (row != null && row.serverId == null) db.conversationDao().setServerId(row.localId, result.conversationId)
+                    // One transaction: a refresh that saw the new server conversation first left a twin row, drop it.
+                    db.withTransaction {
+                        val row = db.conversationDao().get(item.conversationLocalId)
+                        if (row != null && row.serverId == null) {
+                            db.conversationDao().deleteOthersWithServerId(result.conversationId, row.localId)
+                            db.conversationDao().setServerId(row.localId, result.conversationId)
+                        }
+                    }
                     result.sketchId
                 }
 

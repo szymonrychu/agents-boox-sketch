@@ -4,8 +4,12 @@ import android.Manifest
 import android.app.NotificationManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.work.Configuration
 import androidx.work.ListenableWorker
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.App
 import io.github.szymonrychu.booxsketch.AppContainer
@@ -91,6 +95,23 @@ class UploadWorkerTest {
 
     private fun states(vararg locals: String) =
         runBlocking { locals.flatMap { container.database.outboxDao().forConversation(it) }.map { it.state } }
+
+    @Test
+    fun unpair_cancels_the_queued_runs() =
+        runBlocking<Unit> {
+            WorkManagerTestInitHelper.initializeTestWorkManager(app, Configuration.Builder().build())
+            val scheduler = OutboxScheduler(app)
+            scheduler.later(60_000)
+            scheduler.kick()
+            container.unpair()
+            val wm = WorkManager.getInstance(app)
+            val states =
+                (OutboxScheduler.LATER_WORKS + OutboxScheduler.KICK_WORK)
+                    .flatMap { wm.getWorkInfosForUniqueWork(it).get() }
+                    .map { it.state }
+            assertThat(states).isNotEmpty()
+            assertThat(states.toSet()).containsExactly(WorkInfo.State.CANCELLED)
+        }
 
     @Test
     fun worker_drains_one_at_a_time() =

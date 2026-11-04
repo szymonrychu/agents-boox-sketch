@@ -265,6 +265,19 @@ class SendUseCaseTest {
         }
 
     @Test
+    fun ack_drops_a_duplicate_row_a_refresh_inserted_for_the_same_server_conversation() =
+        runBlocking<Unit> {
+            val local = repo.newConversation()
+            useCase.send(all = false, caption = null)
+            // A refresh that ran between the upload ack and setServerId inserted the server conversation as its own row.
+            conversation("dup", "srv-1", lastActivityMs = 2)
+            assertThat(runner().drain().accepted).isEqualTo(1)
+            val rows = db.conversationDao().all()
+            assertThat(rows.map { it.localId }).containsExactly(local)
+            assertThat(rows.single().serverId).isEqualTo("srv-1")
+        }
+
+    @Test
     fun first_send_of_new_conversation_uses_new_mode() =
         runBlocking<Unit> {
             conversation("older", "srv-older", lastActivityMs = 1)

@@ -79,10 +79,15 @@ class ConversationRepository(
 
     /**
      * Merges `GET /conversations` into Room: unknown server conversations get a local row, known
-     * ones take the server title when it has one. Returns an error text, or null on success.
+     * ones take the server title when it has one, and rows the complete list no longer has are
+     * dropped. The list is not paged, so a successful call is complete; a failed one returns
+     * early and prunes nothing. Returns an error text, or null on success.
      */
     suspend fun refresh(): String? {
         val c = client() ?: return "Not paired"
+        // Only rows whose server id was known before the request can be judged by its answer: a
+        // conversation acked while the request was in flight may be missing from the list.
+        val knownBefore = dao.all().mapNotNull { it.serverId }.toSet()
         val remote =
             try {
                 c.conversations()
@@ -90,19 +95,34 @@ class ConversationRepository(
                 if (e == ApiError.Unauthorized) onUnauthorized()
                 return "Could not load conversations: ${e.message}"
             }
-        db.withTransaction {
-            val known = dao.all().filter { it.serverId != null }.associateBy { it.serverId }
-            for (r in remote) {
-                val local = known[r.id]
-                if (local == null) {
-                    val ms = parseMs(r.createdAt)
-                    dao.upsert(ConversationEntity(newId(), r.id, r.title ?: DEFAULT_CONVERSATION_TITLE, ms, ms))
-                } else {
-                    val title = r.title
-                    if (title != null && title != local.title) dao.setTitle(local.localId, title)
+        val remoteIds = remote.map { it.id }.toSet()
+        val pruned =
+            db.withTransaction {
+                val known = dao.all().filter { it.serverId != null }.associateBy { it.serverId }
+                for (r in remote) {
+                    val local = known[r.id]
+                    if (local == null) {
+                        val ms = parseMs(r.createdAt)
+                        dao.upsert(ConversationEntity(newId(), r.id, r.title ?: DEFAULT_CONVERSATION_TITLE, ms, ms))
+                    } else {
+                        val title = r.title
+                        if (title != null && title != local.title) dao.setTitle(local.localId, title)
+                    }
                 }
+                // Rows with queued sends stay: their items still need the conversation.
+                known.values
+                    .filter {
+                        it.serverId in knownBefore && it.serverId !in remoteIds &&
+                            db.outboxDao().forConversation(it.localId).isEmpty()
+                    }.onEach { row ->
+                        row.serverId?.let {
+                            db.specDao().deleteFor(it)
+                            db.cursorDao().delete(it)
+                        }
+                        dao.delete(row.localId)
+                    }.map { it.localId }
             }
-        }
+        if (_selected.value in pruned) select(null)
         return null
     }
 

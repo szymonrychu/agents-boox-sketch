@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.github.szymonrychu.booxsketch.board.BoardScreen
+import io.github.szymonrychu.booxsketch.ink.CountedPause
 import io.github.szymonrychu.booxsketch.pairing.PairingScreen
 import io.github.szymonrychu.booxsketch.send.SendOutcomeDialog
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
@@ -62,7 +63,7 @@ class MainActivity : ComponentActivity() {
                 var edited by remember { mutableStateOf<SplitState?>(null) }
                 val split = edited ?: stored
                 val scope = rememberCoroutineScope()
-                val input = remember { container.inputSelector.select() }
+                val input = remember { CountedPause(container.inputSelector.select()) }
                 val sendMessage by container.sendMessage.collectAsState()
                 PauseInputWhile(sendMessage != null, input)
                 sendMessage?.let { SendOutcomeDialog(it, container::dismissSendMessage) }

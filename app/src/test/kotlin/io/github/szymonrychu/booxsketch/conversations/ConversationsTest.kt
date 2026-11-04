@@ -52,6 +52,7 @@ class ConversationsTest {
     private val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
     private var deleteStatus = 204
     private var listBody = "[]"
+    private var listStatus = 200
     private var unauthorized = 0
     private var ids = 0
 
@@ -77,7 +78,7 @@ class ConversationsTest {
                         }
 
                         else -> {
-                            r.setResponseCode(200).setBody(listBody)
+                            r.setResponseCode(listStatus).setBody(listBody)
                         }
                     }
                 }
@@ -204,6 +205,34 @@ class ConversationsTest {
             // A second refresh adds nothing.
             repo.refresh()
             assertThat(db.conversationDao().all()).hasSize(3)
+        }
+
+    @Test
+    fun refresh_prunes_rows_the_complete_server_list_no_longer_has() =
+        runBlocking<Unit> {
+            db.conversationDao().upsert(ConversationEntity("keep", "srv-1", "t", 0, 1))
+            db.conversationDao().upsert(ConversationEntity("gone", "srv-gone", "t", 0, 2))
+            db.conversationDao().upsert(ConversationEntity("unsent", null, "t", 0, 3))
+            db.specDao().upsert(SpecEntity("srv-gone", 1, "# spec", "2026-11-03T00:00:00Z"))
+            db.cursorDao().set(CursorEntity("srv-gone", 7))
+            seed("pending", "srv-pending")
+            repo.select("gone")
+            listBody = """[{"id":"srv-1","title":"t","created_at":"2026-11-03T10:00:00+00:00","latest_spec_version":null}]"""
+            assertThat(repo.refresh()).isNull()
+            assertThat(db.conversationDao().all().map { it.localId }).containsExactly("keep", "unsent", "pending")
+            assertThat(db.specDao().latest("srv-gone")).isNull()
+            assertThat(db.cursorDao().get("srv-gone")).isNull()
+            assertThat(repo.selected.value).isNull()
+        }
+
+    @Test
+    fun refresh_failure_prunes_nothing() =
+        runBlocking<Unit> {
+            db.conversationDao().upsert(ConversationEntity("gone", "srv-gone", "t", 0, 2))
+            listStatus = 500
+            listBody = """{"error":"boom","detail":""}"""
+            assertThat(repo.refresh()).isNotNull()
+            assertThat(db.conversationDao().all().map { it.localId }).containsExactly("gone")
         }
 
     @Test

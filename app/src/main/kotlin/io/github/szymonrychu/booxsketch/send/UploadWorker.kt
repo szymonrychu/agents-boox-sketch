@@ -16,6 +16,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.szymonrychu.booxsketch.App
@@ -49,22 +50,48 @@ class OutboxScheduler(
     fun kick() = enqueue(KICK_WORK, 0, ExistingWorkPolicy.KEEP)
 
     /**
-     * Run again after [delayMs] (backoff or Retry-After of the items left). Called from inside
-     * the running worker, so it must append, never replace (REPLACE would cancel the caller).
+     * Run again after [delayMs] (backoff or Retry-After of the items left), at most one pending
+     * run: a pending run that is due at or before the new one already covers it (it drains and
+     * schedules again), a later one is replaced. The runs alternate between two unique names and
+     * the one whose run is executing is never touched, because this is called from inside the
+     * running worker and REPLACE on its own name would cancel the caller. Blocks briefly on the
+     * WorkManager database; call off the main thread.
      */
-    fun later(delayMs: Long) = enqueue(LATER_WORK, delayMs, ExistingWorkPolicy.APPEND_OR_REPLACE)
+    fun later(delayMs: Long) {
+        val due = System.currentTimeMillis() + delayMs
+        val wm = workManager() ?: return
+        val byName = LATER_WORKS.associateWith { wm.getWorkInfosForUniqueWork(it).get() }
+        val covered = byName.values.flatten().any { it.state == WorkInfo.State.ENQUEUED && it.nextScheduleTimeMillis <= due }
+        if (covered) return
+        val free = LATER_WORKS.firstOrNull { name -> byName.getValue(name).none { it.state == WorkInfo.State.RUNNING } }
+        // Both names running cannot cancel a caller safely: queue behind the first.
+        enqueue(
+            free ?: LATER_WORKS.first(),
+            delayMs,
+            if (free !=
+                null
+            ) {
+                ExistingWorkPolicy.REPLACE
+            } else {
+                ExistingWorkPolicy.APPEND_OR_REPLACE
+            },
+        )
+    }
 
     /** Drops the queued runs (Unpair clears the outbox they would drain). */
     fun cancelAll() {
-        try {
-            WorkManager.getInstance(context).run {
-                cancelUniqueWork(KICK_WORK)
-                cancelUniqueWork(LATER_WORK)
-            }
-        } catch (e: IllegalStateException) {
-            Log.w(TAG, "outbox work not cancelled: $e")
-        }
+        val wm = workManager() ?: return
+        (LATER_WORKS + KICK_WORK).forEach(wm::cancelUniqueWork)
     }
+
+    /** Null when WorkManager is not initialised (only in tests that never start it); foreground drains still run. */
+    private fun workManager(): WorkManager? =
+        try {
+            WorkManager.getInstance(context)
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "outbox work unavailable: $e")
+            null
+        }
 
     private fun enqueue(
         name: String,
@@ -76,17 +103,12 @@ class OutboxScheduler(
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
                 .build()
-        try {
-            WorkManager.getInstance(context).enqueueUniqueWork(name, policy, request)
-        } catch (e: IllegalStateException) {
-            // WorkManager not initialised (only in tests that never start it); foreground drains still run.
-            Log.w(TAG, "outbox work not scheduled: $e")
-        }
+        workManager()?.enqueueUniqueWork(name, policy, request)
     }
 
     companion object {
         const val KICK_WORK = "outbox"
-        const val LATER_WORK = "outbox-later"
+        val LATER_WORKS = listOf("outbox-later-a", "outbox-later-b")
         private const val TAG = "BooxSketch"
     }
 }
