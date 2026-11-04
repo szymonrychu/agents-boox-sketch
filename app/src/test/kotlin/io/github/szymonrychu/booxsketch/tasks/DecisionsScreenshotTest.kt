@@ -65,8 +65,8 @@ class DecisionsScreenshotTest {
         ) { vm ->
             vm.answer(21, 0, null, null)
             compose.waitUntil(5_000) {
-                vm.state.value.decisionNotice
-                    .isNotEmpty()
+                val state = vm.state.value
+                state.decisionNotice.isNotEmpty() && state.answering.isEmpty()
             }
         }
     }
