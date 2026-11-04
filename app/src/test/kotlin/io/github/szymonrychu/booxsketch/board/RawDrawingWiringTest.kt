@@ -114,25 +114,6 @@ class RawDrawingWiringTest {
     }
 
     @Test
-    fun appended_strokes_redraw_through_the_committer_and_everything_else_through_the_refresher() {
-        val log = mutableListOf<String>()
-        val v = BoardSurfaceView(ApplicationProvider.getApplicationContext())
-        v.refresher = { block -> log += "refresh".also { block() } }
-        v.committer = { block -> log += "commit".also { block() } }
-        v.surfaceCreated(v.holder)
-        val canvas = PageCanvas(100, 100, 300f)
-        val a = stroke("a")
-        val ab = listOf(a, stroke("b"))
-        v.show(canvas, listOf(a), 0)
-        log.clear()
-        v.show(canvas, ab, 0)
-        v.show(canvas, listOf(a), 0)
-        v.show(canvas, ab, 0)
-        v.show(canvas, ab, 1)
-        assertThat(log).containsExactly("commit", "refresh", "commit", "refresh").inOrder()
-    }
-
-    @Test
     fun surface_lifecycle_reaches_the_callbacks() {
         val log = mutableListOf<String>()
         val v = BoardSurfaceView(ApplicationProvider.getApplicationContext())

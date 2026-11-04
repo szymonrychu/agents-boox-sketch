@@ -23,6 +23,7 @@ private class BracketInput(
     private val log: MutableList<String>,
     private val name: String,
     private val failRefresh: Boolean = false,
+    override val rawLive: Boolean = false,
 ) : StrokeInput {
     override val events: Flow<StrokeEvent> = emptyFlow()
 
@@ -125,5 +126,19 @@ class OnyxFallbackLifecycleTest {
         scope.testScheduler.advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
         scope.testScheduler.runCurrent()
         assertThat(log).contains("diag")
+    }
+
+    @Test
+    fun raw_is_live_only_while_the_onyx_input_runs_it_so_fallback_and_stop_draw_normally() {
+        val input = select(BracketInput(log, "onyx", failRefresh = true, rawLive = true))
+        val v = View(ApplicationProvider.getApplicationContext())
+        input.start(v, Rect(0, 0, 10, 10), emptyList())
+        assertThat(input.rawLive).isTrue()
+        input.stop()
+        assertThat(input.rawLive).isFalse()
+        input.start(v, Rect(0, 0, 10, 10), emptyList())
+        input.refresh {}
+        assertThat(log).contains("diag")
+        assertThat(input.rawLive).isFalse()
     }
 }

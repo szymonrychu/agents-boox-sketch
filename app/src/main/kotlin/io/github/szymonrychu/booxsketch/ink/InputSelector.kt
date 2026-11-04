@@ -213,6 +213,9 @@ private class OnyxWithFallback(
     val rawEnabled: Boolean
         get() = !synchronized(lock) { fellBack || stopped } && (onyx as? RawActivitySource)?.rawActive == true
 
+    override val rawLive: Boolean
+        get() = !synchronized(lock) { fellBack || stopped } && onyx.rawLive
+
     private val lock = Any()
     private var view: View? = null
     private var limit = Rect()
@@ -469,24 +472,6 @@ private class OnyxWithFallback(
         var drawn = false
         guarded {
             onyx.refresh {
-                drawn = true
-                redraw()
-            }
-        }
-        if (!drawn) redraw()
-    }
-
-    /** Like [refresh], but an Onyx input with raw drawing active redraws without the disable and enable. */
-    override fun drawCommitted(redraw: () -> Unit) {
-        val fallen =
-            synchronized(lock) {
-                disarm()
-                fellBack
-            }
-        if (fallen) return touch.drawCommitted(redraw)
-        var drawn = false
-        guarded {
-            onyx.drawCommitted {
                 drawn = true
                 redraw()
             }

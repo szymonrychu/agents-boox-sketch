@@ -107,3 +107,13 @@ Open the Documents tab (side panel), pick a document with at least one spec vers
 - [ ] Draw ten quick strokes with the ballpoint: each stays on screen the whole time, with no
       brief vanish and reappear after the pen lifts. Then undo, erase and switch page: the
       board shows the right ink after each (these still redraw through a raw drawing toggle).
+
+## Pen latency
+
+- [ ] With Diagnostics showing "Input path: Onyx raw", "Raw drawing enabled: yes" and "Fallback
+      reason: none", write a full line of handwriting quickly, then the same line in the stock
+      BOOX Notes app: the ink keeps up with the nib as in Notes, with no lag that grows along the
+      line.
+- [ ] Pause about 1 s after writing: nothing visibly changes (no blink, no flash). Then undo,
+      erase, switch page, open the toolbar, leave and return to the app: the right ink each time
+      and no stroke vanishes.

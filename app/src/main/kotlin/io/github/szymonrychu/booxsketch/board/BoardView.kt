@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.view.SurfaceHolder
@@ -22,11 +23,13 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import io.github.szymonrychu.booxsketch.ink.CommittedInkSurface
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.model.shapeOutline
 import io.github.szymonrychu.booxsketch.onyx.Epd
 import io.github.szymonrychu.booxsketch.onyx.FullRefreshDebouncer
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
@@ -50,6 +53,26 @@ class BoardGeometry(
             width = stroke.width / scale,
             points = stroke.points.map { it.copy(x = (it.x - dx) / scale, y = (it.y - dy) / scale) },
         )
+
+    /**
+     * View pixels [stroke] (page-canvas pixels) can paint: its outline points (an arrow's head
+     * included) padded by the widest line its tool draws for its width (marker 3x; shapes 1x)
+     * plus anti-aliasing.
+     */
+    fun inkBounds(stroke: Stroke): RectF? {
+        if (stroke.points.isEmpty()) return null
+        val factor = if (stroke.tool.isShape) 1f else MAX_WIDTH_FACTOR
+        val pad = stroke.width * scale * factor / 2f + AA_PAD
+        val r = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
+        for (p in shapeOutline(stroke).flatten()) r.union(p.x * scale + dx, p.y * scale + dy)
+        r.inset(-pad, -pad)
+        return r
+    }
+
+    private companion object {
+        const val MAX_WIDTH_FACTOR = 3f
+        const val AA_PAD = 2f
+    }
 }
 
 /**
@@ -111,16 +134,21 @@ class InputGate(
 /**
  * Surface the page strokes are drawn on. Every redraw runs inside [refresher] (the input's
  * refresh, which lifts the raw-drawing screen freeze), and a load, page switch or clear also
- * schedules a debounced GC full refresh. [showLive] draws the stroke in progress of an input
- * without vendor ink (touch) on top of the page while the pen moves, in the e-ink handwriting
- * update mode; no animation, one frame per input event. A shape drag's snapped preview is part
- * of [show], so the commit swaps preview for shape in one frame.
+ * schedules a debounced GC full refresh. Strokes appended while [rawLive] are not drawn at all:
+ * the raw drawing overlay holds them, and a frame posted then stalls the next stroke's ink. Their
+ * dirty rect is drawn by [syncCommitted] (pen idle, or before raw drawing turns off) and before any
+ * other change is shown, so the surface holds every committed stroke before the overlay goes.
+ * [showLive] draws the stroke in progress of an input without vendor ink (touch) on top of the
+ * page while the pen moves, in the e-ink handwriting update mode; no animation, one frame per
+ * input event. A shape drag's snapped preview is part of [show], so the commit swaps preview for
+ * shape in one frame.
  */
 class BoardSurfaceView(
     context: Context,
     private val renderer: StrokeRenderer = CanvasStrokeRenderer(),
 ) : SurfaceView(context),
-    SurfaceHolder.Callback {
+    SurfaceHolder.Callback,
+    CommittedInkSurface {
     private var strokes: List<Stroke> = emptyList()
     private var page: PageCanvas = PageCanvas(1, 1, 1f)
     private var shownIndex: Int? = null
@@ -130,16 +158,23 @@ class BoardSurfaceView(
     private var live: Stroke? = null
     private var handwriting = false
 
+    /** View pixels of strokes shown in [strokes] but not yet drawn on the surface. */
+    private var pendingDirty: Rect? = null
+
     /** Where frames are drawn; tests swap it because a Robolectric surface has no canvas. */
     internal var canvasSource: (SurfaceHolder) -> AndroidCanvas? = { it.lockCanvas() }
+
+    /** Where dirty-rect frames are drawn; the rect is the requested one and may be widened by the lock. */
+    internal var dirtyCanvasSource: (SurfaceHolder, Rect) -> AndroidCanvas? = { h, r -> h.lockCanvas(r) }
 
     /** True between surfaceCreated and surfaceDestroyed; raw drawing may only be open then. */
     val surfaceReady: Boolean get() = ready
 
     var refresher: (() -> Unit) -> Unit = { it() }
 
-    /** Runs the redraw after strokes were only added to the shown page; see [StrokeInput.drawCommitted]. */
-    var committer: (() -> Unit) -> Unit = { it() }
+    /** True while the input's raw drawing overlay draws the ink; see [StrokeInput.rawLive]. */
+    var rawLive: () -> Boolean = { false }
+
     var onSurfaceCreated: () -> Unit = {}
     var onSurfaceDestroyed: () -> Unit = {}
     var onFocus: (Boolean) -> Unit = {}
@@ -171,6 +206,8 @@ class BoardSurfaceView(
         val samePage = page == this.page && strokes == this.strokes && index == shownIndex && sameBackground
         if (samePage && preview == this.preview) return
         val appended = sameBackground && onlyAppended(page, strokes, index, preview)
+        if (appended && rawLive()) return defer(strokes)
+        syncCommitted()
         val full = needsFullRefresh(shownIndex, this.strokes, index, strokes) || (shownIndex != null && !sameBackground)
         val dragging = preview != null && samePage
         this.background = background
@@ -179,8 +216,37 @@ class BoardSurfaceView(
         shownIndex = index
         this.preview = preview
         if (dragging) handwritingMode()
-        redraw(appended)
+        redraw()
         if (full) fullRefresh.request()
+    }
+
+    /** Takes [strokes] (the shown ones plus appended ones) without drawing; [syncCommitted] draws their rect later. */
+    private fun defer(strokes: List<Stroke>) {
+        val added = strokes.subList(this.strokes.size, strokes.size)
+        this.strokes = strokes
+        // Without a surface nothing is pending: surfaceCreated draws the whole page.
+        if (!ready) return
+        val g = geometry()
+        val dirty = pendingDirty ?: Rect()
+        added.forEach { s -> g.inkBounds(s)?.let { dirty.union(Rect().apply { it.roundOut(this) }) } }
+        pendingDirty = dirty.takeIf { !it.isEmpty }
+    }
+
+    /**
+     * Draws the dirty rect of the deferred strokes, with raw drawing left as it is: only what lies
+     * in the rect (as widened by the lock) is drawn. Does nothing when nothing is pending.
+     */
+    override fun syncCommitted() {
+        val dirty = pendingDirty ?: return
+        pendingDirty = null
+        if (!ready) return
+        val canvas = dirtyCanvasSource(holder, dirty) ?: return
+        try {
+            canvas.clipRect(dirty)
+            paint(canvas, RectF(dirty))
+        } finally {
+            holder.unlockCanvasAndPost(canvas)
+        }
     }
 
     /** True when the new state differs from the shown one only by strokes added to the same page. */
@@ -209,30 +275,41 @@ class BoardSurfaceView(
         Epd.handwritingMode(this)
     }
 
-    private fun redraw(appended: Boolean = false) {
+    private fun redraw() {
         if (!ready) return
-        (if (appended) committer else refresher) { draw() }
+        refresher { draw() }
     }
 
     private fun draw() {
         val canvas = canvasSource(holder) ?: return
+        pendingDirty = null
         try {
-            canvas.drawColor(Color.WHITE)
-            val g = geometry()
-            background?.let {
-                val m =
-                    Matrix().apply {
-                        postScale(g.scale * page.w / it.width, g.scale * page.h / it.height)
-                        postTranslate(g.dx, g.dy)
-                    }
-                canvas.drawBitmap(it, m, null)
-            }
-            renderer.draw(canvas, strokes, g.scale, g.dx, g.dy)
-            preview?.let { renderer.draw(canvas, listOf(it), g.scale, g.dx, g.dy) }
-            live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
+            paint(canvas, null)
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }
+    }
+
+    /** The whole board onto [canvas]; with [within] (view pixels) freehand strokes outside it are skipped. */
+    private fun paint(
+        canvas: AndroidCanvas,
+        within: RectF?,
+    ) {
+        canvas.drawColor(Color.WHITE)
+        val g = geometry()
+        background?.let {
+            val m =
+                Matrix().apply {
+                    postScale(g.scale * page.w / it.width, g.scale * page.h / it.height)
+                    postTranslate(g.dx, g.dy)
+                }
+            canvas.drawBitmap(it, m, null)
+        }
+        val shown =
+            if (within == null) strokes else strokes.filter { s -> g.inkBounds(s)?.let { RectF.intersects(it, within) } ?: false }
+        renderer.draw(canvas, shown, g.scale, g.dx, g.dy)
+        preview?.let { renderer.draw(canvas, listOf(it), g.scale, g.dx, g.dy) }
+        live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -307,7 +384,7 @@ fun BoardView(
             BoardSurfaceView(ctx).also { v ->
                 surface[0] = v
                 v.refresher = input::refresh
-                v.committer = input::drawCommitted
+                v.rawLive = { input.rawLive }
                 v.onSurfaceCreated = { startOn(v) }
                 v.onSurfaceDestroyed = { input.stop() }
                 v.onFocus = gate::setFocused
