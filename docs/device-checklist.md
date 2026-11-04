@@ -60,6 +60,26 @@ Then:
 - [ ] With the dock visible, pen taps on swatches and tool chips change the selection and never
       leave ink on the toolbar.
 
+## Left icon strip and popups
+
+- [ ] Launch: a narrow icon strip on the left edge below the tab bar (pen, eraser, rectangle, arrow,
+      colour, undo, redo, pages "1/1", send, hide chevron); the selected tool has a thick black frame.
+- [ ] Tap an unselected tool: it is selected, no popup. Tap the selected tool again: its popup opens to
+      the right of the strip at that button's height; tap it a third time: the popup closes.
+- [ ] Pen popup: six pen types (fountain, brush, ballpoint, charcoal, charcoal_v2, marker) are told apart
+      by their glyph and label; the width slider changes the stroke width, and a draw right after uses it.
+- [ ] Rectangle or arrow selected, popup open: only the six colours, no slider; draw a rectangle after
+      moving the pen slider: its width is the same fixed one every time.
+- [ ] Colour popup: six colours in a 3x2 grid, the selected one framed with a white centre mark; the colour
+      icon on the strip shows the current colour.
+- [ ] Open and close a popup: one GC flash, no popup residue left on the board, the pen draws right after.
+- [ ] Pen strokes started over the strip or over an open popup draw nothing and the popup keeps working.
+- [ ] Hide chevron: the strip collapses to a small "Show tools" tab on the left edge; tap it to bring the
+      strip back. A finger tap on the board closes popup, strip and panel in one flash.
+- [ ] Pages popup: previous, next, add and delete work and the strip counter follows. Eraser popup: Clear
+      page clears the page and undo brings it back. Send popup: caption, Send, Send all pages.
+- [ ] Rotate with a popup open: the popup closes, the strip stays on the left edge, the pen draws right after.
+
 ## Side panel and tap to dismiss
 
 - [ ] Launch: no panel, a small "Show panel" indicator at the right centre; tap it: the panel
