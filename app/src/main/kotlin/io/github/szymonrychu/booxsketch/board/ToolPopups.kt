@@ -266,9 +266,10 @@ private fun SendPopup(
     options: ToolbarOptions,
 ) {
     val send = { all: Boolean ->
+        // Full refresh first (the refresher's hold before the board's), as in the strip's popup taps.
+        ui.chromeChanged()
         onSend(all, state.caption.ifBlank { null })
         state.close()
-        ui.chromeChanged()
     }
     OutlinedTextField(
         value = state.caption,

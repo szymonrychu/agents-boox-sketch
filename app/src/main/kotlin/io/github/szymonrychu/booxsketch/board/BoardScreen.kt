@@ -283,6 +283,7 @@ private fun RelayoutOnConfigurationChange(
                     seen = layout
                     ui.chromeChanged()
                     // The popup is anchored to a strip button of the old layout: it closes (same burst, same hold).
+                    // Called from the configuration listener, outside composition: the snapshot write is global, so it is safe.
                     latestOnLayoutChange()
                     holds.report(LAYOUT_KEY, false, emptyList())
                     // Rects reported for the old layout are stale: settle only on reports from the new one.
