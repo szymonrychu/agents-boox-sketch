@@ -253,3 +253,10 @@ Lessons that outlive a session. Newest first.
   arrow collapses to a point and is dropped by the `MIN_SHAPE_SIZE` = 8 px check.
 - Hit test works on `shapeOutline`: a rectangle is hit only on its outline, never its interior, so
   the eraser cannot remove a box by touching a shape drawn inside it.
+
+## 2026-11-03 PNG export is RGB colour type 2
+
+- PNG export is RGB colour type 2, 8 bit, 3 bytes per pixel (D91, C6), because the translator must
+  see pen colours; grayscale would drop them. Size is measured by `dense_colour_page_stays_under_1mb`
+  and the 0.85x shrink loop still guards `max_png_bytes`. Bounds use `shapeOutline` so arrow heads
+  and rectangle corners are never clipped by the crop.
