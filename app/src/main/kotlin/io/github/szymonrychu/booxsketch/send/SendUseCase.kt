@@ -1,5 +1,7 @@
 package io.github.szymonrychu.booxsketch.send
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.room.withTransaction
 import io.github.szymonrychu.booxsketch.api.ConfigDto
 import io.github.szymonrychu.booxsketch.api.HandoffDto
@@ -10,13 +12,18 @@ import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.OutboxEntity
 import io.github.szymonrychu.booxsketch.data.ThreadItemEntity
 import io.github.szymonrychu.booxsketch.data.ThreadKind
+import io.github.szymonrychu.booxsketch.documents.AnnotatedInput
+import io.github.szymonrychu.booxsketch.documents.AnnotationSend
+import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.SendSelection
 import io.github.szymonrychu.booxsketch.model.StrokesCodec
 import io.github.szymonrychu.booxsketch.model.selectPagesForSend
+import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.ExportResult
+import io.github.szymonrychu.booxsketch.render.PageRasterExporter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -51,6 +58,15 @@ sealed interface SendOutcome {
         val page: Int,
         val reason: String,
     ) : SendOutcome
+
+    /** The notes belong to spec [version] but [latest] exists: nothing was written. */
+    data class StaleVersion(
+        val version: Int,
+        val latest: Int,
+    ) : SendOutcome
+
+    /** The draft of this version was sent already (a repeated tap). */
+    data object AlreadySent : SendOutcome
 }
 
 /** What a send needs from the board: the notebook and marking pages sent. */
@@ -88,6 +104,9 @@ class SendUseCase(
     private val worker: CoroutineDispatcher = Dispatchers.Default,
     private val clock: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { UUID.randomUUID().toString() },
+    /** Frozen pages and sent markers of documents; only [sendAnnotation] needs it. */
+    private val annotations: AnnotationStore? = null,
+    private val exportPage: (Bitmap, Page, Canvas, ConfigDto) -> ExportResult = PageRasterExporter(CanvasStrokeRenderer())::export,
 ) {
     private val mutex = Mutex()
 
@@ -148,6 +167,113 @@ class SendUseCase(
             kick()
             SendOutcome.Queued(clientId)
         }
+
+    /**
+     * Sends the handwritten notes of a document draft: only the pages with ink, as full-page PNGs (frozen page plus ink)
+     * with `meta.annotates`. Refused, writing nothing, when [version] is not [latestVersion]; a repeated tap after the
+     * draft was queued returns [SendOutcome.AlreadySent]. More inked pages than the server takes per upload become
+     * several uploads in page order. The draft is marked sent only after every upload is queued.
+     */
+    suspend fun sendAnnotation(
+        conversationLocalId: String,
+        version: Int,
+        latestVersion: Int,
+        pages: List<AnnotatedInput>,
+        caption: String?,
+    ): SendOutcome =
+        mutex.withLock {
+            val store = checkNotNull(annotations) { "annotation store not configured" }
+            if (version != latestVersion) return@withLock SendOutcome.StaleVersion(version, latestVersion)
+            if (store.isSent(conversationLocalId, version)) return@withLock SendOutcome.AlreadySent
+            val cfg = limits()
+            val uploads = AnnotationSend.plan(pages, cfg.maxPages)
+            if (uploads.isEmpty()) return@withLock SendOutcome.NothingToSend
+            val prepared = ArrayList<List<PagePart>>()
+            for (upload in uploads) {
+                when (val r = exportUpload(upload, cfg)) {
+                    is Prepared.Failed -> return@withLock r.outcome
+                    is Prepared.Parts -> prepared += r.parts
+                }
+                val total = prepared.last().sumOf { it.png.size.toLong() + (it.strokes?.size ?: 0) }
+                if (total > cfg.maxUploadBytes) return@withLock SendOutcome.TooLarge(total, cfg.maxUploadBytes.toLong())
+            }
+            val text = AnnotationSend.caption(version, caption)
+            var first: String? = null
+            uploads.forEachIndexed { n, upload ->
+                val clientId = newId()
+                if (first == null) first = clientId
+                val parts = prepared[n]
+                enqueue(clientId, OutboxKind.SKETCH, conversationLocalId, ThreadKind.SKETCH, text, parts.size) {
+                    parts.forEachIndexed { i, part ->
+                        Payload.png(it, i).writeBytes(part.png)
+                        part.strokes?.let { s -> Payload.strokes(it, i).writeBytes(s) }
+                    }
+                    Payload.writePages(
+                        it,
+                        clientId,
+                        text,
+                        upload.map { u ->
+                            u.index
+                        },
+                        canvasOf(upload),
+                        AnnotationSend.annotates(version, upload),
+                    )
+                }
+            }
+            store.markSent(conversationLocalId, version)
+            kick()
+            SendOutcome.Queued(checkNotNull(first))
+        }
+
+    private fun canvasOf(upload: List<AnnotatedInput>): Canvas {
+        val size =
+            BitmapFactory.Options().apply { inJustDecodeBounds = true }.also {
+                BitmapFactory.decodeFile(
+                    upload.first().background.path,
+                    it,
+                )
+            }
+        return Canvas(size.outWidth, size.outHeight, PAGE_DPI)
+    }
+
+    private sealed interface Prepared {
+        class Parts(
+            val parts: List<PagePart>,
+        ) : Prepared
+
+        class Failed(
+            val outcome: SendOutcome,
+        ) : Prepared
+    }
+
+    private suspend fun exportUpload(
+        upload: List<AnnotatedInput>,
+        cfg: ConfigDto,
+    ): Prepared {
+        val canvas = canvasOf(upload)
+        val parts = ArrayList<PagePart>()
+        for (input in upload) {
+            val background = withContext(worker) { BitmapFactory.decodeFile(input.background.path) }
+            if (background == null) {
+                return Prepared.Failed(SendOutcome.ExportFailed(input.index, "page image missing"))
+            }
+            when (val r = withContext(worker) { exportPage(background, input.page, canvas, cfg) }) {
+                ExportResult.Empty -> {
+                    Unit
+                }
+
+                is ExportResult.TooBig -> {
+                    return Prepared.Failed(SendOutcome.ExportFailed(input.index, r.reason))
+                }
+
+                is ExportResult.Exported -> {
+                    val strokes = withContext(worker) { StrokesCodec.encode(canvas, input.page) }
+                    parts += PagePart(input.index, r.png, strokes.takeIf { it.size <= cfg.maxStrokesBytes })
+                }
+            }
+        }
+        return Prepared.Parts(parts)
+    }
 
     /** Queues typed feedback for the selected conversation (Task 22). */
     suspend fun sendMessage(text: String): SendOutcome =
@@ -239,5 +365,7 @@ class SendUseCase(
         val strokes: ByteArray?,
     )
 }
+
+private const val PAGE_DPI = 300f
 
 private fun JsonElement.presetName(): String = (this as? JsonObject)?.get("preset")?.jsonPrimitive?.content ?: toString()

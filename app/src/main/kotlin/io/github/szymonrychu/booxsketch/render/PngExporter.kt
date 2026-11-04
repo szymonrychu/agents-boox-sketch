@@ -45,7 +45,7 @@ class PngExporter(
         var h = plan.outH
         var scale = plan.scale
         while (true) {
-            val png = encodeRgb(render(page.strokes, w, h, scale, plan.cropLeft, plan.cropTop), w, h)
+            val png = encodeRgbPng(render(page.strokes, w, h, scale, plan.cropLeft, plan.cropTop), w, h)
             if (png.size <= cfg.maxPngBytes) return ExportResult.Exported(png, w, h)
             val nw = (w * SHRINK).roundToInt()
             val nh = (h * SHRINK).roundToInt()
@@ -98,72 +98,74 @@ class PngExporter(
         return px
     }
 
-    private fun encodeRgb(
-        argb: IntArray,
-        w: Int,
-        h: Int,
-    ): ByteArray {
-        val stride = 1 + 3 * w
-        val raw = ByteArray(stride * h)
-        for (y in 0 until h) {
-            val row = y * stride
-            for (x in 0 until w) {
-                val p = argb[y * w + x]
-                val o = row + 1 + 3 * x
-                raw[o] = Color.red(p).toByte()
-                raw[o + 1] = Color.green(p).toByte()
-                raw[o + 2] = Color.blue(p).toByte()
-            }
-        }
-        val out = ByteArrayOutputStream()
-        out.write(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10))
-        chunk(
-            out,
-            "IHDR",
-            ByteBuffer
-                .allocate(13)
-                .putInt(w)
-                .putInt(h)
-                .put(8)
-                .put(2)
-                .put(0)
-                .put(0)
-                .put(0)
-                .array(),
-        )
-        chunk(out, "IDAT", deflate(raw))
-        chunk(out, "IEND", ByteArray(0))
-        return out.toByteArray()
-    }
-
-    private fun deflate(raw: ByteArray): ByteArray {
-        val d = Deflater(Deflater.BEST_COMPRESSION)
-        d.setInput(raw)
-        d.finish()
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(BUF)
-        while (!d.finished()) out.write(buf, 0, d.deflate(buf))
-        d.end()
-        return out.toByteArray()
-    }
-
-    private fun chunk(
-        out: ByteArrayOutputStream,
-        type: String,
-        data: ByteArray,
-    ) {
-        val t = type.toByteArray(Charsets.US_ASCII)
-        out.write(ByteBuffer.allocate(4).putInt(data.size).array())
-        out.write(t)
-        out.write(data)
-        val crc = CRC32()
-        crc.update(t)
-        crc.update(data)
-        out.write(ByteBuffer.allocate(4).putInt(crc.value.toInt()).array())
-    }
-
     private companion object {
         const val SHRINK = 0.85f
-        const val BUF = 8192
     }
+}
+
+private const val BUF = 8192
+
+/** Encodes [argb] pixels (row-major, [w] x [h]) as an 8-bit RGB PNG (colour type 2, no alpha). */
+internal fun encodeRgbPng(
+    argb: IntArray,
+    w: Int,
+    h: Int,
+): ByteArray {
+    val stride = 1 + 3 * w
+    val raw = ByteArray(stride * h)
+    for (y in 0 until h) {
+        val row = y * stride
+        for (x in 0 until w) {
+            val p = argb[y * w + x]
+            val o = row + 1 + 3 * x
+            raw[o] = Color.red(p).toByte()
+            raw[o + 1] = Color.green(p).toByte()
+            raw[o + 2] = Color.blue(p).toByte()
+        }
+    }
+    val out = ByteArrayOutputStream()
+    out.write(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10))
+    chunk(
+        out,
+        "IHDR",
+        ByteBuffer
+            .allocate(13)
+            .putInt(w)
+            .putInt(h)
+            .put(8)
+            .put(2)
+            .put(0)
+            .put(0)
+            .put(0)
+            .array(),
+    )
+    chunk(out, "IDAT", deflate(raw))
+    chunk(out, "IEND", ByteArray(0))
+    return out.toByteArray()
+}
+
+private fun deflate(raw: ByteArray): ByteArray {
+    val d = Deflater(Deflater.BEST_COMPRESSION)
+    d.setInput(raw)
+    d.finish()
+    val out = ByteArrayOutputStream()
+    val buf = ByteArray(BUF)
+    while (!d.finished()) out.write(buf, 0, d.deflate(buf))
+    d.end()
+    return out.toByteArray()
+}
+
+private fun chunk(
+    out: ByteArrayOutputStream,
+    type: String,
+    data: ByteArray,
+) {
+    val t = type.toByteArray(Charsets.US_ASCII)
+    out.write(ByteBuffer.allocate(4).putInt(data.size).array())
+    out.write(t)
+    out.write(data)
+    val crc = CRC32()
+    crc.update(t)
+    crc.update(data)
+    out.write(ByteBuffer.allocate(4).putInt(crc.value.toInt()).array())
 }

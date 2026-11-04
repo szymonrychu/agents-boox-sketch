@@ -13,6 +13,7 @@ import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.documents.AnnotatedInput
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ID
 import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ORDER
@@ -31,6 +32,7 @@ import io.github.szymonrychu.booxsketch.ink.InputSettings
 import io.github.szymonrychu.booxsketch.ink.OnyxDiagnostics
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
+import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
@@ -256,6 +258,7 @@ class AppContainer(
             limits = configCache::current,
             outboxRoot = outboxRoot,
             kick = ::kickOutbox,
+            annotations = annotationStore,
         )
     }
 
@@ -290,6 +293,33 @@ class AppContainer(
             Log.w(TAG, "send failed: $e")
             "Not sent: the sketch could not be saved (${e.message ?: e.javaClass.simpleName})."
         }
+
+    /** Sends the ink of the open document draft; a refusal or failure shows in the send dialog, the draft then turns read-only. */
+    @Suppress("TooGenericExceptionCaught")
+    fun onSendNotes(
+        vm: DocumentViewModel,
+        caption: String?,
+    ) {
+        appScope.launch {
+            val state = vm.state.value
+            val canvas = Canvas(documentLayout.widthPx, documentLayout.pageHeightPx, DOCUMENT_DPI)
+            val notebook = documentInk.board(vm.conversationLocalId, state.version, state.pages.size, canvas).notebook.value
+            val inputs =
+                state.pages.mapIndexed { i, p ->
+                    AnnotatedInput(i, p.file, notebook.pages.getOrNull(i) ?: Page(emptyList(), false), docPage = i, lines = p.sourceLines)
+                }
+            _sendMessage.value =
+                try {
+                    sendOutcomeText(sendUseCase.sendAnnotation(vm.conversationLocalId, state.version, state.latestVersion, inputs, caption))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "send notes failed: $e")
+                    "Not sent: the notes could not be saved (${e.message ?: e.javaClass.simpleName})."
+                }
+            vm.refreshReadOnly()
+        }
+    }
 
     fun dismissSendMessage() {
         _sendMessage.value = null
@@ -330,6 +360,7 @@ class AppContainer(
 
     private companion object {
         const val TAG = "BooxSketch"
+        const val DOCUMENT_DPI = 300f
         const val DIAGNOSTICS_ORDER = 900
     }
 }

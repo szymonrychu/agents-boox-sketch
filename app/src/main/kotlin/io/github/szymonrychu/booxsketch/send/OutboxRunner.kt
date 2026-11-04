@@ -111,6 +111,7 @@ class OutboxRunner(
                             conversationId = serverId,
                             caption = pages.caption,
                             pages = pages.pages,
+                            annotates = pages.annotates,
                         )
                     withContext(Dispatchers.IO) { Payload.writeMeta(dir, meta) }
                     item.copy(conversationServerId = serverId, conversationMode = meta.conversation)
