@@ -16,6 +16,7 @@ Apache License 2.0
 - AndroidX (core, activity, lifecycle, compose, room, work, datastore), Google
 - OkHttp and Okio, Square
 - multiplatform-markdown-renderer, Mike Penz
+- JetBrains markdown parser (org.jetbrains:markdown), Apache License 2.0 (the pinned version is in the version catalog)
 - Transitive libraries of the above, each under its own licence as declared in its POM
 
 Other transitive dependencies of the Onyx SDK (for example mmkv, easypermissions) are used

@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.roborazzi)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 val localProperties =
@@ -106,6 +107,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.hiddenapibypass)
+    // The parser the pinned markdown renderer is built on; documents are drawn with StaticLayout, not Compose.
+    implementation(libs.jetbrains.markdown)
 
     testImplementation(libs.junit)
     // RawInputCallback and TouchPoint, to drive the real OnyxStrokeInput with a fake RawDrawing.
