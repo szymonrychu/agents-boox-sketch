@@ -243,3 +243,7 @@ Lessons that outlive a session. Newest first.
 - Shapes are strokes (C2): RECTANGLE and ARROW are `Tool` entries, so undo, erase, hit test and
   export reuse the stroke paths unchanged. `Stroke.color` defaults to `PenColor.BLACK` so notebooks
   saved before the colour feature load unchanged (C5).
+
+## 2026-11-03 strokes.json v2
+
+- strokes.json v2, decoder v2 only: upload-only format, no stored v1 files; outbox v1 bytes still upload unchanged (C5).
