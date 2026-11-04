@@ -40,7 +40,10 @@ data class SketchMetaDto(
     val annotates: AnnotatesDto? = null,
 )
 
-/** One uploaded page of a notes upload: [page] indexes `meta.pages`, [docPage] the rendered document page, [lines] its source line range. */
+/**
+ * One uploaded page of a notes upload: [page] is a page number of `meta.pages`, [docPage] the rendered document page,
+ * [lines] its source line range.
+ */
 @Serializable
 data class AnnotatedPageDto(
     val page: Int,
