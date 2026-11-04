@@ -23,6 +23,8 @@ data class DocumentLayout(
 data class RenderedPage(
     val bitmap: Bitmap,
     val sourceLines: IntRange,
+    /** True when a diagram on this page fell back to code text; the freeze is then retried on the next open. */
+    val diagramFailed: Boolean = false,
 )
 
 /** Draws a diagram source (for example mermaid) to a bitmap of [widthPx]; null means "could not", the code is shown as text. */

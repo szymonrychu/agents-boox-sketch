@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.text.SpannableStringBuilder
+import android.util.Log
 import io.github.szymonrychu.booxsketch.model.doc.packPages
 import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownElementTypes
@@ -31,7 +32,8 @@ class MarkdownPaginator(
     internal fun textBlocks(markdown: String): List<String> = BlockParser(markdown).blocks().filterIsInstance<TextBlock>().map { it.text }
 
     fun paginate(markdown: String): List<RenderedPage> {
-        val blocks = BlockParser(markdown).blocks()
+        val parser = BlockParser(markdown)
+        val blocks = parser.blocks()
         val usable = (layout.pageHeightPx - 2 * PAGE_MARGIN_V).coerceAtLeast(1)
         return packPages(blocks.map { it.block }, usable).map { page ->
             val bitmap = Bitmap.createBitmap(layout.widthPx, layout.pageHeightPx, Bitmap.Config.ARGB_8888)
@@ -44,7 +46,7 @@ class MarkdownPaginator(
                 blocks[slice.blockIndex].draw(canvas, slice.fromLine, slice.toLine)
                 canvas.restore()
             }
-            RenderedPage(bitmap, page.sourceLines)
+            RenderedPage(bitmap, page.sourceLines, page.slices.any { it.blockIndex in parser.failedDiagrams })
         }
     }
 
@@ -53,6 +55,10 @@ class MarkdownPaginator(
     ) {
         private val lineStarts: IntArray = lineStartOffsets(markdown)
         private val frontMatterEnd = frontMatterEnd(markdown)
+
+        /** Indexes (in [blocks]) of diagram blocks that fell back to code text. */
+        val failedDiagrams = HashSet<Int>()
+        private var fenceFailed = false
 
         fun blocks(): List<RenderedBlock> {
             val out = ArrayList<RenderedBlock>()
@@ -63,7 +69,13 @@ class MarkdownPaginator(
             // Front matter is blanked (newlines kept) so offsets and line numbers stay those of the source.
             val body = if (frontMatterEnd > 0) blank(markdown, frontMatterEnd) else markdown
             val root = MarkdownParser(flavour).buildMarkdownTreeFromString(body)
-            for (node in root.children) topLevel(node, body)?.let { out += it }
+            for (node in root.children) {
+                fenceFailed = false
+                topLevel(node, body)?.let {
+                    if (fenceFailed) failedDiagrams += out.size
+                    out += it
+                }
+            }
             return out
         }
 
@@ -186,8 +198,13 @@ class MarkdownPaginator(
                         .trimEnd('\n')
                 }
             if (lang.equals("mermaid", ignoreCase = true)) {
-                val bitmap = runCatching { mermaid?.render(code, styles.textWidth) }.getOrNull()
-                if (bitmap != null) return ImageBlock(fit(bitmap), styles.spacing, from, to)
+                val hook = mermaid
+                if (hook != null) {
+                    val result = diagramResult(hook, code)
+                    if (result is DiagramResult.Image) return ImageBlock(fit(result.bitmap), styles.spacing, from, to)
+                    fenceFailed = true
+                    return captionedCodeBlock(code, (result as DiagramResult.Failed).failure.caption, from, to)
+                }
             }
             return codeBlock(code, from, to)
         }
@@ -205,6 +222,38 @@ class MarkdownPaginator(
             val s = SpannableStringBuilder(rows.joinToString("\n") { it.trim() })
             styles.mono(s, 0, s.length)
             return TextBlock(styles.measure(s, styles.paint(styles.body * TABLE_SCALE, mono = true)), styles.spacing, from, to)
+        }
+
+        @Suppress("TooGenericExceptionCaught") // a renderer failure of any kind is the captioned text fallback
+        private fun diagramResult(
+            hook: BlockImage,
+            code: String,
+        ): DiagramResult =
+            try {
+                if (hook is DiagramRenderer) {
+                    hook.renderDiagram(code, styles.textWidth)
+                } else {
+                    hook.render(code, styles.textWidth)?.let { DiagramResult.Image(it) }
+                        ?: DiagramResult.Failed(DiagramFailure.NoImage)
+                }
+            } catch (e: Exception) {
+                Log.w(DiagramFailure.TAG, "diagram renderer threw", e)
+                DiagramResult.Failed(DiagramFailure.Crashed(e.message ?: e.javaClass.simpleName))
+            }
+
+        /** The diagram source as code, then a one-line caption saying why it is not a picture. */
+        private fun captionedCodeBlock(
+            code: String,
+            caption: String,
+            from: Int,
+            to: Int,
+        ): RenderedBlock {
+            val s = SpannableStringBuilder(code.ifEmpty { " " })
+            styles.mono(s, 0, s.length)
+            val start = s.length
+            s.append('\n').append(caption)
+            styles.italic(s, start + 1, s.length)
+            return TextBlock(styles.measure(s, styles.paint(styles.body * CODE_SCALE, mono = true)), styles.spacing, from, to)
         }
 
         private fun codeBlock(

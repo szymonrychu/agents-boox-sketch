@@ -9,14 +9,17 @@
 <body>
 <div id="out"></div>
 <script>
+window.onerror = function (message) { Android.fail("script", String(message)); };
 mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral", flowchart: { htmlLabels: false } });
 async function renderDiagram(source) {
   try {
     const result = await mermaid.render("diagram", source);
     document.getElementById("out").innerHTML = result.svg;
+    if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
+    await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
     Android.done(Math.ceil(document.body.getBoundingClientRect().height));
   } catch (e) {
-    Android.fail(String(e));
+    Android.fail("parse", String((e && e.message) || e));
   }
 }
 </script>

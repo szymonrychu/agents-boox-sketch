@@ -121,7 +121,12 @@ Open the Documents tab (side panel), pick a document with at least one spec vers
 - [ ] Kaleido ink colours over printed text: red, blue, green strokes over text look right in
       the live ink and after lifting.
 - [ ] A mermaid block shows as a diagram (captured by the offline renderer); with the web view
-      failing or after 5 s it shows the diagram source as code text instead. Note which.
+      failing or after 20 s it shows the diagram source as code text plus a one-line caption
+      "diagram failed: <reason>". Note which.
+- [ ] Mermaid, both cases: render a simple flowchart (`graph TD; A-->B`), it shows as a picture;
+      render a deliberately broken one (`graph TD; A-->`), it shows the code plus a caption
+      "diagram failed: mermaid parse error: ...". Check logcat tag `BooxMermaid` for the same
+      reason, and that reopening the unannotated document retries the render.
 - [ ] Rotate the tablet: the page is scaled to fit and centred and the ink stays aligned with
       the text it was written over.
 - [ ] Open an older version from the "v3" picker: it is read-only ("Read only"), saved ink of

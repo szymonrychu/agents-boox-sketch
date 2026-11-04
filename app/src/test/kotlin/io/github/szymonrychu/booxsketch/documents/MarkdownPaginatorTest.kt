@@ -131,6 +131,38 @@ class MarkdownPaginatorTest {
     }
 
     @Test
+    fun failed_diagram_shows_code_then_a_one_line_reason_caption() {
+        val md = "```mermaid\ngraph TD; A-->\n```"
+        val renderer =
+            object : DiagramRenderer {
+                override fun renderDiagram(
+                    source: String,
+                    widthPx: Int,
+                ) = DiagramResult.Failed(DiagramFailure.Parse("Parse error on line 1"))
+            }
+        val p = paginator(mermaid = renderer)
+        val text = p.textBlocks(md).single()
+        assertThat(text).isEqualTo("graph TD; A-->\ndiagram failed: mermaid parse error: Parse error on line 1")
+        assertThat(p.paginate(md)[0].diagramFailed).isTrue()
+    }
+
+    @Test
+    fun plain_hook_returning_null_is_captioned_too() {
+        val p = paginator(mermaid = { _, _ -> null })
+        assertThat(p.textBlocks("```mermaid\nx\n```").single()).endsWith("diagram failed: renderer returned no image")
+    }
+
+    @Test
+    fun successful_diagram_and_non_mermaid_fence_have_no_caption_or_failed_flag() {
+        val image = Bitmap.createBitmap(800, 300, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val ok = paginator(mermaid = { _, _ -> image }).paginate("```mermaid\nx\n```")
+        assertThat(ok[0].diagramFailed).isFalse()
+        val code = paginator(mermaid = { _, _ -> null })
+        assertThat(code.textBlocks("```kotlin\nval a = 1\n```").single()).isEqualTo("val a = 1")
+        assertThat(code.paginate("```kotlin\nval a = 1\n```")[0].diagramFailed).isFalse()
+    }
+
+    @Test
     fun front_matter_is_shown_as_code_and_keeps_line_numbers() {
         val md = "---\ntitle: x\n---\n\n# Body"
         val pages = paginator().paginate(md)

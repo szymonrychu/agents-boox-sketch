@@ -650,3 +650,21 @@ Lessons that outlive a session. Newest first.
 
 ## 2026-11-04 CachedPenRenderer declines up front (boox-ink-match review)
 - `PenRenderer.handles(stroke)` lets the cache decide before any bitmap exists (ballpoint, marker, shapes, one point, broken latch). The remaining runtime declines (native drew nothing) sit in a 256-entry LRU. The bitmap is clipped to the canvas (canvas size is part of the key), a stroke wholly off-canvas allocates nothing, and an OutOfMemoryError clears the cache and falls back to `CanvasStrokeRenderer`.
+
+## 2026-11-04 Mermaid renders reliably and says why it fails (fix/mermaid-render)
+
+- Report: "Mermaid graph didn't render on the tablet preview". The trigger was never proven (no device); every failure used
+  to fall back silently to code text. So a failed diagram now shows the code plus a one-line caption
+  `diagram failed: <reason>` (timeout, blank capture, mermaid parse error with mermaid's message, web view unavailable)
+  and logs the same text under tag `BooxMermaid`. The reason on the device tells which candidate it was.
+- Capture: the offscreen web view gets an explicit measure and layout; `render.html` calls `Android.done` only after
+  `mermaid.render` resolved, fonts are ready and two animation frames ran; the host then re-lays out at the diagram height
+  and draws after `postVisualStateCallback` (700 ms timer as fallback for a view that never gets a frame). A blank bitmap is
+  retried once. Web view creation failure is caught (it used to crash the main-thread post).
+- Timeout 5 s -> 20 s per attempt: the budget covers cold web view creation plus parsing the 2.5 MB `mermaid.min.js` and the
+  first render on an e-ink CPU, which was never measured below 5 s on the device. 20 s only delays a doc that would
+  have shown code text anyway, and pagination already runs off the main thread. Revisit once the device logs show real times.
+- A failed render is never final: pages with a failed diagram are flagged (`RenderedPage.diagramFailed`), the freeze
+  writes a `diagram-failed` marker, and opening the version again discards that freeze and paginates anew while no ink
+  (`notebook.json`) and no sent mark exist. After ink or send the freeze stays, as ink is in page coordinates and must not move.
+- Tests changed because the `WebCapture` callback now reports `CaptureResult` instead of `Bitmap?` (MermaidRendererTest only).

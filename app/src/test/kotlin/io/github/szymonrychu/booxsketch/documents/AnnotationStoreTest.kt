@@ -45,6 +45,29 @@ class AnnotationStoreTest {
         assertThat(doc.layout).isEqualTo(layout)
     }
 
+    private fun failedPages() = listOf(RenderedPage(Bitmap.createBitmap(60, 80, Bitmap.Config.ARGB_8888), 0..3, diagramFailed = true))
+
+    @Test
+    fun failed_diagram_freeze_is_retried_until_ink_or_send() {
+        val s = store()
+        s.freeze("c1", 2, failedPages(), layout)
+        assertThat(s.needsDiagramRetry("c1", 2)).isTrue()
+        s.discardForRetry("c1", 2)
+        assertThat(s.frozen("c1", 2)).isNull()
+        s.freeze("c1", 2, pages(), layout)
+        assertThat(s.needsDiagramRetry("c1", 2)).isFalse()
+
+        s.freeze("c1", 3, failedPages(), layout)
+        File(s.dir("c1", 3), "notebook.json").writeText("{}")
+        assertThat(s.needsDiagramRetry("c1", 3)).isFalse()
+        s.discardForRetry("c1", 3)
+        assertThat(s.frozen("c1", 3)).isNotNull()
+
+        s.freeze("c1", 4, failedPages(), layout)
+        s.markSent("c1", 4)
+        assertThat(s.needsDiagramRetry("c1", 4)).isFalse()
+    }
+
     @Test
     fun freeze_twice_keeps_first_pixels() {
         val s = store()

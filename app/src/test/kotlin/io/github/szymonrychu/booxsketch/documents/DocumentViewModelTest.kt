@@ -146,6 +146,25 @@ class DocumentViewModelTest {
         }
 
     @Test
+    fun failed_diagram_freeze_is_paginated_again_on_reopen() =
+        runBlocking<Unit> {
+            var runs = 0
+
+            fun failing() =
+                DocumentViewModel("c1", "srv-1", db, {
+                    runs++
+                    listOf(RenderedPage(Bitmap.createBitmap(40, 60, Bitmap.Config.ARGB_8888), 0..0, diagramFailed = runs == 1))
+                }, store, layout, scope)
+            failing().until { true }
+            val first = runs
+            failing().until { true }
+            assertThat(runs).isGreaterThan(first)
+            val settled = runs
+            failing().until { true }
+            assertThat(runs).isEqualTo(settled)
+        }
+
+    @Test
     fun empty_spec_opens_with_one_page() =
         runBlocking<Unit> {
             db.conversationDao().upsert(ConversationEntity("c2", "srv-2", "E", 0, 0))

@@ -43,6 +43,8 @@ class AnnotationStore(
         frozen(conversationLocalId, version)?.let { return it }
         val dir = dir(conversationLocalId, version).apply { mkdirs() }
         File(dir, LAYOUT_FILE).delete()
+        val failed = File(dir, DIAGRAM_FAILED_FILE)
+        if (pages.any { it.diagramFailed }) failed.writeText("diagram") else failed.delete()
         val entries =
             pages.mapIndexed { i, page ->
                 val name = "page.$i.png"
@@ -69,6 +71,31 @@ class AnnotationStore(
         val parsed = runCatching { json.decodeFromString(FrozenFile.serializer(), file.readText()) }.getOrNull() ?: return null
         val pages = parsed.pages.map { FrozenPage(File(dir, it.file), it.first..it.last) }
         return if (pages.all { it.file.isFile }) FrozenDocument(parsed.layout, pages) else null
+    }
+
+    /**
+     * True when the freeze holds a diagram that fell back to code text and nothing was drawn or sent on it yet, so the
+     * freeze can still be replaced by a better one (no ink can move). A failed render is never final.
+     */
+    @Synchronized
+    fun needsDiagramRetry(
+        conversationLocalId: String,
+        version: Int,
+    ): Boolean {
+        val dir = dir(conversationLocalId, version)
+        return File(dir, DIAGRAM_FAILED_FILE).isFile && !File(dir, NOTEBOOK_FILE).isFile && !File(dir, SENT_FILE).isFile
+    }
+
+    /** Drops a freeze that [needsDiagramRetry] so the next [freeze] writes a new one. */
+    @Synchronized
+    fun discardForRetry(
+        conversationLocalId: String,
+        version: Int,
+    ) {
+        if (!needsDiagramRetry(conversationLocalId, version)) return
+        val dir = dir(conversationLocalId, version)
+        File(dir, LAYOUT_FILE).delete()
+        File(dir, DIAGRAM_FAILED_FILE).delete()
     }
 
     /** The ink of one document version: one notebook file per (conversation, version). */
@@ -135,6 +162,7 @@ class AnnotationStore(
         const val LAYOUT_FILE = "layout.json"
         const val NOTEBOOK_FILE = "notebook.json"
         const val SENT_FILE = "sent"
+        const val DIAGRAM_FAILED_FILE = "diagram-failed"
         const val PNG_QUALITY = 100
     }
 }

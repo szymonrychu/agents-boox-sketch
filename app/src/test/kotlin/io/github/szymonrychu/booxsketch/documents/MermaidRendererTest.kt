@@ -24,27 +24,73 @@ class MermaidRendererTest {
         if (paint) setPixel(w / 2, h / 2, Color.BLACK)
     }
 
+    private fun ok(b: Bitmap) = CaptureResult.Success(b)
+
+    private fun failed(f: DiagramFailure) = CaptureResult.Failed(f)
+
+    private fun failure(r: DiagramResult) = (r as DiagramResult.Failed).failure
+
     @Test
-    fun returns_null_on_timeout() {
+    fun timeout_names_the_reason() {
         val renderer = MermaidRenderer({ _, _, _ -> }, timeoutMs = 50)
+        val f = failure(renderer.renderDiagram("graph TD; A-->B", 400))
+        assertThat(f).isEqualTo(DiagramFailure.Timeout(50))
         assertThat(renderer.render("graph TD; A-->B", 400)).isNull()
     }
 
     @Test
-    fun returns_null_for_blank_capture() {
-        val renderer = MermaidRenderer({ _, w, done -> done(bitmap(w, 100, paint = false)) })
-        assertThat(renderer.render("graph TD; A-->B", 400)).isNull()
+    fun blank_capture_is_retried_once_then_names_the_reason() {
+        var calls = 0
+        val renderer =
+            MermaidRenderer({ _, w, done ->
+                calls++
+                done(ok(bitmap(w, 100, paint = false)))
+            })
+        assertThat(failure(renderer.renderDiagram("graph TD; A-->B", 400))).isEqualTo(DiagramFailure.Blank)
+        assertThat(calls).isEqualTo(2)
     }
 
     @Test
-    fun returns_null_when_the_host_fails() {
-        assertThat(MermaidRenderer({ _, _, done -> done(null) }).render("x", 400)).isNull()
-        assertThat(MermaidRenderer({ _, _, _ -> error("no web view") }).render("x", 400)).isNull()
+    fun blank_first_capture_then_good_one_gives_the_image() {
+        var calls = 0
+        val renderer =
+            MermaidRenderer({ _, w, done ->
+                calls++
+                done(ok(bitmap(w, 100, paint = calls > 1)))
+            })
+        assertThat(renderer.renderDiagram("graph TD; A-->B", 400)).isInstanceOf(DiagramResult.Image::class.java)
+        assertThat(calls).isEqualTo(2)
+    }
+
+    @Test
+    fun parse_error_carries_mermaids_message_and_is_not_retried() {
+        var calls = 0
+        val renderer =
+            MermaidRenderer({ _, _, done ->
+                calls++
+                done(failed(DiagramFailure.Parse("Parse error on line 2\n  ---^")))
+            })
+        val f = failure(renderer.renderDiagram("graph TD; A->", 400))
+        assertThat(f.caption).isEqualTo("diagram failed: mermaid parse error: Parse error on line 2")
+        assertThat(calls).isEqualTo(1)
+    }
+
+    @Test
+    fun web_view_unavailable_from_a_failing_or_throwing_host() {
+        val reported = MermaidRenderer({ _, _, done -> done(failed(DiagramFailure.WebViewUnavailable("no webview"))) })
+        assertThat(failure(reported.renderDiagram("x", 400)).caption).isEqualTo("diagram failed: web view unavailable: no webview")
+        val thrown = MermaidRenderer({ _, _, _ -> error("boom") })
+        assertThat(failure(thrown.renderDiagram("x", 400)).caption).isEqualTo("diagram failed: web view unavailable: boom")
+    }
+
+    @Test
+    fun timeout_default_is_long_enough_for_a_cold_e_ink_web_view() {
+        assertThat(MermaidRenderer.TIMEOUT_MS).isAtLeast(15_000L)
     }
 
     @Test
     fun returns_bitmap_of_requested_width_when_capture_succeeds() {
-        val renderer = MermaidRenderer({ _, _, done -> done(bitmap(300, 120)) })
+        val renderer = MermaidRenderer({ _, _, done -> done(ok(bitmap(300, 120))) })
         val result = renderer.render("graph TD; A-->B", 600)!!
         assertThat(result.width).isEqualTo(600)
         assertThat(result.height).isEqualTo(240)
