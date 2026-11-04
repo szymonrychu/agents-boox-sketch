@@ -24,8 +24,10 @@ Lessons that outlive a session. Newest first.
   surface as its host view (`host as? CommittedInkSurface`), so nothing is registered or leaked.
 - Send and PNG export read the notebook model, not the surface; the Send tap and its outcome
   dialog go through the toolbar hold and `pause`, which sync first anyway.
-- Touch fallback and shape tools are unchanged (`rawLive` false: the committer path as before).
-  `OnyxStrokeInput.drawCommitted`'s raw-active branch is no longer reached from the board.
+- Touch fallback and shape tools are unchanged (`rawLive` false: the refresher path).
+  `StrokeInput.drawCommitted` and `BoardSurfaceView.committer` were removed (2026-11-04): the raw-active
+  branch was dead, the committer always behaved like the refresher. `inkBounds` now bounds shapes too
+  (outline incl. arrow head, plus stroke width), so a dirty append always covers them.
 - `PenUpReplayTest`'s #40 assertion (a `draw` at pen-up while raw stays on) encoded the lag and was
   replaced; its undo/erase test now expects the dirty flush before the bracket, and the test
   settles the debounced load full refresh first (it landed inside the undo step on slow runs and

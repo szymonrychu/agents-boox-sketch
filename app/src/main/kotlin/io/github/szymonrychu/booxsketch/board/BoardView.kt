@@ -29,6 +29,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.model.shapeOutline
 import io.github.szymonrychu.booxsketch.onyx.Epd
 import io.github.szymonrychu.booxsketch.onyx.FullRefreshDebouncer
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
@@ -54,15 +55,16 @@ class BoardGeometry(
         )
 
     /**
-     * View pixels [stroke] (page-canvas pixels) can paint: its points padded by the widest line any
-     * tool draws for its width (marker, 3x) plus anti-aliasing. Arrow heads reach past the points,
-     * so shapes are not bounded here (null).
+     * View pixels [stroke] (page-canvas pixels) can paint: its outline points (an arrow's head
+     * included) padded by the widest line its tool draws for its width (marker 3x; shapes 1x)
+     * plus anti-aliasing.
      */
     fun inkBounds(stroke: Stroke): RectF? {
-        if (stroke.tool.isShape || stroke.points.isEmpty()) return null
-        val pad = stroke.width * scale * MAX_WIDTH_FACTOR / 2f + AA_PAD
+        if (stroke.points.isEmpty()) return null
+        val factor = if (stroke.tool.isShape) 1f else MAX_WIDTH_FACTOR
+        val pad = stroke.width * scale * factor / 2f + AA_PAD
         val r = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
-        for (p in stroke.points) r.union(p.x * scale + dx, p.y * scale + dy)
+        for (p in shapeOutline(stroke).flatten()) r.union(p.x * scale + dx, p.y * scale + dy)
         r.inset(-pad, -pad)
         return r
     }
@@ -173,8 +175,6 @@ class BoardSurfaceView(
     /** True while the input's raw drawing overlay draws the ink; see [StrokeInput.rawLive]. */
     var rawLive: () -> Boolean = { false }
 
-    /** Runs the redraw after strokes were only added to the shown page while not [rawLive]; see [StrokeInput.drawCommitted]. */
-    var committer: (() -> Unit) -> Unit = { it() }
     var onSurfaceCreated: () -> Unit = {}
     var onSurfaceDestroyed: () -> Unit = {}
     var onFocus: (Boolean) -> Unit = {}
@@ -216,7 +216,7 @@ class BoardSurfaceView(
         shownIndex = index
         this.preview = preview
         if (dragging) handwritingMode()
-        redraw(appended)
+        redraw()
         if (full) fullRefresh.request()
     }
 
@@ -275,9 +275,9 @@ class BoardSurfaceView(
         Epd.handwritingMode(this)
     }
 
-    private fun redraw(appended: Boolean = false) {
+    private fun redraw() {
         if (!ready) return
-        (if (appended) committer else refresher) { draw() }
+        refresher { draw() }
     }
 
     private fun draw() {
@@ -306,7 +306,7 @@ class BoardSurfaceView(
             canvas.drawBitmap(it, m, null)
         }
         val shown =
-            if (within == null) strokes else strokes.filter { s -> g.inkBounds(s)?.let { RectF.intersects(it, within) } ?: true }
+            if (within == null) strokes else strokes.filter { s -> g.inkBounds(s)?.let { RectF.intersects(it, within) } ?: false }
         renderer.draw(canvas, shown, g.scale, g.dx, g.dy)
         preview?.let { renderer.draw(canvas, listOf(it), g.scale, g.dx, g.dy) }
         live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
@@ -384,7 +384,6 @@ fun BoardView(
             BoardSurfaceView(ctx).also { v ->
                 surface[0] = v
                 v.refresher = input::refresh
-                v.committer = input::drawCommitted
                 v.rawLive = { input.rawLive }
                 v.onSurfaceCreated = { startOn(v) }
                 v.onSurfaceDestroyed = { input.stop() }

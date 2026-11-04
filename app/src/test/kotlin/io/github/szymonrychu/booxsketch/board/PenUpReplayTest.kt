@@ -253,13 +253,15 @@ class PenUpReplayTest {
                 { input.stop() },
             )
         val undo = listOf<() -> Unit>({ input.releaseUi() }, { input.resume() }, { input.setTool(Tool.BALLPOINT, 4f) }, {})
-        actions.zip(undo).forEach { (action, back) ->
+        actions.zip(undo).forEachIndexed { i, (action, back) ->
             log.clear()
             dirty.clear()
             penStroke(10f, 20f, 30f)
             compose.runOnIdle { action() }
             compose.waitForIdle()
             assertThat(log.first()).isEqualTo("dirty")
+            // hold and pause (the first two) always bracket the redraw with raw:false
+            if (i < 2) assertThat(log).contains("raw:false")
             if ("raw:false" in log) assertThat(log.indexOf("dirty")).isLessThan(log.indexOf("raw:false"))
             assertThat(dirty.first().coversDiagonal(10f, 30f)).isTrue()
             compose.runOnIdle { back() }

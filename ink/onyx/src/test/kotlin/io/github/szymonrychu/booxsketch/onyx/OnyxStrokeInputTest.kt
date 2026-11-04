@@ -134,36 +134,6 @@ class OnyxStrokeInputTest {
     }
 
     @Test
-    fun draw_committed_while_raw_is_active_redraws_without_toggling_raw_drawing() {
-        val f = Fixture()
-        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
-        f.enables.clear()
-        var drawn = 0
-        f.input.drawCommitted { drawn++ }
-        assertThat(drawn).isEqualTo(1)
-        assertThat(f.enables).isEmpty()
-    }
-
-    @Test
-    fun draw_committed_only_redraws_when_raw_is_paused_held_or_on_a_shape_tool() {
-        val f = Fixture()
-        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
-        f.input.pause()
-        f.enables.clear()
-        var drawn = 0
-        f.input.drawCommitted { drawn++ }
-        f.input.resume()
-        f.input.holdUi()
-        f.input.drawCommitted { drawn++ }
-        f.input.releaseUi()
-        f.input.setTool(Tool.RECTANGLE, 4f)
-        f.enables.clear()
-        f.input.drawCommitted { drawn++ }
-        assertThat(drawn).isEqualTo(3)
-        assertThat(f.enables).isEmpty()
-    }
-
-    @Test
     fun refresh_still_brackets_the_redraw_with_a_disable_and_enable() {
         val f = Fixture()
         f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
