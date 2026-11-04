@@ -147,6 +147,7 @@ class OutboxRunner(
                     // Stored before the next item is resolved, so a later send in this new conversation reuses it.
                     // One transaction: a refresh that saw the new server conversation first left a twin row, drop it.
                     db.withTransaction {
+                        db.threadDao().setServerId(item.clientId, result.sketchId)
                         val row = db.conversationDao().get(item.conversationLocalId)
                         if (row != null && row.serverId == null) {
                             db.conversationDao().deleteOthersWithServerId(result.conversationId, row.localId)
