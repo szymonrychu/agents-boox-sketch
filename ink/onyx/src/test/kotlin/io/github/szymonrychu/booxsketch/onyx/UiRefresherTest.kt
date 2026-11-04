@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.view.View
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -108,6 +109,42 @@ class UiRefresherTest {
         assertThat(log).containsExactly("raw:off")
         drawFrame()
         assertThat(log).containsExactly("raw:off", "partial", "raw:on").inOrder()
+    }
+
+    @Test
+    fun chrome_changed_holds_then_full_refreshes_after_next_draw_then_releases() {
+        val r = ready()
+        r.chromeChanged()
+        assertThat(log).containsExactly("raw:off")
+        drawFrame()
+        assertThat(log).containsExactly("raw:off", "full", "raw:on").inOrder()
+    }
+
+    @Test
+    fun chrome_changed_during_in_flight_runs_once_after_with_full() {
+        val r = ready()
+        r.uiChanged()
+        r.chromeChanged()
+        r.uiChanged()
+        drawFrame()
+        drawFrame()
+        assertThat(draws).isEmpty()
+        assertThat(log).containsExactly("raw:off", "partial", "raw:on", "raw:off", "full", "raw:on").inOrder()
+    }
+
+    @Test
+    fun chrome_changed_before_first_draw_is_ignored() {
+        val r = refresher()
+        startBoard()
+        r.chromeChanged()
+        drawFrame()
+        assertThat(draws).isEmpty()
+        assertThat(log.count { it == "full" }).isEqualTo(1)
+    }
+
+    @Test
+    fun none_chrome_changed_is_noop() {
+        UiRefresh.None.chromeChanged()
     }
 
     @Test
