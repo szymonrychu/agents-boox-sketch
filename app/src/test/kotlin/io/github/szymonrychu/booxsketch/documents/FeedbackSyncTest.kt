@@ -38,6 +38,7 @@ class FeedbackSyncTest {
 
     /** When set, the page cursor the fake connector answers instead of the last item id (ids can be hidden). */
     private var cursorOverride: ((after: Int) -> Int)? = null
+    private val explodeFor = mutableSetOf<String>()
 
     @Before
     fun setUp() {
@@ -70,7 +71,19 @@ class FeedbackSyncTest {
             ConnectorClient(
                 server.url("/").toString(),
                 { "test-token" },
-                OkHttpClient(),
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        check(
+                            explodeFor.none {
+                                chain
+                                    .request()
+                                    .url.encodedPath
+                                    .contains(it)
+                            },
+                        ) { "boom" }
+                        chain.proceed(chain.request())
+                    }.build(),
             )
     }
 
@@ -203,5 +216,23 @@ class FeedbackSyncTest {
             assertThat(sync().sync()).isEqualTo(3)
             assertThat(requests.map { it.substringAfter("after=") }).containsExactly("0", "4").inOrder()
             assertThat(db.feedbackDao().maxId("srv-1")).isEqualTo(5)
+        }
+
+    @Test
+    fun an_unexpected_exception_skips_that_conversation_and_nothing_is_thrown() =
+        runBlocking<Unit> {
+            conversation("c1", "srv-1")
+            conversation("c2", "srv-2")
+            held["srv-1"] = listOf(1)
+            held["srv-2"] = listOf(1)
+            latest = mapOf("srv-1" to 1, "srv-2" to 1)
+            explodeFor += "srv-1"
+            val s = sync()
+            assertThat(s.sync()).isEqualTo(1)
+            assertThat(db.feedbackDao().maxId("srv-2")).isEqualTo(1)
+            assertThat(db.feedbackDao().maxId("srv-1")).isNull()
+            explodeFor.clear()
+            assertThat(s.sync()).isEqualTo(1)
+            assertThat(db.feedbackDao().maxId("srv-1")).isEqualTo(1)
         }
 }

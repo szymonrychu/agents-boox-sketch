@@ -4,6 +4,7 @@ import io.github.szymonrychu.booxsketch.api.ApiError
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -61,6 +62,11 @@ class FeedbackSync(
         } catch (_: ApiError.Unauthorized) {
             return Outcome(fetched, stop = true)
         } catch (_: ApiError) {
+            return Outcome(fetched, stop = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Nothing is thrown out of a sync: an unexpected failure skips this conversation until the next refresh.
             return Outcome(fetched, stop = false)
         }
         return Outcome(fetched, stop = false)
