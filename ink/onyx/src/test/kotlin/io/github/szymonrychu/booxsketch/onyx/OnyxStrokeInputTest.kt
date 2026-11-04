@@ -1,11 +1,14 @@
 package io.github.szymonrychu.booxsketch.onyx
 
+import android.content.Context
 import android.graphics.Rect
+import android.graphics.RectF
 import android.view.View
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.onyx.android.sdk.data.note.TouchPoint
 import com.onyx.android.sdk.pen.RawInputCallback
+import io.github.szymonrychu.booxsketch.ink.CommittedInkSurface
 import io.github.szymonrychu.booxsketch.model.Tool
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,10 +39,23 @@ class OnyxStrokeInputTest {
         assertThat(OnyxStrokeInput.strokeFrom(emptyList(), Tool.BALLPOINT, 4f, "s")).isNull()
     }
 
+    /** A host view that records when the input asks it to bring committed ink up to date. */
+    private class SyncView(
+        context: Context,
+        private val order: MutableList<String>,
+    ) : View(context),
+        CommittedInkSurface {
+        override fun syncCommitted() {
+            order += "sync"
+        }
+    }
+
     private class Fixture {
-        val view = View(ApplicationProvider.getApplicationContext())
+        val order = mutableListOf<String>()
+        val view = SyncView(ApplicationProvider.getApplicationContext(), order)
         var callback: RawInputCallback? = null
         val enables = mutableListOf<Boolean>()
+        val idleTimeouts = mutableListOf<Int>()
         val raw =
             object : RawDrawing {
                 override fun setLimitRect(
@@ -51,6 +67,11 @@ class OnyxStrokeInputTest {
 
                 override fun setEnabled(enabled: Boolean) {
                     enables += enabled
+                    order += "raw:$enabled"
+                }
+
+                override fun setPenUpRefreshTimeMs(ms: Int) {
+                    idleTimeouts += ms
                 }
 
                 override fun setBrush(
@@ -149,5 +170,85 @@ class OnyxStrokeInputTest {
         f.enables.clear()
         f.input.refresh { f.enables += true }
         assertThat(f.enables).containsExactly(false, true, true).inOrder()
+    }
+
+    @Test
+    fun every_open_sets_the_pen_idle_timeout() {
+        val f = Fixture()
+        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
+        f.input.start(f.view, Rect(0, 0, 50, 50), emptyList())
+        assertThat(f.idleTimeouts).containsExactly(OnyxStrokeInput.PEN_IDLE_MS, OnyxStrokeInput.PEN_IDLE_MS)
+    }
+
+    @Test
+    fun pen_idle_syncs_the_host_surface_unless_the_pen_is_down_again() {
+        val f = Fixture()
+        f.penDown()
+        f.callback!!.onPenUpRefresh(RectF(0f, 0f, 1f, 1f))
+        assertThat(f.order).doesNotContain("sync")
+        f.callback!!.onEndRawDrawing(false, TouchPoint(1f, 1f, 0.5f, 1f, 0, 0, 0L))
+        f.order.clear()
+        f.callback!!.onPenUpRefresh(RectF(0f, 0f, 1f, 1f))
+        assertThat(f.order).containsExactly("sync")
+    }
+
+    @Test
+    fun the_host_surface_is_synced_before_raw_drawing_turns_off_or_closes() {
+        val f = Fixture()
+        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
+        val offs =
+            listOf<Pair<() -> Unit, () -> Unit>>(
+                { f.input.holdUi() } to { f.input.releaseUi() },
+                { f.input.pause() } to { f.input.resume() },
+                { f.input.refresh {} } to {},
+                { f.input.setTool(Tool.ARROW, 4f) } to { f.input.setTool(Tool.BALLPOINT, 4f) },
+                { f.input.start(f.view, Rect(0, 0, 60, 60), emptyList()) } to {},
+            )
+        for ((off, back) in offs) {
+            f.order.clear()
+            off()
+            assertThat(f.order.first()).isEqualTo("sync")
+            back()
+        }
+        f.order.clear()
+        f.input.stop()
+        assertThat(f.order).containsExactly("sync")
+    }
+
+    @Test
+    fun raw_live_follows_pause_hold_and_shape_tool() {
+        val f = Fixture()
+        assertThat(f.input.rawLive).isFalse()
+        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
+        assertThat(f.input.rawLive).isTrue()
+        f.input.pause()
+        assertThat(f.input.rawLive).isFalse()
+        f.input.resume()
+        f.input.holdUi()
+        assertThat(f.input.rawLive).isFalse()
+        f.input.releaseUi()
+        f.input.setTool(Tool.RECTANGLE, 4f)
+        assertThat(f.input.rawLive).isFalse()
+        f.input.setTool(Tool.BALLPOINT, 4f)
+        assertThat(f.input.rawLive).isTrue()
+        f.input.stop()
+        assertThat(f.input.rawLive).isFalse()
+    }
+
+    @Test
+    fun raw_is_not_live_while_a_new_session_waits_for_its_first_draw() {
+        var pending: Runnable? = null
+        val input =
+            OnyxStrokeInput(
+                ApplicationProvider.getApplicationContext(),
+                rawDrawing = { _, _ -> Fixture().raw },
+                maxPressure = { 4096f },
+                afterNextDraw = { _, r -> pending = r },
+                fullRefresh = { },
+            )
+        input.start(View(ApplicationProvider.getApplicationContext()), Rect(0, 0, 100, 100), emptyList())
+        assertThat(input.rawLive).isFalse()
+        pending!!.run()
+        assertThat(input.rawLive).isTrue()
     }
 }

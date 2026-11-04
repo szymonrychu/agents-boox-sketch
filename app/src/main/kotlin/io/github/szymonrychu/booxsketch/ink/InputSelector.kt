@@ -213,6 +213,9 @@ private class OnyxWithFallback(
     val rawEnabled: Boolean
         get() = !synchronized(lock) { fellBack || stopped } && (onyx as? RawActivitySource)?.rawActive == true
 
+    override val rawLive: Boolean
+        get() = !synchronized(lock) { fellBack || stopped } && onyx.rawLive
+
     private val lock = Any()
     private var view: View? = null
     private var limit = Rect()

@@ -68,9 +68,16 @@ interface StrokeInput {
     /**
      * Runs [redraw] after a pen stroke was committed (nothing was removed): the firmware ink layer
      * already shows the stroke, so a raw pen input redraws without turning raw drawing off, which
-     * would drop that layer until the app frame lands. Plain inputs just call it.
+     * would drop that layer until the app frame lands. Plain inputs just call it. While [rawLive]
+     * the board does not redraw for a commit at all; it syncs later through [CommittedInkSurface].
      */
     fun drawCommitted(redraw: () -> Unit) = refresh(redraw)
+
+    /**
+     * True while a raw pen input's firmware overlay draws the ink (raw drawing open and enabled):
+     * a committed stroke must then not touch the host surface; see [CommittedInkSurface].
+     */
+    val rawLive: Boolean get() = false
 
     /** True when this input freezes the e-ink refresh of the rest of the UI while active (Onyx raw drawing). */
     val freezesUi: Boolean get() = false

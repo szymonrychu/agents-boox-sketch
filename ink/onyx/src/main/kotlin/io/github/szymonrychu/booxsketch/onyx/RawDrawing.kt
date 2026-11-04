@@ -25,6 +25,9 @@ interface RawDrawing {
     )
 
     fun close()
+
+    /** How long after a pen-up without a new stroke the SDK reports the pen idle (`onPenUpRefresh`). */
+    fun setPenUpRefreshTimeMs(ms: Int) = Unit
 }
 
 /** [RawDrawing] backed by one vendor [TouchHelper]. */
@@ -58,6 +61,10 @@ class TouchHelperRawDrawing(
 
     override fun close() {
         helper.closeRawDrawing()
+    }
+
+    override fun setPenUpRefreshTimeMs(ms: Int) {
+        helper.setPenUpRefreshTimeMs(ms)
     }
 
     companion object {

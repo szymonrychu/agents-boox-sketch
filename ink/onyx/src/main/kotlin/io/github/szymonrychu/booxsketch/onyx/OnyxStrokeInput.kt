@@ -2,12 +2,14 @@ package io.github.szymonrychu.booxsketch.onyx
 
 import android.content.Context
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.view.View
 import com.onyx.android.sdk.data.note.TouchPoint
 import com.onyx.android.sdk.pen.RawInputCallback
 import com.onyx.android.sdk.pen.data.TouchPointList
+import io.github.szymonrychu.booxsketch.ink.CommittedInkSurface
 import io.github.szymonrychu.booxsketch.ink.RawActivitySource
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
@@ -20,10 +22,18 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import java.util.UUID
 
+/** Opens raw drawing; the pen idle timeout is set after every open, as the SDK may reset it. */
+private fun RawDrawing.openIdleTimed() {
+    open()
+    setPenUpRefreshTimeMs(OnyxStrokeInput.PEN_IDLE_MS)
+}
+
 /**
  * Pen input through the Onyx raw drawing SDK: the SDK renders ink immediately while the pen is
  * down and hands over the finished point list, which becomes a [Stroke]. Committed strokes are
- * drawn by the app's own renderer.
+ * drawn by the app's own renderer, but not while raw drawing is live ([rawLive]): the host view,
+ * when it is a [CommittedInkSurface], is synced when the pen goes idle (the SDK's pen-up refresh,
+ * [PEN_IDLE_MS] after the last pen-up) and right before raw drawing turns off or closes.
  *
  * One raw drawing helper exists per host view, as in the vendor demo: a repeated [start] on the
  * same view (every layout pass) only updates the limit and exclude rects, a different view closes
@@ -128,6 +138,13 @@ class OnyxStrokeInput(
 
             override fun onRawErasingTouchPointMoveReceived(point: TouchPoint) = activity()
 
+            /** The pen went idle: the SDK re-arms this after every pen-up and cancels it on a new press. */
+            override fun onPenUpRefresh(refreshRect: RectF) {
+                val sync = Runnable { if (!penDown) syncHost() }
+                val main = Looper.getMainLooper()
+                if (Looper.myLooper() == main) sync.run() else Handler(main).post(sync)
+            }
+
             override fun onRawErasingTouchPointListReceived(list: TouchPointList) {
                 activity()
                 val radius = maxOf(width, MIN_ERASE_RADIUS)
@@ -137,6 +154,11 @@ class OnyxStrokeInput(
 
     private fun activity() {
         onRawActivity?.invoke()
+    }
+
+    /** Lets the host surface draw the committed ink the overlay still holds; call before the overlay goes. */
+    private fun syncHost() {
+        (host as? CommittedInkSurface)?.syncCommitted()
     }
 
     @Suppress("TooGenericExceptionCaught")
@@ -159,8 +181,9 @@ class OnyxStrokeInput(
         if (current != null && host === view) {
             if (limit == appliedLimit && exclude == appliedExclude) return
             // As in the vendor demo, new rects take effect through setLimitRect followed by openRawDrawing.
+            syncHost()
             applyRects(current, limit, exclude)
-            current.open()
+            current.openIdleTimed()
             if (active()) enable(current) else disable(current)
             return
         }
@@ -171,7 +194,7 @@ class OnyxStrokeInput(
         host = view
         applyRects(d, limit, exclude)
         applyBrush(d)
-        d.open()
+        d.openIdleTimed()
         // A new session (first start, or after the surface was re-created) must not freeze the
         // panel before the window has drawn: enable only after the next frame, then full refresh.
         // An outstanding hold (the UiRefresher's first-frame gate) already does the same. Only the
@@ -196,6 +219,8 @@ class OnyxStrokeInput(
     private fun active() = !paused && holds == 0 && gated == null && !tool.isShape
 
     override val rawActive: Boolean get() = drawing != null && active()
+
+    override val rawLive: Boolean get() = rawActive
 
     private fun applyRects(
         d: RawDrawing,
@@ -270,13 +295,18 @@ class OnyxStrokeInput(
         if (drawing != null && active()) redraw() else refresh(redraw)
     }
 
-    /** Raw drawing off: the SDK sends no end callback for a stroke it cuts, so the pen is no longer down. */
+    /**
+     * Raw drawing off: the host surface is synced first, because the overlay with the committed
+     * ink goes with it. The SDK sends no end callback for a stroke it cuts, so the pen is no longer down.
+     */
     private fun disable(d: RawDrawing) {
+        syncHost()
         penDown = false
         d.setEnabled(false)
     }
 
     private fun close(d: RawDrawing) {
+        syncHost()
         penDown = false
         d.close()
     }
@@ -299,6 +329,9 @@ class OnyxStrokeInput(
     companion object {
         private const val DEFAULT_WIDTH = 4f
         private const val MIN_ERASE_RADIUS = 8f
+
+        /** Pen idle timeout: long enough that a pause between letters does not count as idle. */
+        const val PEN_IDLE_MS = 700
 
         /**
          * Sent instead of an empty exclude list, which the SDK ignores (the old exclude would stay
