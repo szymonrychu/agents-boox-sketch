@@ -127,26 +127,39 @@ class CachedPenRenderer internal constructor(
     }
 
     private fun render(key: Key): Drawn? {
-        val stroke = key.stroke
-        val r = inkBounds(stroke, key.scale, key.dx, key.dy)?.let { Rect().apply { it.roundOut(this) } } ?: return decline(key)
-        if (r.isEmpty) return decline(key)
+        val r = inkBounds(key.stroke, key.scale, key.dx, key.dy)?.let { Rect().apply { it.roundOut(this) } }
+        if (r == null || r.isEmpty) return decline(key)
         // Wholly outside the canvas: nothing to blit, and nothing worth remembering.
         if (!r.intersect(0, 0, key.width, key.height)) return null
-        val bitmap =
-            try {
-                createBitmap(r.width(), r.height())
-            } catch (_: OutOfMemoryError) {
-                cache.evictAll()
-                return null
-            }
-        val offscreen = Canvas(bitmap).apply { translate(-r.left.toFloat(), -r.top.toFloat()) }
+        val bitmap = allocate(r.width(), r.height()) ?: return null
+        return runPen(key, bitmap, r) ?: decline(key)
+    }
+
+    private fun runPen(
+        key: Key,
+        bitmap: Bitmap,
+        r: Rect,
+    ): Drawn? {
         rendered++
-        if (!pen.draw(offscreen, stroke, key.scale, key.dx, key.dy)) {
+        val offscreen = Canvas(bitmap).apply { translate(-r.left.toFloat(), -r.top.toFloat()) }
+        if (!pen.draw(offscreen, key.stroke, key.scale, key.dx, key.dy)) {
             bitmap.recycle()
-            return decline(key)
+            return null
         }
         return Drawn(bitmap, r.left.toFloat(), r.top.toFloat()).also { cache.put(key, it) }
     }
+
+    /** Null when the heap cannot hold it; the cache is dropped so the next draw has room. */
+    private fun allocate(
+        w: Int,
+        h: Int,
+    ): Bitmap? =
+        try {
+            createBitmap(w, h)
+        } catch (_: OutOfMemoryError) {
+            cache.evictAll()
+            null
+        }
 
     private fun decline(key: Key): Drawn? {
         declined.put(key, true)
