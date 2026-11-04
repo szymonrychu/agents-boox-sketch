@@ -63,6 +63,20 @@ Lessons that outlive a session. Newest first.
   order 10; Tasks 20 and Documents 30 are reserved registration points).
 - `MainActivityEraserTest.activity_shows_board_and_conversations_panel` now opens the panel via
   its indicator first: the test asserted the always-visible split panel, which no longer exists.
+- Rotation is handled with `android:configChanges` (orientation, screen size, smallest screen
+  size, screen layout, keyboard), not by recreating the activity. Why: a recreate closes and
+  reopens the Onyx helper (first-frame gate plus GC flash, "Toolbar refresh" entry) and drops the
+  open panel state. Before the change (Robolectric, `MainActivityRotationTest`) all five rotation
+  tests failed: the activity was recreated. `BoardScreen` takes the `ChromeHolds` hold (key
+  `layout`) and asks `chromeChanged` in the activity's `OnConfigurationChangedListener`, not in a
+  composition effect. Why: the view tree is laid out with the new size before compose sees the
+  new `LocalConfiguration`, so an effect-taken hold let the board restart its input with the old
+  layout's rects while raw drawing was on; and a `chromeChanged` asked after the new layout drew
+  waits for a draw that never comes, leaving the refresher's hold on. The layout key reports one
+  frame after the new layout, the release follows through the usual settle. The board view
+  restarts the input on its own layout change listener with the new size.
+- The side panel layer is composed above the dock: the wrapped bottom dock reached the right
+  edge on small screens and swallowed the panel indicator's tap.
 
 ## 2026-11-04 Documents tab and handwritten notes (plan boox-sketch-app 3.6)
 

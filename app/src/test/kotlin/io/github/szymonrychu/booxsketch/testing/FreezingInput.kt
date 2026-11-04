@@ -8,11 +8,14 @@ import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
-/** A screen-freezing input that logs its lifecycle calls, in order, into [log]. */
+/** A screen-freezing input that logs its lifecycle calls, in order, into [log], and the start limits into [limits]. */
 internal class FreezingInput(
     override val events: Flow<StrokeEvent> = emptyFlow(),
 ) : StrokeInput {
     val log = mutableListOf<String>()
+
+    /** The limit rect of every [start], in order (the log keeps only the excludes). */
+    val limits = mutableListOf<Rect>()
     override val freezesUi = true
     override var strokeInProgress = false
 
@@ -22,6 +25,7 @@ internal class FreezingInput(
         exclude: List<Rect>,
     ) {
         log += "start:$exclude"
+        limits += Rect(limit)
     }
 
     override fun setTool(

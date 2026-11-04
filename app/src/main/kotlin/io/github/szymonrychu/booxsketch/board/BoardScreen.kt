@@ -1,5 +1,8 @@
 package io.github.szymonrychu.booxsketch.board
 
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Rect
 import androidx.compose.foundation.layout.Box
@@ -13,12 +16,18 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import androidx.core.content.OnConfigurationChangedProvider
+import androidx.core.util.Consumer
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
@@ -174,6 +183,7 @@ internal fun BoardScreenWith(
         }
         if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
     }
+    RelayoutOnConfigurationChange(holds, ui)
     // Settled: this composition hands BoardView the exclude list of every overlay state that was asked for.
     val settled = holds.settled
     LaunchedEffect(settled, exclude) {
@@ -184,6 +194,59 @@ internal fun BoardScreenWith(
         }
     }
 }
+
+/**
+ * A rotation (the activity handles it, no recreate) lays the board, the panel and the dock out
+ * again. The hold is taken in the activity's configuration listener, which runs before the view
+ * tree is laid out with the new size, so raw drawing is off before the board restarts its input
+ * with the new limit. The full refresh is asked for at the same moment: the refresher runs it after
+ * the next draw, which is the new layout (asked later, no further draw might ever come). The hold
+ * is released through the usual [ChromeHolds] settle, one frame after the new layout reported.
+ */
+@Composable
+private fun RelayoutOnConfigurationChange(
+    holds: ChromeHolds,
+    ui: UiRefresh,
+) {
+    val context = LocalContext.current
+    val provider = context.findConfigurationProvider() ?: return
+    // The layout this composition was built for; the listener compares the next configuration against it.
+    val current = layoutOf(LocalConfiguration.current)
+    var changes by remember { mutableIntStateOf(0) }
+    DisposableEffect(provider, holds, ui) {
+        var seen = current
+        val listener =
+            Consumer<Configuration> { config ->
+                val layout = layoutOf(config)
+                if (layout != seen) {
+                    seen = layout
+                    ui.chromeChanged()
+                    holds.report(LAYOUT_KEY, false, emptyList())
+                    holds.change(LAYOUT_KEY, true, needsRects = false) { }
+                    changes++
+                }
+            }
+        provider.addOnConfigurationChangedListener(listener)
+        onDispose { provider.removeOnConfigurationChangedListener(listener) }
+    }
+    LaunchedEffect(changes) {
+        if (changes > 0) {
+            // Launched by the recomposition of the new layout; one frame on it has been measured and
+            // placed and the overlays reported their new rects.
+            withFrameNanos { }
+            holds.report(LAYOUT_KEY, true, emptyList())
+        }
+    }
+}
+
+private fun layoutOf(config: Configuration) = Triple(config.orientation, config.screenWidthDp, config.screenHeightDp)
+
+private tailrec fun Context.findConfigurationProvider(): OnConfigurationChangedProvider? =
+    when (this) {
+        is OnConfigurationChangedProvider -> this
+        is ContextWrapper -> baseContext.findConfigurationProvider()
+        else -> null
+    }
 
 /**
  * Show and hide of the chrome over the board (dock, side panel), each through [holds] so raw drawing
@@ -256,6 +319,7 @@ private val PANEL_INSET_SIDES = WindowInsetsSides.Vertical + WindowInsetsSides.E
 
 private const val DOCK_KEY = "dock"
 private const val PANEL_KEY = "panel"
+private const val LAYOUT_KEY = "layout"
 
 /** [overlaySettled] for the dock with a change pending to [awaiting] (null: no change pending); the dock always needs rects. */
 internal fun dockSettled(

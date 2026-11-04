@@ -26,6 +26,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -74,6 +75,7 @@ class BoardChromeWiringTest {
         insets: WindowInsets = WindowInsets(0, 0, 0, 0),
         dock: DockContent? = null,
         panel: (@Composable () -> Unit)? = null,
+        size: androidx.compose.runtime.State<DpSize>? = null,
     ) {
         val registry = TabRegistry()
         registry.register(TabSpec(BOARD_TAB_ID, "Drawings", 10) { })
@@ -81,7 +83,9 @@ class BoardChromeWiringTest {
         val vm = vm()
         compose.setContent {
             host = LocalView.current
+            val shellModifier = size?.let { Modifier.size(it.value) } ?: Modifier
             AppShell(
+                modifier = shellModifier,
                 tabs = registry,
                 board = { chrome ->
                     val c = if (withChrome) chrome else null
@@ -631,5 +635,23 @@ class BoardChromeWiringTest {
         assertThat(input.log).isEmpty()
         compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
         compose.onNodeWithTag(TAG_PANEL_INDICATOR).assertIsDisplayed()
+    }
+
+    @Test
+    fun size_change_with_dock_visible_restarts_with_new_dock_rect() {
+        val size = mutableStateOf(DpSize(400.dp, 300.dp))
+        show(size = size)
+        createSurface()
+        val before = rectOf(TAG_DOCK)
+        input.log.clear()
+
+        compose.runOnUiThread { size.value = DpSize(300.dp, 400.dp) }
+        compose.waitForIdle()
+        val after = rectOf(TAG_DOCK)
+
+        assertThat(after).isNotEqualTo(before)
+        assertThat(lastStart()).contains(after.toString())
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
     }
 }

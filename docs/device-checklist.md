@@ -69,6 +69,8 @@ Then:
       events do not reach the board view in raw mode (see MEMORY "tap to dismiss").
 - [ ] A finger tap on the panel or between toolbar buttons does not hide anything.
 - [ ] Pen strokes over the open panel and over the panel indicator draw nothing.
+- [ ] Rotate with panel and a popup open: both stay inside the screen, one GC flash, pen draws
+      right after, nothing draws under the panel.
 
 ## Export
 
