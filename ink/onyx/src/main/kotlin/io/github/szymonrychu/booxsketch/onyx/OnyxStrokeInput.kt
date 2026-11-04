@@ -55,6 +55,11 @@ class OnyxStrokeInput(
     private var appliedExclude: List<Rect> = emptyList()
 
     @Volatile
+    private var penDown = false
+
+    override val strokeInProgress: Boolean get() = penDown
+
+    @Volatile
     private var pressureMax = FALLBACK_MAX_PRESSURE
 
     @Volatile
@@ -68,12 +73,18 @@ class OnyxStrokeInput(
             override fun onBeginRawDrawing(
                 shortcutDrawing: Boolean,
                 point: TouchPoint,
-            ) = activity()
+            ) {
+                penDown = true
+                activity()
+            }
 
             override fun onEndRawDrawing(
                 outLimitRegion: Boolean,
                 point: TouchPoint,
-            ) = activity()
+            ) {
+                penDown = false
+                activity()
+            }
 
             override fun onRawDrawingTouchPointMoveReceived(point: TouchPoint) = activity()
 
@@ -85,12 +96,18 @@ class OnyxStrokeInput(
             override fun onBeginRawErasing(
                 shortcutErasing: Boolean,
                 point: TouchPoint,
-            ) = activity()
+            ) {
+                penDown = true
+                activity()
+            }
 
             override fun onEndRawErasing(
                 outLimitRegion: Boolean,
                 point: TouchPoint,
-            ) = activity()
+            ) {
+                penDown = false
+                activity()
+            }
 
             override fun onRawErasingTouchPointMoveReceived(point: TouchPoint) = activity()
 
@@ -227,6 +244,7 @@ class OnyxStrokeInput(
     }
 
     override fun stop() {
+        penDown = false
         drawing?.close()
         drawing = null
         host = null

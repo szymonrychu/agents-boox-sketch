@@ -9,10 +9,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
 /** A screen-freezing input that logs its lifecycle calls, in order, into [log]. */
-internal class FreezingInput : StrokeInput {
+internal class FreezingInput(
+    override val events: Flow<StrokeEvent> = emptyFlow(),
+) : StrokeInput {
     val log = mutableListOf<String>()
-    override val events: Flow<StrokeEvent> = emptyFlow()
     override val freezesUi = true
+    override var strokeInProgress = false
 
     override fun start(
         view: View,

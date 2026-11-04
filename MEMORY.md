@@ -237,3 +237,34 @@ Lessons that outlive a session. Newest first.
 - Agent pods (8Gi limit) were OOMKilled by Gradle builds (-Xmx3g plus Kotlin daemon plus test JVMs).
   Now: `org.gradle.jvmargs=-Xmx1536m`, `kotlin.daemon.jvmargs=-Xmx1g`, `org.gradle.daemon=false`,
   test tasks `maxHeapSize=1g`, `maxParallelForks=1`. Why: keep total peak well under 4 GiB.
+
+## 2026-11-03 Dock show/hide holds raw drawing until the new rects are applied (Task 8)
+
+- The refresher's hold ends one draw after the tap, but the new exclude list reaches the input
+  later (measure, SideEffect report, recomposition, BoardView restart). A Robolectric log showed
+  `hold, release, start:[dock], start:[], start:[indicator]`: raw drawing on with an empty exclude.
+- BoardScreen therefore takes its own `holdUi` on a dock tap and releases it one frame after the
+  composition that hands BoardView the requested state's rects (`BoardChromeWiringTest`). Holds nest,
+  so the refresher's release cannot re-enable drawing early. Stale starts happen only while held.
+- Auto-hide (2026-11-03, T8 finish): the shell's timer calls `BoardChrome.autoHideHandler`, which BoardScreen
+  sets to the same `ui.chromeChanged()` + `changeDock` hold path as a tap. The handler refuses (returns
+  false) while `StrokeInput.strokeInProgress` (pen down to pen up, set from the Onyx raw begin/end
+  callbacks and touch DOWN/UP), because the hold restarts the input and would drop that stroke; the
+  shell then waits another full quiet gap and asks again. Without a registered handler (non-board
+  tab, fake boards) the shell hides directly. The tab bar vanishing is part of the same state change,
+  so the same hold covers it.
+- `dockSettled` requires non-empty reported rects: right after a hide the indicator is not measured
+  yet and the dock reports an empty list; releasing then would run raw drawing with no exclude.
+  Robolectric measures it in the same frame, so the test drives the gap with a fake dock slot
+  (`BoardScreenWith(dock = ...)`).
+- The board is full screen under the system bars (decided with the review, 2026-11-03): AppShell no
+  longer pads the board; `BoardChrome.insets` is applied only to the tab bar (top, sides), the dock
+  (bottom, sides) and to the other tabs' content.
+
+## 2026-11-04 T8 on top of live ink (#33)
+
+- The chrome feeds the #33 fallback watch only through the exclude list: the watch arms for stylus downs
+  outside excluded rects while raw is active, so a stale dock rect would silence the watch there and a
+  hold that never releases would keep raw off. Both are bounded by `dockSettled` (non-empty rects of the
+  requested state) and by the hold being released on dispose; `BoardChromeWiringTest` replays the log for
+  each path. `strokeInProgress` of `OnyxWithFallback` follows whichever input is live (touch after fallback).

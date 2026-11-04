@@ -111,6 +111,27 @@ class OnyxRawSessionTest {
     }
 
     @Test
+    fun stroke_in_progress_between_raw_begin_and_end() {
+        var cb: RawInputCallback? = null
+        val i =
+            OnyxStrokeInput(ctx, rawDrawing = { _, c ->
+                cb = c
+                FakeRawDrawing(log, ++created)
+            }, maxPressure = { 4096f })
+        i.start(view, limit(), emptyList())
+        val p = TouchPoint(1f, 1f, 2048f, 1f, 0, 0, 0L)
+        assertThat(i.strokeInProgress).isFalse()
+        cb!!.onBeginRawDrawing(false, p)
+        assertThat(i.strokeInProgress).isTrue()
+        cb!!.onEndRawDrawing(false, p)
+        assertThat(i.strokeInProgress).isFalse()
+        cb!!.onBeginRawErasing(false, p)
+        assertThat(i.strokeInProgress).isTrue()
+        i.stop()
+        assertThat(i.strokeInProgress).isFalse()
+    }
+
+    @Test
     fun stop_then_start_then_stroke_delivers_the_stroke() =
         runBlocking {
             var cb: RawInputCallback? = null
