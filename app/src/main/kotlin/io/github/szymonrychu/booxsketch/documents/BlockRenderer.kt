@@ -12,11 +12,13 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.style.AbsoluteSizeSpan
 import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
 import android.text.style.LeadingMarginSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.text.style.UnderlineSpan
 import io.github.szymonrychu.booxsketch.model.doc.Block
+import io.github.szymonrychu.booxsketch.model.doc.splitColourMarkers
 
 /** One measured block that knows how to draw a range of its text lines. */
 sealed interface RenderedBlock {
@@ -37,6 +39,9 @@ class TextBlock(
     lineStart: Int,
     lineEnd: Int,
 ) : RenderedBlock {
+    /** The laid out text, without styling. */
+    val text: String get() = layout.text.toString()
+
     override val block: Block =
         Block(layout.height + spacingAfter, lineStart, lineEnd, List(layout.lineCount) { layout.getLineBottom(it) - layout.getLineTop(it) })
 
@@ -148,6 +153,28 @@ class TextStyles(
         s.setSpan(BackgroundColorSpan(CODE_BACKGROUND), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
+    /**
+     * Replaces every `[[colour]]` marker of [s] by its bold `[colour]` label in that ink colour. The name stays
+     * readable on a greyscale panel, where the colour alone would not tell.
+     */
+    fun colourMarkers(s: SpannableStringBuilder) {
+        var original = 0
+        var removed = 0
+        for (span in splitColourMarkers(s.toString())) {
+            val colour = span.colour
+            if (colour == null) {
+                original += span.text.length
+                continue
+            }
+            val start = original - removed
+            s.replace(start, start + span.text.length + MARKER_EXTRA_BRACKETS, span.text)
+            s.setSpan(ForegroundColorSpan(colour.argb), start, start + span.text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            bold(s, start, start + span.text.length)
+            original += span.text.length + MARKER_EXTRA_BRACKETS
+            removed += MARKER_EXTRA_BRACKETS
+        }
+    }
+
     fun underline(
         s: SpannableStringBuilder,
         from: Int,
@@ -169,6 +196,9 @@ class TextStyles(
 
     companion object {
         const val MARGIN_PX = 48
+
+        /** `[[red]]` is `[red]` plus one bracket on each side. */
+        private const val MARKER_EXTRA_BRACKETS = 2
         const val CODE_BACKGROUND = 0xFFE6E6E6.toInt()
         private const val SPACING_EM = 0.6f
         private const val LINE_SPACING = 1.15f
