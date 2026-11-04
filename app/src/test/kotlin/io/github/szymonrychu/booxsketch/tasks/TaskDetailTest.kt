@@ -126,6 +126,32 @@ class TaskDetailTest {
     }
 
     @Test
+    fun live_reload_during_a_write_keeps_the_write_guard() {
+        val vm = vm()
+        show(vm)
+        val release = java.util.concurrent.CountDownLatch(1)
+        relay.handler = { r ->
+            if (r.method == "PATCH") {
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                json(task(version = 4))
+            } else {
+                json(task())
+            }
+        }
+        vm.saveBody("first")
+        await { relay.requests.any { it.method == "PATCH" } }
+        scope.launch { vm.observe() }
+        events.tryEmit("T-12")
+        await { relay.requests.count { it.method == "GET" } >= 2 }
+        runBlocking { delay(300) }
+        assertThat(vm.state.value.busy).isTrue()
+        vm.saveBody("second")
+        release.countDown()
+        await { !vm.state.value.busy }
+        assertThat(relay.requests.count { it.method == "PATCH" }).isEqualTo(1)
+    }
+
+    @Test
     fun save_body_sends_current_version() {
         val vm = vm()
         show(vm)

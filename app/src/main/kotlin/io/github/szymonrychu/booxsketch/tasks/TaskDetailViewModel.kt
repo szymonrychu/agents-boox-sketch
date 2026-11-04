@@ -147,7 +147,13 @@ class TaskDetailViewModel(
     internal fun write(call: suspend () -> TaskDto) {
         if (mutable.value.busy) return
         mutable.update { it.copy(busy = true, error = null, labelError = null, todoError = null, staleBanner = false) }
-        scope.launch { guarded { adopt(call()) } }
+        scope.launch {
+            try {
+                guarded { adopt(call()) }
+            } finally {
+                mutable.update { it.copy(busy = false) }
+            }
+        }
     }
 
     /** Runs [call] under the shared error handling (stale, not found, 401, others);. */
@@ -163,7 +169,7 @@ class TaskDetailViewModel(
 
     internal fun adopt(task: TaskDto) =
         mutable.update {
-            it.copy(task = task, busy = false, editingBody = false, error = null, notFound = false)
+            it.copy(task = task, editingBody = false, error = null, notFound = false)
         }
 
     /** Collects change hints while the caller is active; a hint for this task (or a lost stream) reloads it once per window. */
@@ -193,7 +199,6 @@ class TaskDetailViewModel(
                     task = task,
                     notFound = false,
                     loading = false,
-                    busy = false,
                     error = null,
                     staleBanner = it.staleBanner && keepBanner,
                 )
@@ -212,11 +217,12 @@ class TaskDetailViewModel(
             }
 
             is ApiError.NotFound -> {
-                mutable.update { it.copy(notFound = true, loading = false, busy = false) }
+                mutable.update { it.copy(notFound = true, loading = false) }
+                return
             }
 
             ApiError.StaleVersion -> {
-                mutable.update { it.copy(busy = false, staleBanner = true, editingBody = false) }
+                mutable.update { it.copy(staleBanner = true, editingBody = false) }
                 scope.launch { load(keepBanner = true, quiet = true) }
                 return
             }
@@ -225,6 +231,6 @@ class TaskDetailViewModel(
                 Unit
             }
         }
-        mutable.update { it.copy(loading = false, busy = false, error = e.userText()) }
+        mutable.update { it.copy(loading = false, error = e.userText()) }
     }
 }

@@ -49,6 +49,7 @@ class MainActivityShellTest {
         val container = (compose.activity.application as App).container
         assertThat(container.tabs.tabs.map { it.id }).containsExactly(BOARD_TAB_ID, TASKS_TAB_ID).inOrder()
         assertThat(container.tabs.tabs.map { it.title }).containsExactly("Drawing", "Tasks").inOrder()
+        compose.onNodeWithTag(TAG_TAB_BAR).assertExists()
     }
 
     @Test

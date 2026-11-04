@@ -16,6 +16,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.AppContainer
@@ -30,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -72,18 +74,40 @@ class TasksTabTest {
     @After
     fun tearDown() {
         scope.cancel()
+        runBlocking { containers.forEach { it.appScope.coroutineContext[Job]?.cancelAndJoin() } }
         relay.shutdown()
     }
 
     private fun controller() = TasksController({ relay.client }, events, scope, { unauthorized++ })
 
-    private fun container(http: () -> OkHttpClient = { OkHttpClient() }) =
+    private val containers = mutableListOf<AppContainer>()
+
+    /** Answers every request with an empty task page, so no test touches the network. */
+    private val stubbedHttp = {
+        OkHttpClient
+            .Builder()
+            .addInterceptor { chain ->
+                Response
+                    .Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(pageJson(emptyList()).toResponseBody())
+                    .build()
+            }.build()
+    }
+
+    private fun container(http: () -> OkHttpClient = stubbedHttp) =
         AppContainer(
             ApplicationProvider.getApplicationContext<Application>(),
             tmp.root,
             keyProvider = FakeKeyProvider(),
             httpFactory = http,
-        ).also { runBlocking { it.tokenStore.save("https://connector.example", "test-token") } }
+        ).also {
+            containers += it
+            runBlocking { it.tokenStore.save("https://connector.example", "test-token") }
+        }
 
     @Test
     fun tasks_tab_is_registered_with_title_Tasks_in_order() {
@@ -148,8 +172,19 @@ class TasksTabTest {
     }
 
     @Test
+    fun stream_stops_when_lifecycle_drops_below_started() {
+        val c = controller()
+        compose.setContent { EinkTheme { TasksHost(c) } }
+        compose.waitUntil(5_000) { events.subscriptionCount.value == 1 }
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.waitUntil(5_000) { events.subscriptionCount.value == 0 }
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitUntil(5_000) { events.subscriptionCount.value == 1 }
+    }
+
+    @Test
     fun unpair_clears_task_state() {
-        val c = container()
+        val c = container(stubbedHttp)
         val list = c.tasks.list()
         c.tasks.open("T-1")
         assertThat(c.tasks.screen.value).isEqualTo(TasksScreen.Detail("T-1"))

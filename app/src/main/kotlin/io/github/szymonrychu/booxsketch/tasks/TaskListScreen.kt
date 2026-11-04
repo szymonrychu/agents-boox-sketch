@@ -217,7 +217,7 @@ fun TaskListScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by vm.state.collectAsState()
-    LaunchedEffect(vm) { vm.observe() }
+    WhileStarted(vm) { vm.observe() }
     RefreshOnChange(state.pageIndex, state.status)
     TaskListContent(
         state = state,

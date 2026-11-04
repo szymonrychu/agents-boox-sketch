@@ -71,7 +71,7 @@ fun TaskDetailScreen(
 ) {
     val state by vm.state.collectAsState()
     var tab by rememberSaveable { mutableStateOf(SubTab.OVERVIEW) }
-    LaunchedEffect(vm) { vm.observe() }
+    WhileStarted(vm) { vm.observe() }
     RefreshOnChange(tab, state.editingBody, state.notFound)
     val task = state.task
     when {

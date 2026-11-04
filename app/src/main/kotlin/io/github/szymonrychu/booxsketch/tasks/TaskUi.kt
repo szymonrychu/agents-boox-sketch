@@ -29,6 +29,9 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.szymonrychu.booxsketch.onyx.Epd
 
 /** Minimum touch target on the e-ink tablet. */
@@ -111,4 +114,14 @@ internal fun RefreshOnChange(vararg keys: Any?) {
     LaunchedEffect(*keys) {
         if (first) first = false else Epd.fullRefresh(view)
     }
+}
+
+/** Runs [block] (the live stream) only while the lifecycle is STARTED; it is cancelled when the app is backgrounded. */
+@Composable
+fun WhileStarted(
+    key: Any,
+    block: suspend () -> Unit,
+) {
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(key, owner) { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { block() } }
 }
