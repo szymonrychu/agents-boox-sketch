@@ -268,3 +268,19 @@ Lessons that outlive a session. Newest first.
   hold that never releases would keep raw off. Both are bounded by `dockSettled` (non-empty rects of the
   requested state) and by the hold being released on dispose; `BoardChromeWiringTest` replays the log for
   each path. `strokeInProgress` of `OnyxWithFallback` follows whichever input is live (touch after fallback).
+
+## 2026-11-04 Send flow and conversations tab (Task 21)
+
+- Outbox drains are single-flight and FIFO per conversation; the conversation is resolved at the
+  first send of a local conversation. Why: items of one thread must reach the connector in order.
+- Two unique WorkManager names: `outbox` (kick, KEEP, no delay) and `outbox-later` (backoff,
+  APPEND_OR_REPLACE). Why: REPLACE from inside the running worker cancelled that worker, and one
+  shared name made a new send wait behind a pending backoff delay. Unpair cancels both.
+- `AppContainer.runSend` catches every Exception (not only IOException) except cancellation, so a
+  Room or export failure becomes a message instead of crashing appScope.
+- On a refused token (401) the thread items of paused outbox rows become PAUSED; re-pairing sets
+  them back to QUEUED. The selected panel tab lives in `PanelTabs.selectedId` so
+  `onOpenConversations` can select the Conversations tab (order 0, Diagnostics stays at 900).
+- Conversation buttons carry an explicit 48 dp minimum height (E-ink touch target rule).
+- Known, not done: duplicate local row if a refresh runs between upload ack and setServerId, and
+  server-deleted conversations are not pruned locally (low severity, noted in review).

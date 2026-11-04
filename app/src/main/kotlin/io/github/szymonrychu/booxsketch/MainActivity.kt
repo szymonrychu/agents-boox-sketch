@@ -1,9 +1,13 @@
 package io.github.szymonrychu.booxsketch
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,17 +16,27 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.github.szymonrychu.booxsketch.board.BoardScreen
 import io.github.szymonrychu.booxsketch.pairing.PairingScreen
+import io.github.szymonrychu.booxsketch.send.SendOutcomeDialog
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
 import io.github.szymonrychu.booxsketch.ui.PanelShell
+import io.github.szymonrychu.booxsketch.ui.PauseInputWhile
 import io.github.szymonrychu.booxsketch.ui.SplitLayout
 import io.github.szymonrychu.booxsketch.ui.SplitState
 import kotlinx.coroutines.launch
 
 /** Hosts the split layout: the board (with its input) beside the panel shell. */
 class MainActivity : ComponentActivity() {
+    // A denial only loses the background "pair again" notification; uploads work either way.
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         val container = (application as App).container
         setContent {
             EinkTheme {
@@ -34,7 +48,7 @@ class MainActivity : ComponentActivity() {
                 if (token == null) {
                     PairingScreen(
                         pair = container.pairingRepository::pair,
-                        onPaired = container.onRepaired,
+                        onPaired = container::repaired,
                         initialOrigin = knownOrigin.orEmpty(),
                     )
                     return@EinkTheme
@@ -45,12 +59,16 @@ class MainActivity : ComponentActivity() {
                 val split = edited ?: stored
                 val scope = rememberCoroutineScope()
                 val input = remember { container.inputSelector.select() }
+                val sendMessage by container.sendMessage.collectAsState()
+                PauseInputWhile(sendMessage != null, input)
+                sendMessage?.let { SendOutcomeDialog(it, container::dismissSendMessage) }
                 SplitLayout(
                     board = {
                         BoardScreen(
                             vm = container.boardViewModel,
                             input = input,
                             setEraser = container::setEraser,
+                            onSend = container::onSend,
                         )
                     },
                     panel = { PanelShell() },

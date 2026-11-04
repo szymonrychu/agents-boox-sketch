@@ -30,9 +30,9 @@ class MainActivityEraserTest {
     }
 
     @Test
-    fun activity_shows_board_and_diagnostics_panel() {
+    fun activity_shows_board_and_conversations_panel() {
+        compose.onNodeWithText("No conversations yet. Send a sketch to start one.").assertExists()
         compose.onNodeWithText("Diagnostics").assertExists()
-        compose.onNodeWithText("Input path: Touch fallback").assertExists()
         compose.onNodeWithText("Undo").assertExists()
     }
 }

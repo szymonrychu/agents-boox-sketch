@@ -93,6 +93,13 @@ class BoardViewModel(
     /** Marks pages as sent (after a successful upload). */
     fun markSent(indices: Set<Int>) = update { it.markSent(indices) }
 
+    /**
+     * Marks the pages of a send snapshot as sent, but only those still equal to the snapshot, so
+     * a stroke drawn while the send was being prepared keeps its page marked as changed.
+     */
+    fun markSentIfUnchanged(sent: Map<Int, Page>) =
+        update { n -> n.markSent(sent.filter { (i, page) -> n.pages.getOrNull(i) == page }.keys) }
+
     /** Writes the notebook now, cancelling a pending debounced save. */
     suspend fun flush() {
         saveJob?.cancel()

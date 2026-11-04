@@ -4,13 +4,18 @@ import io.github.szymonrychu.booxsketch.api.CursorStore
 import io.github.szymonrychu.booxsketch.api.OutboxItem
 import io.github.szymonrychu.booxsketch.api.OutboxStorage
 
-/** Room-backed outbox queue and event cursor store. */
+/**
+ * Room-backed outbox queue and event cursor store. With [conversationOrder] the queue is FIFO per
+ * conversation (see [OutboxDao.nextInConversationOrder]); the app's runner uses that.
+ */
 class RoomOutboxStorage(
     private val outbox: OutboxDao,
     private val cursors: CursorDao,
+    private val conversationOrder: Boolean = false,
 ) : OutboxStorage,
     CursorStore {
-    override suspend fun next(nowMs: Long): OutboxItem? = outbox.next(nowMs)?.toItem()
+    override suspend fun next(nowMs: Long): OutboxItem? =
+        (if (conversationOrder) outbox.nextInConversationOrder(nowMs) else outbox.next(nowMs))?.toItem()
 
     override suspend fun update(item: OutboxItem) = outbox.update(item.toEntity())
 

@@ -16,4 +16,20 @@ interface ThreadDao {
 
     @Query("SELECT * FROM thread_items WHERE conversationLocalId = :localId ORDER BY createdAtMs, id")
     suspend fun list(localId: String): List<ThreadItemEntity>
+
+    /** Marks the thread items of every outbox item paused for a refused token. */
+    @Query("UPDATE thread_items SET status = :status WHERE clientId IN (SELECT clientId FROM outbox WHERE state = 'PAUSED_AUTH')")
+    suspend fun setStatusForPausedOutbox(status: String)
+
+    @Query("UPDATE thread_items SET status = :to WHERE status = :from")
+    suspend fun replaceStatus(
+        from: String,
+        to: String,
+    )
+
+    @Query("UPDATE thread_items SET status = :status WHERE clientId = :clientId")
+    suspend fun setStatus(
+        clientId: String,
+        status: String,
+    )
 }

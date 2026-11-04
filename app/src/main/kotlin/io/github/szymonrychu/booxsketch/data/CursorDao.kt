@@ -12,4 +12,7 @@ interface CursorDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun set(entity: CursorEntity)
+
+    @Query("DELETE FROM cursors WHERE conversationServerId = :serverId")
+    suspend fun delete(serverId: String)
 }
