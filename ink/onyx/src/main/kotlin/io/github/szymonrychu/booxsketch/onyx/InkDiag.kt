@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 
 /**
  * Ink diagnostics read out from the device with `adb logcat -s InkDiag`: every SDK pen redraw that
@@ -15,7 +16,7 @@ object InkDiag {
 
     private val count = MutableStateFlow(0)
 
-    /** SDK pen redraws that fell back to the app renderer since the process started. */
+    /** SDK pen redraw fallback events since the process started (a redraw the cache repeats counts again). */
     val fallbacks: StateFlow<Int> = count.asStateFlow()
 
     /** Logs and counts one fallback; [error] is the exception that caused it, if any. */
@@ -23,8 +24,8 @@ object InkDiag {
         message: String,
         error: Throwable? = null,
     ) {
-        count.value += 1
-        write { Log.w(TAG, "fallback #${count.value}: $message", error) }
+        val n = count.updateAndGet { it + 1 }
+        write { Log.w(TAG, "fallback #$n: $message", error) }
     }
 
     fun info(message: String) {

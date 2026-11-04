@@ -192,8 +192,8 @@ position, the firmware stroke parameters); each SDK pen fallback logs a `fallbac
 with its exception.
 
 - [ ] Logs and counter: draw one stroke with each pen (ballpoint, fountain, brush, marker,
-      charcoal, charcoal_v2, rectangle, arrow). Every stroke logs a `stroke` line; fountain and
-      brush show `params [pressure,smooth]` and the charcoals `params [tilt,scale]` (or `none`).
+      charcoal, charcoal_v2, rectangle, arrow). Every stroke logs a `stroke` line; the
+      charcoals show the firmware `params` (or `none`); fountain and brush use fixed constants.
       Open the Diagnostics tab: "Pen redraw fallbacks" is 0 and logcat has no `fallback` line. If
       it is not 0, note the exception of the first `fallback` line.
 - [ ] 500 px stroke box: with the fountain pen draw one straight horizontal line about 500 px
@@ -208,4 +208,8 @@ with its exception.
 - [ ] Before and after a GC refresh: write a line with each pen, photograph it, then trigger a
       full refresh (switch page and back, or clear and undo). The strokes look the same before and
       after the GC refresh; a stroke that only looks right after the GC refresh means a frame was
-      still drawn in the handwriting (near-binary) e-ink mode.
+      still drawn in the handwriting (near-binary) e-ink mode. That mode is set only by touch
+      strokes and shape drags, so a pen tool that is still wrong here is not an e-ink mode
+      problem; look at the SDK pen redraw instead.
+- [ ] Fountain width: at the same selected width, the committed fountain stroke is as wide as the
+      live ink was (not about 3 px fatter).

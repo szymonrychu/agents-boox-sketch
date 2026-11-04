@@ -16,7 +16,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
-import com.onyx.android.sdk.pen.utils.PenUtils as PenDefaults
 
 /** Records what the renderer hands to the SDK pens; [draws] is what the SDK reports. */
 private class RecordingPens(
@@ -113,66 +112,73 @@ class OnyxPenRendererTest {
     }
 
     @Test
-    fun every_pen_config_has_max_touch_pressure_1_type_width_and_colour() {
-        val types =
-            mapOf(
-                Tool.FOUNTAIN to NeoPenConfig.NEOPEN_PEN_TYPE_FOUNTAIN_V2,
-                Tool.BRUSH to NeoPenConfig.NEOPEN_PEN_TYPE_BRUSH,
-                Tool.CHARCOAL to NeoPenConfig.NEOPEN_PEN_TYPE_CHARCOAL,
-                Tool.CHARCOAL_V2 to NeoPenConfig.NEOPEN_PEN_TYPE_CHARCOAL_V2,
-            )
-        for ((tool, type) in types) {
+    fun the_pen_demo_constants_are_0_3_pressure_sensitivity_and_0_6_smoothing() {
+        assertThat(PRESSURE_SENSITIVITY).isEqualTo(0.3f)
+        assertThat(SMOOTH_LEVEL).isEqualTo(0.6f)
+    }
+
+    @Test
+    fun brush_config_has_type_width_colour_and_the_demo_pressure_and_smoothing() {
+        val s = drawnBy(Tool.BRUSH, params = { floatArrayOf(0.9f, 0.9f) })
+        val c = SdkOnyxPens.config(s)
+        assertThat(c.type).isEqualTo(NeoPenConfig.NEOPEN_PEN_TYPE_BRUSH)
+        assertThat(c.maxTouchPressure).isEqualTo(1f)
+        assertThat(c.width).isEqualTo(s.width)
+        assertThat(c.color).isEqualTo(s.color)
+        assertThat(c.rotateAngle).isEqualTo(0)
+        assertThat(c.pressureSensitivity).isEqualTo(0.3f)
+        assertThat(c.smoothLevel).isEqualTo(0.6f)
+    }
+
+    @Test
+    fun fountain_and_brush_ignore_the_firmware_array_and_do_not_read_it() {
+        for (tool in listOf(Tool.FOUNTAIN, Tool.BRUSH)) {
+            var asked = false
+            val s =
+                drawnBy(tool, params = {
+                    asked = true
+                    floatArrayOf(0.5f, 0.2f)
+                })
+            assertThat(asked).isFalse()
+            assertThat(s.params).isEqualTo(PenParams())
+        }
+    }
+
+    @Test
+    fun charcoal_config_sets_only_what_the_vendor_wrapper_sets() {
+        val defaults = NeoPenConfig()
+        for (tool in listOf(Tool.CHARCOAL, Tool.CHARCOAL_V2)) {
             val s = drawnBy(tool)
             val c = SdkOnyxPens.config(s)
             assertThat(c.maxTouchPressure).isEqualTo(1f)
-            assertThat(c.type).isEqualTo(type)
             assertThat(c.width).isEqualTo(s.width)
             assertThat(c.color).isEqualTo(s.color)
             assertThat(c.rotateAngle).isEqualTo(0)
+            assertThat(c.type).isEqualTo(defaults.type)
+            assertThat(c.pressureSensitivity).isEqualTo(defaults.pressureSensitivity)
+            assertThat(c.smoothLevel).isEqualTo(defaults.smoothLevel)
+            assertThat(c.tiltScale).isEqualTo(defaults.tiltScale)
         }
     }
 
     @Test
-    fun fountain_and_brush_config_takes_pressure_and_smoothing_from_the_device_stroke_parameters() {
-        for (tool in listOf(Tool.FOUNTAIN, Tool.BRUSH)) {
-            val asked = mutableListOf<Int>()
-            val s =
-                drawnBy(tool, params = { style ->
-                    asked += style
-                    floatArrayOf(0.5f, 0.2f)
-                })
-            assertThat(asked).containsExactly(BrushMapping.style(tool))
-            assertThat(s.params.pressureSensitivity).isEqualTo(0.5f)
-            assertThat(s.params.smoothLevel).isEqualTo(0.2f)
-            val c = SdkOnyxPens.config(s)
-            assertThat(c.pressureSensitivity).isEqualTo(0.5f)
-            assertThat(c.smoothLevel).isEqualTo(0.2f)
-        }
+    fun the_fountain_width_cancels_the_3_px_that_create_neo_pen_v2_adds() {
+        val table = mapOf(10f to 7f, 3f to 0f, 1f to 0f, 4.5f to 1.5f)
+        for ((live, handed) in table) assertThat(fountainWidth(live)).isEqualTo(handed)
     }
 
     @Test
-    fun missing_or_invalid_device_stroke_parameters_fall_back_to_the_pen_utils_defaults() {
-        for (raw in listOf(null, floatArrayOf(), floatArrayOf(Float.NaN), floatArrayOf(-1f, Float.NaN), floatArrayOf(0.45f))) {
-            val c = SdkOnyxPens.config(drawnBy(Tool.FOUNTAIN, params = { raw }))
-            assertThat(
-                c.pressureSensitivity,
-            ).isEqualTo(raw?.getOrNull(0)?.takeIf { it == 0.45f } ?: PenDefaults.DEFAULT_PRESSURE_SENSITIVITY)
-            assertThat(c.smoothLevel).isEqualTo(PenDefaults.DEFAULT_SMOOTH_LEVEL)
-        }
-    }
-
-    @Test
-    fun charcoal_config_takes_tilt_from_the_device_stroke_parameters() {
+    fun charcoal_tilt_follows_the_device_switch_and_the_stroke_tilt() {
         val tilted = listOf(Point(10f, 20f, 0.25f, 0, tiltX = 30f), Point(30f, 40f, 0.75f, 16, tiltX = 28f))
         val on = SdkOnyxPens.config(drawnBy(Tool.CHARCOAL, params = { floatArrayOf(1f, 4f) }, points = tilted))
         assertThat(on.isTiltEnabled()).isTrue()
-        assertThat(on.tiltScale).isEqualTo(4f)
-        assertThat(on.pressureSensitivity).isEqualTo(PenDefaults.DEFAULT_PRESSURE_SENSITIVITY)
         val off = SdkOnyxPens.config(drawnBy(Tool.CHARCOAL_V2, params = { floatArrayOf(0f, 4f) }, points = tilted))
         assertThat(off.isTiltEnabled()).isFalse()
-        val unknown = SdkOnyxPens.config(drawnBy(Tool.CHARCOAL, params = { null }, points = tilted))
-        assertThat(unknown.isTiltEnabled()).isTrue()
-        assertThat(unknown.tiltScale).isEqualTo(PenDefaults.DEFAULT_TILT_SCALE)
+        for (raw in listOf(null, floatArrayOf(), floatArrayOf(Float.NaN), floatArrayOf(-1f))) {
+            val unknown = SdkOnyxPens.config(drawnBy(Tool.CHARCOAL, params = { raw }, points = tilted))
+            assertThat(unknown.isTiltEnabled()).isTrue()
+        }
+        assertThat(SdkOnyxPens.config(drawnBy(Tool.CHARCOAL, params = { floatArrayOf(1f) })).isTiltEnabled()).isFalse()
     }
 
     @Test
@@ -198,6 +204,25 @@ class OnyxPenRendererTest {
         assertThat(logs[0].msg).contains("FOUNTAIN")
         assertThat(logs[1].msg).contains("BRUSH")
         assertThat(logs[1].throwable).isNull()
+    }
+
+    @Test
+    fun strokes_are_still_counted_as_fallbacks_after_the_pens_broke() {
+        val before = InkDiag.fallbacks.value
+        val r = renderer(OnyxPens { _, _ -> throw UnsatisfiedLinkError("no neopen_jni") })
+        assertThat(r.handles(stroke(Tool.FOUNTAIN))).isTrue()
+        repeat(3) { r.draw(canvas, stroke(Tool.FOUNTAIN), 1f, 0f, 0f) }
+        r.draw(canvas, stroke(Tool.BALLPOINT), 1f, 0f, 0f)
+        assertThat(InkDiag.fallbacks.value).isEqualTo(before + 3)
+    }
+
+    @Test
+    fun concurrent_fallbacks_are_all_counted() {
+        val before = InkDiag.fallbacks.value
+        val threads = List(8) { Thread { repeat(500) { InkDiag.fallback("x") } } }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertThat(InkDiag.fallbacks.value).isEqualTo(before + 4000)
     }
 
     @Test

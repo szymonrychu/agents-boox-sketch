@@ -42,49 +42,44 @@ fun interface PenRenderer {
 enum class SdkPen { FOUNTAIN, BRUSH, CHARCOAL, CHARCOAL_V2 }
 
 /**
- * The firmware pen settings a stroke is redrawn with, read from `Device.getStrokeParameters` of
- * the pen's stroke style and falling back to the SDK's `PenUtils` defaults (see [penParams]).
+ * The pen settings a stroke is redrawn with. Fountain and brush take the vendor demo's constants
+ * ([FountainShapes.createNeoPenV2] and `PenInfoUtils`: [PRESSURE_SENSITIVITY], [SMOOTH_LEVEL]),
+ * not the firmware's array, whose layout is not verified. Only the charcoals vary: tilt.
  */
 data class PenParams(
-    val pressureSensitivity: Float = PenDefaults.DEFAULT_PRESSURE_SENSITIVITY,
-    val smoothLevel: Float = PenDefaults.DEFAULT_SMOOTH_LEVEL,
     val tiltEnabled: Boolean = false,
-    val tiltScale: Float = PenDefaults.DEFAULT_TILT_SCALE,
 )
 
+/** The demo's pressure sensitivity (`PenInfoUtils.getDefaultPressureSensitivity`): 0.3, as `NeoPenConfig` and `createNeoPenV2`. */
+internal const val PRESSURE_SENSITIVITY = PenDefaults.KEPLER_DEFAULT_PRESSURE_SENSITIVITY
+
+/** The demo's smooth level (`PenInfoUtils.getDefaultSmoothLevel`). */
+internal const val SMOOTH_LEVEL = PenDefaults.DEFAULT_SMOOTH_LEVEL
+
 /**
- * The [PenParams] of [pen] from the firmware's stroke parameters [raw], as the vendor pen demo
- * reads them: fountain and brush hold [pressure sensitivity, smooth level] (`PenInfoUtils`), the
- * charcoals [tilt enabled, tilt scale] (`CharcoalScribbleShape.loadTiltConfig`). A missing or
- * invalid value takes the `PenUtils` default. Tilt is on only when the firmware allows it (or does
- * not say) and the stroke kept tilt ([pointTilt]); strokes.json drops it.
+ * The [PenParams] of [pen]. Only the charcoals read the firmware's stroke parameters [raw], as the
+ * demo's `CharcoalScribbleShape.loadTiltConfig`: [tilt enabled, ...]. Tilt is on only when the
+ * firmware allows it (or does not say) and the stroke kept tilt ([pointTilt]); strokes.json drops it.
  */
 fun penParams(
     pen: SdkPen,
     raw: FloatArray?,
     pointTilt: Boolean,
-): PenParams {
-    fun at(i: Int) = raw?.getOrNull(i)?.takeIf { !it.isNaN() && it >= 0f }
-    return when (pen) {
+): PenParams =
+    when (pen) {
         SdkPen.FOUNTAIN, SdkPen.BRUSH -> {
-            PenParams(
-                pressureSensitivity = at(0) ?: PenDefaults.DEFAULT_PRESSURE_SENSITIVITY,
-                smoothLevel = at(1) ?: PenDefaults.DEFAULT_SMOOTH_LEVEL,
-            )
+            PenParams()
         }
 
         SdkPen.CHARCOAL, SdkPen.CHARCOAL_V2 -> {
-            PenParams(
-                tiltEnabled = pointTilt && (at(0)?.let { it != 0f } ?: true),
-                tiltScale = at(1)?.takeIf { it > 0f } ?: PenDefaults.DEFAULT_TILT_SCALE,
-            )
+            val allowed = raw?.getOrNull(0)?.takeIf { !it.isNaN() && it >= 0f }?.let { it != 0f } ?: true
+            PenParams(tiltEnabled = pointTilt && allowed)
         }
     }
-}
 
 /**
  * One stroke as the SDK pens take it: canvas pixels, pressure normalised to 0..1 (the pens run
- * with `maxTouchPressure` 1), the pen's raw tilt per point, the firmware pen [params], and the
+ * with `maxTouchPressure` 1), the pen's raw tilt per point, the pen [params], and the
  * canvas origin on the screen ([screenOrigin]) for the charcoal screen matrix.
  */
 data class SdkStroke(
@@ -110,8 +105,8 @@ fun interface OnyxPens {
  * ones behind the live raw ink, so the committed stroke looks like the live one: the native
  * pressure and velocity curve of fountain and brush, and the charcoal textures. The stroke is
  * handed over as the raw input drew it: canvas pixels, the raw brush width
- * ([BrushMapping.width]), pressure in 0..1 and raw tilt, with the firmware's settings of the pen
- * ([strokeParameters] of [BrushMapping.style], see [penParams]). Without the native library (JVM
+ * ([BrushMapping.width]), pressure in 0..1 and raw tilt, with the demo's pen settings ([penParams];
+ * the charcoals' tilt switch comes from the firmware's [strokeParameters]). Without the native library (JVM
  * tests, a non-Onyx device) the first failure turns it off for good and every stroke falls back to
  * the caller; a stroke the SDK drew nothing for (no native pen) falls back on its own. Every
  * fallback is logged and counted ([InkDiag]).
@@ -126,7 +121,8 @@ class OnyxPenRenderer internal constructor(
     @Volatile
     private var broken = false
 
-    override fun handles(stroke: Stroke) = !broken && pen(stroke.tool) != null && stroke.points.size >= 2
+    /** Not `!broken`: a stroke the SDK pens would have drawn still reaches [draw] once they are off, so it is counted. */
+    override fun handles(stroke: Stroke) = pen(stroke.tool) != null && stroke.points.size >= 2
 
     @Suppress("TooGenericExceptionCaught")
     override fun draw(
@@ -136,13 +132,17 @@ class OnyxPenRenderer internal constructor(
         dx: Float,
         dy: Float,
     ): Boolean {
-        if (broken) return false
         val pen = pen(stroke.tool) ?: return false
         if (stroke.points.size < 2) return false
+        if (broken) {
+            InkDiag.fallback("${stroke.tool} stroke ${stroke.id}: the SDK pens are off")
+            return false
+        }
         val width = BrushMapping.width(stroke.tool, stroke.width * scale)
         val points = stroke.points.map { touchPoint(it, scale, dx, dy, width) }
         val tilt = stroke.points.any { it.tiltX != null || it.tiltY != null }
-        val params = penParams(pen, strokeParameters(BrushMapping.style(stroke.tool)), tilt)
+        val raw = if (pen == SdkPen.CHARCOAL || pen == SdkPen.CHARCOAL_V2) strokeParameters(BrushMapping.style(stroke.tool)) else null
+        val params = penParams(pen, raw, tilt)
         return try {
             pens.draw(canvas, SdkStroke(pen, points, width, stroke.color.argb, params, screenOrigin())).also {
                 if (!it) InkDiag.fallback("${stroke.tool} stroke ${stroke.id}: the SDK pen drew nothing")
@@ -198,6 +198,17 @@ class OnyxPenRenderer internal constructor(
     }
 }
 
+private const val FOUNTAIN_V2_ADDITION = 3f
+
+/**
+ * The width to hand `createNeoPenV2` so the redraw is as wide as the live ink: it adds
+ * [FOUNTAIN_V2_ADDITION] px (`FountainShapes.FOUNTAIN_PEN_V1_COMPENSATION`) to the width, while
+ * the live raw ink is sized by `TouchHelper.setStrokeWidth` with the width unchanged
+ * (`RawInputReader.setStrokeWidth` hands it straight to the native renderer). Below the
+ * addition the pen cannot go: a stroke narrower than [FOUNTAIN_V2_ADDITION] px redraws at it.
+ */
+internal fun fountainWidth(width: Float): Float = (width - FOUNTAIN_V2_ADDITION).coerceAtLeast(0f)
+
 /** The SDK's readers take a non-null pair type but check each half for null themselves. */
 @Suppress("UNCHECKED_CAST")
 private fun nonNull(p: Pair<PenResult?, PenResult?>) = p as Pair<PenResult, PenResult>
@@ -226,25 +237,23 @@ internal object SdkOnyxPens : OnyxPens {
             SdkPen.CHARCOAL, SdkPen.CHARCOAL_V2 -> drawCharcoal(canvas, stroke)
         }
 
-    /** The pen config of [stroke]: type, width, colour, the firmware [PenParams], pressure already in 0..1. */
+    /**
+     * The pen config of [stroke], pressure already in 0..1. The charcoals get only what the
+     * vendor `NeoCharcoalPenWrapper` sets (colour, width, tilt, rotate angle, max pressure) and
+     * keep the SDK defaults for the rest; the brush adds the demo's pressure and smoothing.
+     */
     fun config(stroke: SdkStroke): NeoPenConfig =
         NeoPenConfig().apply {
-            setType(
-                when (stroke.pen) {
-                    SdkPen.FOUNTAIN -> NeoPenConfig.NEOPEN_PEN_TYPE_FOUNTAIN_V2
-                    SdkPen.BRUSH -> NeoPenConfig.NEOPEN_PEN_TYPE_BRUSH
-                    SdkPen.CHARCOAL -> NeoPenConfig.NEOPEN_PEN_TYPE_CHARCOAL
-                    SdkPen.CHARCOAL_V2 -> NeoPenConfig.NEOPEN_PEN_TYPE_CHARCOAL_V2
-                },
-            )
             setWidth(stroke.width)
             setColor(stroke.color)
             setMaxTouchPressure(1f)
             setTiltEnabled(stroke.params.tiltEnabled)
-            setTiltScale(stroke.params.tiltScale)
             setRotateAngle(0)
-            pressureSensitivity = stroke.params.pressureSensitivity
-            smoothLevel = stroke.params.smoothLevel
+            if (stroke.pen == SdkPen.BRUSH) {
+                setType(NeoPenConfig.NEOPEN_PEN_TYPE_BRUSH)
+                pressureSensitivity = PRESSURE_SENSITIVITY
+                smoothLevel = SMOOTH_LEVEL
+            }
         }
 
     /** The demo's charcoal screen matrix: canvas pixels translated to the screen. */
@@ -256,15 +265,15 @@ internal object SdkOnyxPens : OnyxPens {
     ): Boolean {
         val pen =
             FountainShapes.createNeoPenV2(
-                stroke.width,
+                fountainWidth(stroke.width),
                 NeoFountainPenWrapper.MIN_FOUNTAIN_PEN_WIDTH,
                 DISPLAY_SCALE,
                 DISPLAY_SCALE,
                 DISPLAY_SCALE,
                 DISPLAY_SCALE,
-                stroke.params.pressureSensitivity,
+                PRESSURE_SENSITIVITY,
                 true,
-                stroke.params.smoothLevel,
+                SMOOTH_LEVEL,
             ) ?: return false
         val render = NeoPenRender(pen)
         try {
