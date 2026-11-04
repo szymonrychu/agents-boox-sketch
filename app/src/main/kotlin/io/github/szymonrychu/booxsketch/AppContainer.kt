@@ -23,6 +23,7 @@ import io.github.szymonrychu.booxsketch.documents.DocumentsTab
 import io.github.szymonrychu.booxsketch.documents.DocumentsViewModel
 import io.github.szymonrychu.booxsketch.documents.MarkdownPaginator
 import io.github.szymonrychu.booxsketch.documents.MermaidRenderer
+import io.github.szymonrychu.booxsketch.documents.SourcesViewModel
 import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
@@ -219,6 +220,12 @@ class AppContainer(
             layout = documentLayout,
             scope = appScope,
         )
+
+    /** The sketches spec [version] of [serverId] was made from. */
+    fun sourcesViewModel(
+        serverId: String,
+        version: Int,
+    ): SourcesViewModel = SourcesViewModel(serverId, version, database, ::connector, File(app.cacheDir, "sources"), appScope)
 
     /** Copies spec versions into Room: after a conversations refresh and while the Documents tab is shown. */
     val specSync: SpecSync by lazy { SpecSync(database, ::connector, { conversations.latestSpecVersions }) }
