@@ -106,7 +106,7 @@ class ConversationEvents(
                 .build()
         val call = sseHttp.newCall(request)
         val items = Channel<Result<SseItem>>(Channel.UNLIMITED)
-        val reader = launch(Dispatchers.IO) { pump(call, items) }
+        val reader = launch(Dispatchers.IO) { pumpSse(call, items) }
         try {
             var lastActivity = clock()
             while (true) {
@@ -120,36 +120,6 @@ class ConversationEvents(
         } finally {
             call.cancel()
             reader.cancel()
-        }
-    }
-
-    private fun pump(
-        call: okhttp3.Call,
-        items: Channel<Result<SseItem>>,
-    ) {
-        try {
-            call.execute().use { response ->
-                if (response.isSuccessful) {
-                    readLines(response.body.source(), items)
-                } else {
-                    items.trySend(Result.failure(mapError(response.code, UNKNOWN, "", response.header("Retry-After"))))
-                }
-            }
-        } catch (e: IOException) {
-            items.trySend(Result.failure(ApiError.Network(e)))
-        } finally {
-            items.close()
-        }
-    }
-
-    private fun readLines(
-        source: okio.BufferedSource,
-        items: Channel<Result<SseItem>>,
-    ) {
-        val parser = SseParser()
-        while (true) {
-            val line = source.readUtf8Line() ?: break
-            parser.feed(line)?.let { items.trySend(Result.success(it)) }
         }
     }
 
@@ -171,7 +141,37 @@ class ConversationEvents(
     private companion object {
         const val LONG_POLL_WAIT_S = 25
         const val IDLE_MS = 45_000L
-        const val UNKNOWN = "unknown"
         val json = Json { ignoreUnknownKeys = true }
+    }
+}
+
+/** Runs [call] and sends its SSE items (or the failure) to [items]; closes [items] when the stream ends. */
+internal fun pumpSse(
+    call: okhttp3.Call,
+    items: Channel<Result<SseItem>>,
+) {
+    try {
+        call.execute().use { response ->
+            if (response.isSuccessful) {
+                readSseLines(response.body.source(), items)
+            } else {
+                items.trySend(Result.failure(mapError(response.code, UNKNOWN_CODE, "", response.header("Retry-After"))))
+            }
+        }
+    } catch (e: IOException) {
+        items.trySend(Result.failure(ApiError.Network(e)))
+    } finally {
+        items.close()
+    }
+}
+
+private fun readSseLines(
+    source: okio.BufferedSource,
+    items: Channel<Result<SseItem>>,
+) {
+    val parser = SseParser()
+    while (true) {
+        val line = source.readUtf8Line() ?: break
+        parser.feed(line)?.let { items.trySend(Result.success(it)) }
     }
 }
