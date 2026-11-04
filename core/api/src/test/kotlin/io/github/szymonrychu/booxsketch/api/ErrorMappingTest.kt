@@ -85,4 +85,47 @@ class ErrorMappingTest {
             assertThat(e).isInstanceOf(ApiError.Network::class.java)
             assertThat(e.cause).isNotNull()
         }
+
+    private fun nested(
+        status: Int,
+        code: String,
+        message: String = "m",
+    ) = MockResponse().setResponseCode(status).setBody("""{"error":{"code":"$code","message":"$message"}}""")
+
+    @Test
+    fun maps_412_to_stale_version() =
+        runTest {
+            assertThat(errorOf(nested(412, "stale_version"))).isEqualTo(ApiError.StaleVersion)
+        }
+
+    @Test
+    fun maps_409_already_answered() =
+        runTest {
+            assertThat(errorOf(nested(409, "already_answered"))).isEqualTo(ApiError.AlreadyAnswered)
+            assertThat(errorOf(failure(409, "no_spec"))).isEqualTo(ApiError.Conflict("no_spec"))
+        }
+
+    @Test
+    fun maps_503_codes_to_unavailable() =
+        runTest {
+            assertThat(errorOf(failure(503, "taskboard_unavailable"))).isEqualTo(ApiError.Unavailable("taskboard_unavailable"))
+            assertThat(errorOf(failure(503, "taskboard_unconfigured"))).isEqualTo(ApiError.Unavailable("taskboard_unconfigured"))
+        }
+
+    @Test
+    fun parses_taskboard_nested_error_body() =
+        runTest {
+            assertThat(errorOf(nested(422, "invalid_request", "title too long")))
+                .isEqualTo(ApiError.Invalid("invalid_request", "title too long"))
+            assertThat(errorOf(nested(404, "not_found"))).isEqualTo(ApiError.NotFound("not_found"))
+        }
+
+    @Test
+    fun parses_connector_flat_error_body() =
+        runTest {
+            assertThat(errorOf(failure(422, "invalid_request"))).isEqualTo(ApiError.Invalid("invalid_request", "d"))
+            assertThat(parseErrorBody("""{"error":"x","detail":"y"}""")).isEqualTo("x" to "y")
+            assertThat(parseErrorBody("""{"error":{"code":"x","message":"y"}}""")).isEqualTo("x" to "y")
+            assertThat(parseErrorBody("[]")).isNull()
+        }
 }
