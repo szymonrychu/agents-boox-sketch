@@ -85,6 +85,14 @@ class AnnotationStore(
         File(dir, SENT_FILE).writeText("sent")
     }
 
+    /** A notes upload failed for good: the draft is editable and can be sent again. */
+    fun unmarkSent(
+        conversationLocalId: String,
+        version: Int,
+    ) {
+        File(dir(conversationLocalId, version), SENT_FILE).delete()
+    }
+
     fun isSent(
         conversationLocalId: String,
         version: Int,

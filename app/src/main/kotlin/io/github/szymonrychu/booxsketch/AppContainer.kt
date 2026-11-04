@@ -240,7 +240,13 @@ class AppContainer(
 
     /** A 401 pauses the queue (never fails items) and drops the token, so the gate shows Pairing. */
     val outboxRunner: OutboxRunner by lazy {
-        OutboxRunner(database, ::connector, onNeedsPairing = pairingRepository::rejectToken, schedule = outboxScheduler::later)
+        OutboxRunner(
+            database,
+            ::connector,
+            onNeedsPairing = pairingRepository::rejectToken,
+            schedule = outboxScheduler::later,
+            annotations = annotationStore,
+        )
     }
 
     val sendUseCase: SendUseCase by lazy {

@@ -119,7 +119,7 @@ class AnnotationSendTest {
         caption: String? = null,
     ) = useCase.sendAnnotation("c1", version, latest, pages, caption)
 
-    private fun runner() = OutboxRunner(db, { client }, onNeedsPairing = {}, schedule = {})
+    private fun runner() = OutboxRunner(db, { client }, onNeedsPairing = {}, schedule = {}, annotations = store)
 
     @Test
     fun only_inked_pages_uploaded() =
@@ -221,6 +221,25 @@ class AnnotationSendTest {
     fun marks_draft_sent_and_view_becomes_read_only() =
         runBlocking<Unit> {
             send(listOf(input(0)))
+            assertThat(store.isSent("c1", 1)).isTrue()
+        }
+
+    @Test
+    fun permanent_outbox_failure_returns_the_draft_to_editable() =
+        runBlocking<Unit> {
+            send(listOf(input(0)), version = 2, latest = 2)
+            assertThat(store.isSent("c1", 2)).isTrue()
+            double.uploadStatus = 413
+            assertThat(runner().drain().failed).isEqualTo(1)
+            assertThat(store.isSent("c1", 2)).isFalse()
+        }
+
+    @Test
+    fun retryable_failure_keeps_the_draft_sent() =
+        runBlocking<Unit> {
+            send(listOf(input(0)))
+            double.uploadStatus = 503
+            assertThat(runner().drain().failed).isEqualTo(0)
             assertThat(store.isSent("c1", 1)).isTrue()
         }
 
