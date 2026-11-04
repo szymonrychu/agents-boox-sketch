@@ -31,15 +31,15 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Stroke
-import io.github.szymonrychu.booxsketch.model.shapeOutline
 import io.github.szymonrychu.booxsketch.onyx.Epd
 import io.github.szymonrychu.booxsketch.onyx.FullRefreshDebouncer
-import io.github.szymonrychu.booxsketch.onyx.OnyxPenRenderer
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.StrokeRenderer
+import io.github.szymonrychu.booxsketch.render.devicePenRenderer
 import kotlin.math.min
 import android.graphics.Canvas as AndroidCanvas
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
+import io.github.szymonrychu.booxsketch.render.inkBounds as strokeInkBounds
 
 /** Maps between view pixels and page-canvas pixels: the page is fitted and centred in the view. */
 class BoardGeometry(
@@ -57,25 +57,8 @@ class BoardGeometry(
             points = stroke.points.map { it.copy(x = (it.x - dx) / scale, y = (it.y - dy) / scale) },
         )
 
-    /**
-     * View pixels [stroke] (page-canvas pixels) can paint: its outline points (an arrow's head
-     * included) padded by the widest line its tool draws for its width (marker 3x; shapes 1x)
-     * plus anti-aliasing.
-     */
-    fun inkBounds(stroke: Stroke): RectF? {
-        if (stroke.points.isEmpty()) return null
-        val factor = if (stroke.tool.isShape) 1f else MAX_WIDTH_FACTOR
-        val pad = stroke.width * scale * factor / 2f + AA_PAD
-        val r = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
-        for (p in shapeOutline(stroke).flatten()) r.union(p.x * scale + dx, p.y * scale + dy)
-        r.inset(-pad, -pad)
-        return r
-    }
-
-    private companion object {
-        const val MAX_WIDTH_FACTOR = 3f
-        const val AA_PAD = 2f
-    }
+    /** View pixels [stroke] (page-canvas pixels) can paint; see [strokeInkBounds]. */
+    fun inkBounds(stroke: Stroke): RectF? = strokeInkBounds(stroke, scale, dx, dy)
 }
 
 /**
@@ -208,7 +191,7 @@ internal class TapDetector(
  */
 class BoardSurfaceView(
     context: Context,
-    private val renderer: StrokeRenderer = CanvasStrokeRenderer(OnyxPenRenderer.onDevice()),
+    private val renderer: StrokeRenderer = CanvasStrokeRenderer(devicePenRenderer()),
 ) : SurfaceView(context),
     SurfaceHolder.Callback,
     CommittedInkSurface {
@@ -375,8 +358,9 @@ class BoardSurfaceView(
         val shown =
             if (within == null) strokes else strokes.filter { s -> g.inkBounds(s)?.let { RectF.intersects(it, within) } ?: false }
         renderer.draw(canvas, shown, g.scale, g.dx, g.dy)
-        preview?.let { renderer.draw(canvas, listOf(it), g.scale, g.dx, g.dy) }
-        live?.let { renderer.draw(canvas, listOf(it), 1f, 0f, 0f) }
+        // Redrawn on every drag or pen move event: never the vendor pens.
+        preview?.let { renderer.drawPreview(canvas, listOf(it), g.scale, g.dx, g.dy) }
+        live?.let { renderer.drawPreview(canvas, listOf(it), 1f, 0f, 0f) }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {

@@ -167,3 +167,12 @@ pause about 1 s (idle sync), then undo and redo, then switch page and back.
 - [ ] Charcoal_v2: the same as charcoal, at the same (1.2x) width as the live stroke.
 - [ ] A page with many charcoal strokes: undo and page switch redraw without a noticeable pause,
       and quick writing still keeps up with the nib (pen latency section).
+- [ ] Charcoal written with the pen held tilted: the redraw keeps the wider, softer tilted grain
+      (tilt is passed to the SDK pen) and the grain at the stroke edges is not cut off or left stale
+      after an idle sync next to it.
+- [ ] Drag a rectangle over a page with many charcoal strokes: the preview follows the pen without
+      lag (committed strokes are blitted from the cache, the preview is never drawn by the SDK pens).
+- [ ] Open a sent page in the document view and swipe between pages: charcoal looks as on the
+      board and swiping does not stall.
+- [ ] Known gap: PNG exports and the images sent to the connector keep the app's own (smooth)
+      look for these pens.

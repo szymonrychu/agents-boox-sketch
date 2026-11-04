@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import com.google.common.truth.Truth.assertThat
 import com.onyx.android.sdk.pen.NeoPenConfig
+import com.onyx.android.sdk.pen.NeoRenderPoint
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
@@ -14,18 +15,20 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Records what the renderer hands to the SDK pens. */
+/** Records what the renderer hands to the SDK pens; [draws] is what the SDK reports. */
 private class RecordingPens(
     private val failure: Throwable? = null,
+    private val draws: Boolean = true,
 ) : OnyxPens {
     val drawn = mutableListOf<SdkStroke>()
 
     override fun draw(
         canvas: Canvas,
         stroke: SdkStroke,
-    ) {
+    ): Boolean {
         failure?.let { throw it }
         drawn += stroke
+        return draws
     }
 }
 
@@ -161,5 +164,60 @@ class OnyxPenRendererTest {
         val p = SdkOnyxPens.paint(Color.RED)
         assertThat(p.color).isEqualTo(Color.RED)
         assertThat(p.isAntiAlias).isTrue()
+    }
+
+    @Test
+    fun charcoal_pressure_comes_back_to_the_stored_0_to_1_after_the_one_java_division() {
+        // NeoCharcoalPenWrapper divides each point by createArgs.maxPressure; the native pen never
+        // reads maxTouchPressure, so this is the pressure the native charcoal sees.
+        val s = drawnBy(Tool.CHARCOAL, max = 4096f)
+        val args = SdkOnyxPens.charcoalArgs(canvas, s)
+        assertThat(args.points.map { it.pressure / args.createArgs.maxPressure }).containsExactly(0.25f, 0.75f).inOrder()
+    }
+
+    @Test
+    fun tilt_of_the_stored_points_reaches_the_sdk_pens() {
+        val tilted = listOf(Point(10f, 20f, 0.25f, 0, tiltX = 30f, tiltY = -12f), Point(30f, 40f, 0.75f, 16, tiltX = 28f))
+        val pens = RecordingPens()
+        OnyxPenRenderer(pens) { 4096f }.draw(canvas, stroke(Tool.CHARCOAL, points = tilted), 1f, 0f, 0f)
+        val s = pens.drawn.single()
+        assertThat(s.tilt).isTrue()
+        assertThat(s.points.map { it.tiltX }).containsExactly(30, 28).inOrder()
+        assertThat(s.points.map { it.tiltY }).containsExactly(-12, 0).inOrder()
+        assertThat(SdkOnyxPens.charcoalArgs(canvas, s).isTiltEnabled).isTrue()
+    }
+
+    @Test
+    fun a_stroke_without_tilt_keeps_tilt_off() {
+        val s = drawnBy(Tool.CHARCOAL)
+        assertThat(s.tilt).isFalse()
+        assertThat(s.points.map { it.tiltX }).containsExactly(0, 0)
+        assertThat(SdkOnyxPens.charcoalArgs(canvas, s).isTiltEnabled).isFalse()
+    }
+
+    @Test
+    fun a_stroke_the_sdk_drew_nothing_for_falls_back_and_the_next_one_still_tries() {
+        val pens = RecordingPens(draws = false)
+        val r = OnyxPenRenderer(pens) { 4096f }
+        assertThat(r.draw(canvas, stroke(Tool.CHARCOAL), 1f, 0f, 0f)).isFalse()
+        assertThat(r.draw(canvas, stroke(Tool.FOUNTAIN), 1f, 0f, 0f)).isFalse()
+        assertThat(pens.drawn).hasSize(2)
+    }
+
+    @Test
+    fun no_charcoal_render_points_means_nothing_drawn_and_the_textures_are_recycled() {
+        val texture = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        assertThat(SdkOnyxPens.drawTextures(canvas, emptyArray(), listOf(texture))).isFalse()
+        assertThat(SdkOnyxPens.drawTextures(canvas, null, emptyList())).isFalse()
+        assertThat(texture.isRecycled).isTrue()
+    }
+
+    @Test
+    fun charcoal_render_points_draw_their_textures() {
+        val target = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+        val texture = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val drawn = SdkOnyxPens.drawTextures(Canvas(target), arrayOf(NeoRenderPoint.create(3f, 4f, 2f, 0)), listOf(texture))
+        assertThat(drawn).isTrue()
+        assertThat(texture.isRecycled).isTrue()
     }
 }

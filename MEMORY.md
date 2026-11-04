@@ -39,16 +39,38 @@ Lessons that outlive a session. Newest first.
   `BrushMapping.width(tool, width * scale)` (so charcoal_v2 keeps 1.2x on both sides), raw pressure
   (normalised * device max, fallback 4096) with the same max. Ballpoint, marker, shapes and single
   points stay with the app renderer.
-- Seam: `CanvasStrokeRenderer(pen: PenRenderer?)` offers each freehand stroke to the pen first.
-  `OnyxPenRenderer.onDevice()` is non-null only when `OnyxProbe` passes, and only the board surface
+- Seam: `CanvasStrokeRenderer(pen: PenRenderer?)` offers each committed freehand stroke to the pen
+  first. `OnyxPenRenderer.onDevice()` is non-null only when `OnyxProbe` passes, and only the board surface
   and the document page view use it; PNG and Send exports keep the plain renderer. On JVM,
   Robolectric and screenshots the pen is null (or the native library is missing: the first
   `LinkageError`/`RuntimeException` turns it off for good), so the fallback renderer and every
   screenshot are unchanged. `drawBigStroke` (needs a content rect and render matrix) is not used.
-- Redraws stay incremental (the idle sync still draws only strokes in the dirty rect); each SDK call
-  creates and destroys a native pen per stroke, which may cost time on full redraws of charcoal-heavy
-  pages. Device-only: that the SDK pens match the firmware live ink exactly (dpi 320 default) and
-  that full redraws stay fast; see the device checklist section "Redraw matches the live ink".
+- PR #48 review (2026-11-04): pressure is NOT normalised twice. Evidence: the charcoal wrappers
+  divide each point by `createArgs.maxPressure` in Java and copy it into
+  `NeoPenConfig.maxTouchPressure`, but `NeoNativePen` packs points with
+  `PenUtils.getPointDoubleArray(point, 1f)` (default divisor 1) and libneopen_jni (arm64 and v7a)
+  holds the JNI field names of every PenConfig field it reads (width, dpi, tiltEnabled,
+  pressureSensitivity, ignorePressure, ...) but no `maxTouchPressure` string: the native pen never
+  reads it. So the native charcoal sees stored pressure 0..1, as fountain and brush do. The live
+  ink itself is drawn by the firmware (`EpdController.setStrokeStyle`), not reachable from the SDK.
+- Tilt: stored points keep the raw tilt (Notebook storage; strokes.json drops it), so the redraw
+  passes it in `TouchPoint(x, y, p, size, tiltX, tiltY, t)` and `PenRenderArgs.setTiltEnabled`
+  when any point has tilt. Fountain and brush wrappers build their config without tilt; their
+  points still carry it.
+- The SDK pens run only for committed strokes, through `CachedPenRenderer`: one native run per
+  stroke instance and placement, kept as a bitmap of the stroke's ink bounds (LRU, 1/8 of the
+  heap), then blitted by every redraw (shape drag frames, dirty-rect sync, the document view's
+  Compose draws). The shape preview and the touch stroke in progress go through
+  `StrokeRenderer.drawPreview`, which never uses the pen. Why: the native pen per frame was O(n)
+  native pen creations per drag event.
+- Ink bounds of charcoal pad 8x the width (texture stamps scale with tilt, NeoPenConfig
+  tiltScale 3, plus charcoal_v2 1.2x); the cache bitmap and the dirty rect use the same bounds,
+  so grain outside them is neither drawn nor left stale.
+- `SdkOnyxPens` unrolls the vendor wrappers (computeStrokePoints + drawStrokeByPointSize,
+  computeStrokeRenderPoints per 1000 points + drawBitmap) so an empty result (no native pen)
+  returns false and the stroke falls back to `CanvasStrokeRenderer` instead of vanishing.
+- Device-only: that the SDK pens match the firmware live ink exactly (dpi 320 default) and the
+  8x charcoal pad is enough; see the device checklist section "Redraw matches the live ink".
 
 ## 2026-11-04 Live ink width matches the redrawn stroke (boox-ink-width)
 

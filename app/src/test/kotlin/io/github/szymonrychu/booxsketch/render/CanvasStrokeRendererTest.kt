@@ -187,4 +187,15 @@ class CanvasStrokeRendererTest {
         assertThat(pen.offered).isEmpty()
         assertThat(bmp.getPixel(100, 50)).isEqualTo(PenColor.BLUE.argb)
     }
+
+    @Test
+    fun a_preview_draw_never_runs_the_vendor_pen() {
+        val pen = RecordingPen(claims = true)
+        val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(Color.WHITE)
+        CanvasStrokeRenderer(pen).drawPreview(c, listOf(line(Tool.CHARCOAL, PenColor.RED)), 1f, 0f, 0f)
+        assertThat(pen.offered).isEmpty()
+        assertThat(Color.red(bmp.getPixel(200, 200))).isGreaterThan(Color.green(bmp.getPixel(200, 200)))
+    }
 }
