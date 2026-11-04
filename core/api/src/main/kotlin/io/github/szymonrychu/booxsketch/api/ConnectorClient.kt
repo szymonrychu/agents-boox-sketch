@@ -134,6 +134,9 @@ class ConnectorClient(
         execute(authedRequest("/conversations/$id/handoff").post(body).build()) { }
     }
 
+    /** Runs [request] and returns the body text of a success; failures throw [ApiError]. For sibling clients. */
+    suspend fun fetch(request: Request): String = execute(request) { it.body.string() }
+
     private suspend inline fun <reified T> call(
         request: Request,
         client: OkHttpClient = http,
