@@ -144,10 +144,10 @@ class OnyxStrokeInput(
             // As in the vendor demo, new rects take effect through setLimitRect followed by openRawDrawing.
             applyRects(current, limit, exclude)
             current.open()
-            if (active()) enable(current) else current.setEnabled(false)
+            if (active()) enable(current) else disable(current)
             return
         }
-        current?.close()
+        current?.let { close(it) }
         pressureMax = maxPressure()
         val d = rawDrawing(view, callback)
         drawing = d
@@ -205,7 +205,7 @@ class OnyxStrokeInput(
 
     override fun pause() {
         paused = true
-        drawing?.setEnabled(false)
+        drawing?.let { disable(it) }
     }
 
     /** Re-enables raw drawing; every enable resets the firmware brush, so it is applied again. */
@@ -218,7 +218,7 @@ class OnyxStrokeInput(
 
     override fun holdUi() {
         holds++
-        drawing?.setEnabled(false)
+        drawing?.let { disable(it) }
     }
 
     override fun releaseUi() {
@@ -230,12 +230,23 @@ class OnyxStrokeInput(
     override fun refresh(redraw: () -> Unit) {
         val d = drawing
         if (d == null || !active()) return redraw()
-        d.setEnabled(false)
+        disable(d)
         try {
             redraw()
         } finally {
             enable(d)
         }
+    }
+
+    /** Raw drawing off: the SDK sends no end callback for a stroke it cuts, so the pen is no longer down. */
+    private fun disable(d: RawDrawing) {
+        penDown = false
+        d.setEnabled(false)
+    }
+
+    private fun close(d: RawDrawing) {
+        penDown = false
+        d.close()
     }
 
     private fun enable(d: RawDrawing) {
@@ -244,8 +255,8 @@ class OnyxStrokeInput(
     }
 
     override fun stop() {
+        drawing?.let { close(it) }
         penDown = false
-        drawing?.close()
         drawing = null
         host = null
         gated = null

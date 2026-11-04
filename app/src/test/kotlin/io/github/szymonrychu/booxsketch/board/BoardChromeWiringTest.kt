@@ -24,6 +24,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.model.Point
@@ -85,6 +88,42 @@ class BoardChromeWiringTest {
             )
         }
     }
+
+    /** A dock whose hidden-state indicator rect appears only once [measured] is true; the tap hides or shows. */
+    private fun lateDock(measured: androidx.compose.runtime.State<Boolean>): DockContent =
+        { p ->
+            val rects =
+                if (p.visible) {
+                    listOf(Rect(0, 500, 400, 600))
+                } else if (measured.value) {
+                    listOf(Rect(0, 0, 48, 48))
+                } else {
+                    emptyList()
+                }
+            var reported by remember { mutableStateOf<List<Rect>?>(null) }
+            SideEffect {
+                if (rects != reported) {
+                    reported = rects
+                    p.onExcludeChange(rects)
+                }
+            }
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .testTag(if (p.visible) "fake_hide" else "fake_show")
+                    .size(48.dp)
+                    .clickable { if (p.visible) p.onHide() else p.onShow() },
+            )
+        }
+
+    private fun lifecycle(event: Lifecycle.Event) {
+        compose.runOnUiThread { ((host!!.context as LifecycleOwner).lifecycle as LifecycleRegistry).handleLifecycleEvent(event) }
+        compose.waitForIdle()
+    }
+
+    private fun holds() = input.log.count { it == "hold" }
+
+    private fun releases() = input.log.count { it == "release" }
 
     private fun surface(): BoardSurfaceView? {
         fun find(v: View): BoardSurfaceView? =
@@ -370,6 +409,59 @@ class BoardChromeWiringTest {
         compose.waitForIdle()
         assertThat(input.log.indexOf("hold")).isLessThan(input.log.indexOfFirst { it.startsWith("start:") })
         assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfFirst { it.startsWith("start:") })
+    }
+
+    @Test
+    fun hide_without_chrome_takes_no_hold_that_never_settles() {
+        show(withChrome = false, dock = lateDock(mutableStateOf(false)))
+        createSurface()
+        input.log.clear()
+
+        compose.onNodeWithTag("fake_hide").performClick()
+        compose.waitForIdle()
+
+        assertThat(holds()).isEqualTo(releases())
+    }
+
+    @Test
+    fun a_hold_pending_at_dispose_is_released() {
+        show(dock = lateDock(mutableStateOf(false)))
+        createSurface()
+        input.log.clear()
+        compose.onNodeWithTag("fake_hide").performClick()
+        compose.waitForIdle()
+        assertThat(holds()).isEqualTo(1)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.runOnUiThread { Snapshot.withMutableSnapshot { state.select("spec") } }
+        compose.waitForIdle()
+
+        assertThat(input.log).contains("stop")
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun a_hold_pending_across_pause_is_released_once_settled_and_never_leaks() {
+        val measured = mutableStateOf(false)
+        show(dock = lateDock(measured))
+        createSurface()
+        input.log.clear()
+        compose.onNodeWithTag("fake_hide").performClick()
+        compose.waitForIdle()
+        assertThat(holds()).isEqualTo(1)
+        assertThat(releases()).isEqualTo(0)
+
+        lifecycle(Lifecycle.Event.ON_PAUSE)
+        compose.runOnUiThread { measured.value = true }
+        compose.waitForIdle()
+        lifecycle(Lifecycle.Event.ON_RESUME)
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+
+        // The compose frame clock keeps running while paused, so the release may land before the resume;
+        // the input's own pause flag keeps raw drawing off until then (OnyxLiveInkTest).
+        assertThat(releases()).isEqualTo(holds())
+        assertThat(input.log).contains("start:${listOf(Rect(0, 0, 48, 48))}")
     }
 
     @Test

@@ -136,6 +136,19 @@ class OnyxLiveInkTest {
     }
 
     @Test
+    fun a_hold_released_while_paused_keeps_raw_drawing_off_until_resume() {
+        input.start(view, board, emptyList())
+        drawFrames()
+        input.holdUi()
+        input.pause()
+        input.releaseUi()
+        assertThat(input.rawActive).isFalse()
+        assertThat(raw.on).isFalse()
+        input.resume()
+        assertLive()
+    }
+
+    @Test
     fun native_exclude_stops_covering_the_board_when_the_chrome_hides() {
         input.start(view, board, listOf(tabBar))
         drawFrames()

@@ -106,9 +106,11 @@ internal fun BoardScreenWith(
         target: Boolean,
         apply: () -> Unit,
     ) {
+        apply()
+        // Without a chrome nothing changes, so no dock report would ever settle a hold.
+        if (chrome == null) return
         if (awaiting == null) input.holdUi()
         awaiting = target
-        apply()
     }
     // Auto-hide goes through the same hold and full refresh as a tap; it is refused while a stroke is in progress
     // (the hold restarts the input and would drop that stroke), and the shell retries after the next quiet gap.
