@@ -13,10 +13,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -99,27 +97,23 @@ internal fun BoardScreenWith(
     // Created during composition so raw drawing is held off before the board first starts it.
     val ui = remember(input, view) { UiRefresher.forView(view, input) }
     // A dock show or hide tap holds raw drawing (on top of the refresher's hold) until the input runs with the new rects.
-    var awaiting by remember { mutableStateOf<Boolean?>(null) }
+    val holds = remember(input) { ChromeHolds(input) }
     // Stop the input first: closing the refresher releases its holds, which must not re-enable a session about to close.
     DisposableEffect(input, ui) {
         onDispose {
             input.stop()
             (ui as? UiRefresher)?.close()
-            if (awaiting != null) input.releaseUi()
+            holds.release()
         }
     }
-    var dockReport by remember { mutableStateOf(DockReport(true, emptyList())) }
     val dockVisible = chrome?.visible ?: true
 
     fun changeDock(
         target: Boolean,
         apply: () -> Unit,
     ) {
-        apply()
         // Without a chrome nothing changes, so no dock report would ever settle a hold.
-        if (chrome == null) return
-        if (awaiting == null) input.holdUi()
-        awaiting = target
+        if (chrome == null) apply() else holds.change(DOCK_KEY, target, apply = apply)
     }
     // Auto-hide goes through the same hold and full refresh as a tap; it is refused while a stroke is in progress
     // (the hold restarts the input and would drop that stroke), and the shell retries after the next quiet gap.
@@ -137,7 +131,7 @@ internal fun BoardScreenWith(
         }
         onDispose { chrome?.autoHideHandler = null }
     }
-    val exclude = dockReport.rects + (chrome?.overlays ?: emptyList()) + overlays
+    val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(
             notebook = notebook,
@@ -163,7 +157,7 @@ internal fun BoardScreenWith(
                     onShow = { changeDock(true) { chrome?.show() } },
                     onHide = { changeDock(false) { chrome?.hide() } },
                     ui = ui,
-                    onExcludeChange = { dockReport = DockReport(dockVisible, it) },
+                    onExcludeChange = { holds.report(DOCK_KEY, dockVisible, it) },
                     rememberedDockSize = chrome?.dockSize,
                     onDockSize = { chrome?.dockSize = it },
                     toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui, options = toolbarOptions) },
@@ -171,33 +165,24 @@ internal fun BoardScreenWith(
             )
         }
     }
-    // Settled: this composition hands BoardView the exclude list of the dock state that was asked for.
-    val settled = dockSettled(awaiting, dockReport.visible, dockReport.rects)
+    // Settled: this composition hands BoardView the exclude list of every overlay state that was asked for.
+    val settled = holds.settled
     LaunchedEffect(settled, exclude) {
         if (settled) {
             // One frame on, BoardView has restarted the input with that list; only then lift the hold.
             withFrameNanos { }
-            awaiting = null
-            input.releaseUi()
+            holds.finishIfSettled()
         }
     }
 }
 
 private val DOCK_INSET_SIDES = WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
 
-/**
- * True when the dock has reported the rects of the state that was [awaiting] (null: no change pending).
- * Empty [rects] never count: right after a show or hide the new panel's rect is not measured yet, and
- * releasing the input hold then would run raw drawing with no exclude over the toolbar.
- */
+private const val DOCK_KEY = "dock"
+
+/** [overlaySettled] for the dock with a change pending to [awaiting] (null: no change pending); the dock always needs rects. */
 internal fun dockSettled(
     awaiting: Boolean?,
     visible: Boolean,
     rects: List<Rect>,
-): Boolean = awaiting != null && visible == awaiting && rects.isNotEmpty()
-
-/** The dock's exclude rects as reported while it was [visible]. */
-private class DockReport(
-    val visible: Boolean,
-    val rects: List<Rect>,
-)
+): Boolean = awaiting != null && overlaySettled(awaiting, needsRects = true, visible = visible, rects = rects)
