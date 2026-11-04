@@ -8,8 +8,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -53,6 +56,7 @@ private val SWATCH_TARGET = 48.dp
 private val SWATCH_DOT = 34.dp
 private val SWATCH_MARK = 12.dp
 private val SWATCH_FRAME = 3.dp
+private val CHIP_MIN_HEIGHT = 48.dp
 
 /** Test tag of the swatch for [color]. */
 internal fun colorTag(color: PenColor) = "color_${color.wire}"
@@ -79,11 +83,12 @@ fun BoardToolbar(
     val pageCount = notebook.pages.size
 
     Column(modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Wraps instead of scrolling: every tool, the shapes included, stays visible without a scroll on e-ink.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             for (t in Tool.entries) {
-                FilterChip(selected = !eraser && tool == t, onClick = ui.act { vm.setTool(t) }, label = { Text(t.wire) })
+                ToolChip(selected = !eraser && tool == t, label = t.wire, onClick = ui.act { vm.setTool(t) })
             }
-            FilterChip(selected = eraser, onClick = ui.act { vm.setEraser(!eraser) }, label = { Text("Eraser") })
+            ToolChip(selected = eraser, label = "Eraser", onClick = ui.act { vm.setEraser(!eraser) })
         }
         ColorRow(vm, ui)
         EditRow(vm, ui)
@@ -122,6 +127,28 @@ fun BoardToolbar(
             }
         }
     }
+}
+
+/** A 48 dp tall tool chip; the selected one gets a black frame, like the swatches, so it reads on e-ink. */
+@Composable
+private fun ToolChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        modifier = Modifier.heightIn(min = CHIP_MIN_HEIGHT),
+        border =
+            FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = selected,
+                selectedBorderColor = Color.Black,
+                selectedBorderWidth = SWATCH_FRAME,
+            ),
+    )
 }
 
 /** Runs [block], then reports a settled UI change. */

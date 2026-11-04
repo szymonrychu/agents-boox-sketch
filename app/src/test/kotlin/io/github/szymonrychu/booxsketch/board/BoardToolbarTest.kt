@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.board
 
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
@@ -106,11 +107,19 @@ class BoardToolbarTest {
     fun rectangle_and_arrow_tools_are_offered_and_selectable() {
         val vm = vm()
         compose.setContent { BoardToolbar(vm) }
-        compose.onNodeWithText(Tool.RECTANGLE.wire).performScrollTo().performClick()
+        compose.onNodeWithText(Tool.RECTANGLE.wire).performClick()
         assertThat(vm.tool.value).isEqualTo(Tool.RECTANGLE)
         compose.onNodeWithText(Tool.RECTANGLE.wire).assertIsSelected()
-        compose.onNodeWithText(Tool.ARROW.wire).performScrollTo().performClick()
+        compose.onNodeWithText(Tool.ARROW.wire).performClick()
         assertThat(vm.tool.value).isEqualTo(Tool.ARROW)
         compose.onNodeWithText(Tool.RECTANGLE.wire).assertIsNotSelected()
+    }
+
+    @Test
+    fun every_tool_chip_is_visible_without_scrolling_and_at_least_48dp_tall() {
+        compose.setContent { BoardToolbar(vm()) }
+        (Tool.entries.map { it.wire } + "Eraser").forEach {
+            compose.onNodeWithText(it).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        }
     }
 }
