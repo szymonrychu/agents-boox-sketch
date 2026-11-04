@@ -47,25 +47,7 @@ import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Tool
 
-internal const val TAG_SEND = "send"
-internal const val TAG_PAGE_LABEL = "page_label"
-internal const val SEND_ALL_LABEL = "Send all pages"
-private const val MIN_WIDTH = 1f
-private const val MAX_WIDTH = 24f
-private val SWATCH_TARGET = 48.dp
-private val SWATCH_DOT = 34.dp
-private val SWATCH_MARK = 12.dp
-private val SWATCH_FRAME = 3.dp
 private val CHIP_MIN_HEIGHT = 48.dp
-
-/** Test tag of the swatch for [color]. */
-internal fun colorTag(color: PenColor) = "color_${color.wire}"
-
-/** What differs on a document page: no page strip (pages are the document's) and its own Send label. */
-data class ToolbarOptions(
-    val pageControls: Boolean = true,
-    val sendLabel: String = "Send",
-)
 
 /**
  * Tools (pens, rectangle, arrow), colour swatches, width, eraser, undo, redo, clear, page strip, caption and Send. [onSend] gets
@@ -163,13 +145,6 @@ private fun ToolChip(
             ),
     )
 }
-
-/** Runs [block], then reports a settled UI change. */
-private fun UiRefresh.act(block: () -> Unit): () -> Unit =
-    {
-        block()
-        uiChanged()
-    }
 
 /**
  * One 48 dp swatch per palette colour. The selected one gets a black frame around the dot and a

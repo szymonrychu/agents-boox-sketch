@@ -35,6 +35,12 @@ class ToolboxState(
     /** Last pen type, so the pen button restores it after a shape or the eraser. */
     var lastPen: Tool by mutableStateOf(Tool.BALLPOINT)
 
+    /** The caption typed in the send popup; kept here so closing the popup does not lose it. */
+    var caption: String by mutableStateOf("")
+
+    /** Window y (px) of the button last tapped; the popup is placed next to it. Read when a popup opens. */
+    var anchorY: Float = 0f
+
     private fun set(target: ToolPopup?) {
         if (target != popup) gate(target) { popup = target }
     }
