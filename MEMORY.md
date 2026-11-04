@@ -37,6 +37,15 @@ Lessons that outlive a session. Newest first.
   all on the Note Air 6C (`SFTouchRender`). If it never arrives, the surface still syncs before
   every raw-off; add a 700 ms timer from `onEndRawDrawing` only then (one mechanism).
 
+## 2026-11-04 Pen limit spans the system bars on the full-screen board; relayout waits for overlay rects
+- The deleted test `board_bounds_passed_to_stroke_input_do_not_overlap_system_bar_insets` guarded the old
+  SplitLayout, which padded the board by the bar insets. The old code never excluded the bars explicitly; the
+  limit was just the board's own bounds. The board is now full screen by design (2026-11-03), so the Onyx limit
+  rect is the whole view and covers the bars. Bars are not excluded: the dock and panel keep clear of them via
+  insets (`board_ignores_system_bar_insets` covers that) and the OS owns bar touches itself. The test no longer applies.
+- The rotation relayout hold no longer settles after one fixed frame: it also waits for the dock (and the panel
+  when composed) to have reported non-empty rects for their current state, like `dockSettled`.
+
 ## 2026-11-04 Board wave A rebased onto the documents wave (#38), pairing code (#39) and flicker fix (#40)
 
 - Documents stays a panel tab (`PanelTabs`, `documents.DOCUMENTS_TAB_ORDER` = 20) inside the side panel that
