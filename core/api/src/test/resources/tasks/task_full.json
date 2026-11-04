@@ -1,0 +1,124 @@
+{
+  "key": "T-12",
+  "title": "Wire the tasks tab",
+  "body": "Register the tab and test it.",
+  "kind": "task",
+  "status": "in_progress",
+  "labels": ["boox", "ui"],
+  "assignee_session": "sess-a",
+  "version": 4,
+  "created_at": "2026-11-01T10:00:00Z",
+  "updated_at": "2026-11-02T10:00:00Z",
+  "blocked": true,
+  "open_decisions": 1,
+  "waiting_sessions": [{"session_id": "sess-a", "slug": "alpha-fox"}],
+  "todo": [
+    {"id": 7, "text": "Write client", "status": "done", "position": 0},
+    {"id": 8, "text": "Write screens", "status": "inprogress", "position": 1}
+  ],
+  "decisions": [
+    {
+      "id": 21,
+      "task_key": "T-12",
+      "asking_session": "sess-a",
+      "asking_slug": "alpha-fox",
+      "question": "Which paging style?",
+      "context": "E-ink friendly.",
+      "options": [
+        {"label": "Prev/Next", "description": "Buttons", "recommended": true},
+        {"label": "Infinite scroll", "description": null, "recommended": false}
+      ],
+      "status": "open",
+      "answer": null,
+      "note": null,
+      "created_at": "2026-11-01T11:00:00Z",
+      "answered_at": null,
+      "url": "https://web.example/tasks/T-12"
+    },
+    {
+      "id": 22,
+      "task_key": "T-12",
+      "asking_session": "sess-a",
+      "asking_slug": "alpha-fox",
+      "question": "Keep the badge?",
+      "context": "",
+      "options": [{"label": "Yes"}, {"label": "No"}],
+      "status": "answered",
+      "answer": {"choice": 1, "label": "No"},
+      "note": "No badge on e-ink",
+      "created_at": "2026-11-01T11:05:00Z",
+      "answered_at": "2026-11-01T12:00:00Z",
+      "url": "https://web.example/tasks/T-12"
+    },
+    {
+      "id": 23,
+      "task_key": "T-12",
+      "asking_session": "sess-b",
+      "asking_slug": null,
+      "question": "Own text?",
+      "context": "",
+      "options": [{"label": "A"}, {"label": "B"}],
+      "status": "answered",
+      "answer": {"text": "Something else"},
+      "note": null,
+      "created_at": "2026-11-01T11:06:00Z",
+      "answered_at": "2026-11-01T12:01:00Z",
+      "url": "https://web.example/tasks/T-12"
+    },
+    {
+      "id": 24,
+      "task_key": "T-12",
+      "asking_session": "sess-a",
+      "asking_slug": "alpha-fox",
+      "question": "Dropped question",
+      "context": "",
+      "options": [{"label": "A"}, {"label": "B"}],
+      "status": "withdrawn",
+      "answer": null,
+      "note": null,
+      "created_at": "2026-11-01T11:07:00Z",
+      "answered_at": null,
+      "url": "https://web.example/tasks/T-12"
+    }
+  ],
+  "comments": [
+    {
+      "id": 3,
+      "author_kind": "user",
+      "author_session": null,
+      "author_slug": null,
+      "body": "Looks good",
+      "created_at": "2026-11-02T09:00:00Z"
+    },
+    {
+      "id": 4,
+      "author_kind": "agent",
+      "author_session": "sess-a",
+      "author_slug": "alpha-fox",
+      "body": "Done",
+      "created_at": "2026-11-02T09:30:00Z"
+    }
+  ],
+  "events": [
+    {
+      "id": 31,
+      "actor_kind": "user",
+      "actor_session": null,
+      "actor_slug": null,
+      "kind": "created",
+      "detail": null,
+      "at": "2026-11-01T10:00:00Z"
+    },
+    {
+      "id": 32,
+      "actor_kind": "agent",
+      "actor_session": "sess-a",
+      "actor_slug": "alpha-fox",
+      "kind": "todo_updated",
+      "detail": {"item_id": 7, "fields": ["status"]},
+      "at": "2026-11-01T10:30:00Z"
+    }
+  ],
+  "url": "https://web.example/tasks/T-12",
+  "future_field": "ignored"
+}
