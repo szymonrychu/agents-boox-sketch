@@ -10,23 +10,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import io.github.szymonrychu.booxsketch.board.BoardScreen
 import io.github.szymonrychu.booxsketch.documents.DocumentHost
 import io.github.szymonrychu.booxsketch.ink.CountedPause
+import io.github.szymonrychu.booxsketch.onyx.Epd
 import io.github.szymonrychu.booxsketch.pairing.PairingScreen
 import io.github.szymonrychu.booxsketch.send.SendOutcomeDialog
+import io.github.szymonrychu.booxsketch.ui.AppShell
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
 import io.github.szymonrychu.booxsketch.ui.PanelShell
 import io.github.szymonrychu.booxsketch.ui.PauseInputWhile
-import io.github.szymonrychu.booxsketch.ui.SplitLayout
-import io.github.szymonrychu.booxsketch.ui.SplitState
-import kotlinx.coroutines.launch
+import io.github.szymonrychu.booxsketch.ui.ShellRefresh
+import io.github.szymonrychu.booxsketch.ui.rememberShellState
 
-/** Hosts the split layout: the board (with its input) beside the panel shell. */
+/**
+ * Hosts the tabbed app shell: the Drawing tab is the board (with its input) and the side panel over it.
+ * A document opened from the Documents panel tab replaces the shell full screen until it is closed.
+ */
 class MainActivity : ComponentActivity() {
     // A denial only loses the background "pair again" notification; uploads work either way.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -59,22 +60,20 @@ class MainActivity : ComponentActivity() {
                     )
                     return@EinkTheme
                 }
-                // Read off the main thread; the default shows until the saved split arrives.
-                val stored by container.splitStateStore.state.collectAsState(initial = SplitState())
-                var edited by remember { mutableStateOf<SplitState?>(null) }
-                val split = edited ?: stored
-                val scope = rememberCoroutineScope()
                 val input = remember { CountedPause(container.inputSelector.select()) }
                 val sendMessage by container.sendMessage.collectAsState()
                 PauseInputWhile(sendMessage != null, input)
                 sendMessage?.let { SendOutcomeDialog(it, container::dismissSendMessage) }
+                // Hoisted so the shell (panel shown, its tab, chrome) survives a document opened full screen and closed.
+                val shell = rememberShellState()
                 val openDoc by container.openDocument.collectAsState()
                 val doc = openDoc
                 if (doc != null) {
                     DocumentHost(container, doc, input)
                 } else {
-                    SplitLayout(
-                        board = {
+                    AppShell(
+                        tabs = container.tabs,
+                        board = { chrome ->
                             BoardScreen(
                                 vm = container.boardViewModel,
                                 input = input,
@@ -83,14 +82,12 @@ class MainActivity : ComponentActivity() {
                                     askNotificationPermission()
                                     container.onSend(all, caption)
                                 },
+                                chrome = chrome,
+                                panel = { PanelShell() },
                             )
                         },
-                        panel = { PanelShell() },
-                        state = split,
-                        onStateChange = {
-                            edited = it
-                            scope.launch { container.splitStateStore.save(it) }
-                        },
+                        state = shell,
+                        refresh = ShellRefresh { Epd.fullRefresh(it) },
                     )
                 }
             }

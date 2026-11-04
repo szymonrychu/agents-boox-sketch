@@ -56,6 +56,13 @@ Lessons that outlive a session. Newest first.
   from the `OnyxWithFallback` window callback mapped into view pixels.
 - The panel and the dock swallow every pointer event (`awaitEachGesture { awaitPointerEvent() }`),
   so a tap between their buttons never falls through to the board and dismisses them.
+- SplitLayout removed 2026-11-04 (T-36 Q3): the panel is an overlay hidden by default; the board
+  is never resized, so its limit rect only changes on rotation. `SplitState`, `SplitStateStore`
+  and `split.preferences_pb` are gone; the DataStore IO scope stays as `AppContainer.storeScope`
+  for the token store. `MainActivity` hosts `AppShell` with `container.tabs` (Drawing tab,
+  order 10; Tasks 20 and Documents 30 are reserved registration points).
+- `MainActivityEraserTest.activity_shows_board_and_conversations_panel` now opens the panel via
+  its indicator first: the test asserted the always-visible split panel, which no longer exists.
 
 ## 2026-11-04 Documents tab and handwritten notes (plan boox-sketch-app 3.6)
 

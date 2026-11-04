@@ -17,7 +17,7 @@ open class App : Application() {
         }
         container = newContainer()
         // Decrypt the token off the main thread; the UI shows nothing until it is known.
-        container.splitStoreScope.launch { container.tokenStore.load() }
+        container.storeScope.launch { container.tokenStore.load() }
     }
 
     /** Test hook: Robolectric tests swap the Keystore-backed key provider through a subclass. */
