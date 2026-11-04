@@ -55,7 +55,7 @@ internal fun dockExcludeRects(
     indicator: Rect?,
 ): List<Rect> = listOfNotNull(if (visible) dock else indicator)
 
-private fun LayoutCoordinates.windowRect(): Rect {
+internal fun LayoutCoordinates.windowRect(): Rect {
     val b = boundsInWindow()
     return Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt())
 }

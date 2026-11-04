@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +72,7 @@ class BoardChromeWiringTest {
         withChrome: Boolean = true,
         insets: WindowInsets = WindowInsets(0, 0, 0, 0),
         dock: DockContent? = null,
+        panel: (@Composable () -> Unit)? = null,
     ) {
         val registry = TabRegistry()
         registry.register(TabSpec(BOARD_TAB_ID, "Drawings", 10) { })
@@ -81,7 +84,11 @@ class BoardChromeWiringTest {
                 tabs = registry,
                 board = { chrome ->
                     val c = if (withChrome) chrome else null
-                    if (dock == null) BoardScreen(vm, input, chrome = c) else BoardScreenWith(vm, input, chrome = c, dock = dock)
+                    if (dock == null) {
+                        BoardScreen(vm, input, chrome = c, panel = panel)
+                    } else {
+                        BoardScreenWith(vm, input, chrome = c, dock = dock, panel = panel)
+                    }
                 },
                 state = state,
                 insets = insets,
@@ -470,5 +477,90 @@ class BoardChromeWiringTest {
         compose.waitForIdle()
         compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
         compose.onNodeWithTag(TAG_INDICATOR).assertDoesNotExist()
+    }
+
+    private val testPanel: @Composable () -> Unit = { Text("panel") }
+
+    private fun commitStroke() {
+        strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
+    }
+
+    private fun lastStartWith(rect: Rect): Int = input.log.indexOfLast { it.startsWith("start:") && it.contains(rect.toString()) }
+
+    @Test
+    fun panel_show_holds_raw_drawing_until_panel_rect_is_in_excludes() {
+        show(panel = testPanel)
+        createSurface()
+        input.log.clear()
+
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        val panel = rectOf(TAG_PANEL_HOST)
+
+        assertThat(state.panelVisible).isTrue()
+        assertThat(input.log.first()).isEqualTo("hold")
+        val started = lastStartWith(panel)
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun panel_hide_via_auto_hide_releases_hold_once() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        commitStroke()
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
+        val indicator = rectOf(TAG_PANEL_INDICATOR)
+        assertThat(state.panelVisible).isFalse()
+        assertThat(input.log.first()).isEqualTo("hold")
+        // Dock and panel hide in one burst: the start that carries both indicators comes before raw drawing is back on.
+        val dockIndicator = rectOf(TAG_INDICATOR).toString()
+        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(indicator.toString()) && it.contains(dockIndicator) }
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun auto_hide_refused_during_stroke_keeps_panel_until_quiet() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        commitStroke()
+        compose.mainClock.advanceTimeBy(100)
+        input.strokeInProgress = true
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS * 3)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+
+        assertThat(state.panelVisible).isTrue()
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertIsDisplayed()
+        assertThat(input.log).isEmpty()
+
+        input.strokeInProgress = false
+        compose.mainClock.autoAdvance = false
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertThat(state.panelVisible).isFalse()
+        assertThat(input.log.first()).isEqualTo("hold")
+        assertThat(releases()).isEqualTo(holds())
     }
 }
