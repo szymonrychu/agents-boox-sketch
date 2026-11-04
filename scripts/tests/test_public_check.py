@@ -129,6 +129,14 @@ class PublicCheckTest(unittest.TestCase):
         result = self.run_check()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_public_check_skips_only_the_vendored_mermaid_bundle(self):
+        commit(self.repo, "app/src/main/assets/mermaid/mermaid.min.js", "host.local\n")
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        commit(self.repo, "app/src/main/assets/mermaid/other.js", "host.local\n")
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_public_check_denylist_reports_index_only(self):
         commit(self.repo, "a.txt", "internal-thing-xyz\n")
         result = self.run_check(denylist="internal-thing-xyz\n")

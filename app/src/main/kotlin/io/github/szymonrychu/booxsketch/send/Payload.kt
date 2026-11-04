@@ -1,5 +1,6 @@
 package io.github.szymonrychu.booxsketch.send
 
+import io.github.szymonrychu.booxsketch.api.AnnotatesDto
 import io.github.szymonrychu.booxsketch.api.HandoffDto
 import io.github.szymonrychu.booxsketch.api.MessageIn
 import io.github.szymonrychu.booxsketch.api.PageMetaDto
@@ -23,6 +24,7 @@ data class PagesFile(
     val clientId: String,
     val caption: String?,
     val pages: List<PageMetaDto>,
+    val annotates: AnnotatesDto? = null,
 )
 
 /** A hand-off payload (`handoff.json`): the request plus the spec version seen when it was queued. */
@@ -65,12 +67,14 @@ object Payload {
         caption: String?,
         indices: List<Int>,
         canvas: Canvas,
+        annotates: AnnotatesDto? = null,
     ) {
         val obj =
             buildJsonObject {
                 put("client_id", clientId)
                 put("caption", caption?.let(::JsonPrimitive) ?: JsonNull)
                 put("pages", json.encodeToJsonElement(pageList, indices.map { PageMetaDto(it, canvas) }))
+                annotates?.let { put("annotates", json.encodeToJsonElement(AnnotatesDto.serializer(), it)) }
             }
         File(dir, PAGES).writeText(obj.toString())
     }
@@ -81,6 +85,7 @@ object Payload {
             clientId = obj.getValue("client_id").jsonPrimitive.content,
             caption = obj["caption"]?.jsonPrimitive?.contentOrNull,
             pages = json.decodeFromJsonElement(pageList, obj.getValue("pages")),
+            annotates = obj["annotates"]?.let { json.decodeFromJsonElement(AnnotatesDto.serializer(), it) },
         )
     }
 

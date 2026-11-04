@@ -10,6 +10,7 @@ import io.github.szymonrychu.booxsketch.api.OutboxRunnerCore
 import io.github.szymonrychu.booxsketch.api.SketchMetaDto
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.RoomOutboxStorage
+import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,6 +37,8 @@ class OutboxRunner(
     private val onNeedsPairing: suspend () -> Unit,
     private val schedule: (delayMs: Long) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** A permanently failed notes upload returns its document draft to editable (see [releaseDraft]). */
+    private val annotations: AnnotationStore? = null,
 ) {
     private val mutex = Mutex()
     private val core =
@@ -65,6 +68,7 @@ class OutboxRunner(
                     is DrainResult.Failed -> {
                         failed++
                         db.threadDao().setStatus(r.item.clientId, ThreadStatus.failed(r.item.lastError))
+                        releaseDraft(r.item)
                     }
 
                     is DrainResult.WillRetry -> {
@@ -81,6 +85,18 @@ class OutboxRunner(
             db.outboxDao().earliestDueMs()?.let { withContext(Dispatchers.IO) { schedule((it - clock()).coerceAtLeast(0)) } }
             DrainSummary(accepted, failed, needsPairing = false)
         }
+
+    /**
+     * The draft was marked sent when its uploads were queued; once one fails for good it must be editable again.
+     * An unreadable payload cannot name its version, so the draft then stays as it is.
+     */
+    private suspend fun releaseDraft(item: OutboxItem) {
+        val store = annotations ?: return
+        if (item.kind != OutboxKind.SKETCH) return
+        val version =
+            withContext(Dispatchers.IO) { runCatching { Payload.readPages(File(item.payloadDir)).annotates?.specVersion }.getOrNull() }
+        if (version != null) store.unmarkSent(item.conversationLocalId, version)
+    }
 
     /** After re-pairing: paused items become pending again; the caller then kicks a drain. */
     suspend fun resumeAfterPairing() {
@@ -111,6 +127,7 @@ class OutboxRunner(
                             conversationId = serverId,
                             caption = pages.caption,
                             pages = pages.pages,
+                            annotates = pages.annotates,
                         )
                     withContext(Dispatchers.IO) { Payload.writeMeta(dir, meta) }
                     item.copy(conversationServerId = serverId, conversationMode = meta.conversation)
@@ -147,6 +164,7 @@ class OutboxRunner(
                     // Stored before the next item is resolved, so a later send in this new conversation reuses it.
                     // One transaction: a refresh that saw the new server conversation first left a twin row, drop it.
                     db.withTransaction {
+                        db.threadDao().setServerId(item.clientId, result.sketchId)
                         val row = db.conversationDao().get(item.conversationLocalId)
                         if (row != null && row.serverId == null) {
                             db.conversationDao().deleteOthersWithServerId(result.conversationId, row.localId)

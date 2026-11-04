@@ -1,5 +1,6 @@
 package io.github.szymonrychu.booxsketch.board
 
+import android.graphics.Bitmap
 import android.graphics.Rect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
  * are excluded from raw pen input. For inputs that freeze the e-ink panel, raw drawing starts only
  * after the first frame and toolbar changes are refreshed through a [UiRefresher].
  */
+@Suppress("LongParameterList")
 @Composable
 fun BoardScreen(
     vm: BoardViewModel,
@@ -45,7 +47,9 @@ fun BoardScreen(
     onSend: (all: Boolean, caption: String?) -> Unit = { _, _ -> },
     overlays: List<Rect> = emptyList(),
     chrome: BoardChrome? = null,
-) = BoardScreenWith(vm, input, modifier, setEraser, onSend, overlays, chrome)
+    background: Bitmap? = null,
+    toolbar: ToolbarOptions = ToolbarOptions(),
+) = BoardScreenWith(vm, input, modifier, setEraser, onSend, overlays, chrome, background = background, toolbarOptions = toolbar)
 
 /** Arguments of the dock slot of [BoardScreenWith]; the default slot is [ToolbarDock]. */
 internal class DockParams(
@@ -77,6 +81,8 @@ internal fun BoardScreenWith(
     overlays: List<Rect> = emptyList(),
     chrome: BoardChrome? = null,
     dock: DockContent = DefaultDock,
+    background: Bitmap? = null,
+    toolbarOptions: ToolbarOptions = ToolbarOptions(),
 ) {
     val notebook by vm.notebook.collectAsState()
     val tool by vm.tool.collectAsState()
@@ -146,6 +152,7 @@ internal fun BoardScreenWith(
             preview = preview,
             onShapeDrag = vm::onShapeDrag,
             onShapeCancel = vm::onShapeCancel,
+            background = background,
         )
         // The board ignores system bars; the dock keeps clear of them.
         val dockArea = Modifier.fillMaxSize()
@@ -159,7 +166,7 @@ internal fun BoardScreenWith(
                     onExcludeChange = { dockReport = DockReport(dockVisible, it) },
                     rememberedDockSize = chrome?.dockSize,
                     onDockSize = { chrome?.dockSize = it },
-                    toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui) },
+                    toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui, options = toolbarOptions) },
                 ),
             )
         }

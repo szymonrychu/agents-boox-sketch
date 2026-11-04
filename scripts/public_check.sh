@@ -21,7 +21,8 @@ git log --all -p --format='@@commit %H' -- . \
   ':(exclude)scripts/public_check.sh' \
   ':(exclude).gitleaks.toml' \
   ':(exclude)scripts/tests/test_public_check.py' \
-  ':(exclude)core/api/src/test' |
+  ':(exclude)core/api/src/test' \
+  ':(exclude)app/src/main/assets/mermaid/mermaid.min.js' |
   awk -v meta="$tmp/meta.tsv" -v body="$tmp/body.txt" '
     /^@@commit / { commit = substr($0, 10); file = "(message)"; next }
     /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); file = f; next }

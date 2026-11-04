@@ -2,6 +2,45 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Documents tab and handwritten notes (plan boox-sketch-app 3.6)
+
+- Frozen pages: a document version is paginated once into page PNGs (`AnnotationStore`, `layout.json` written last as the
+  completeness marker) and the bitmap the user inks on is the bitmap exported; a freeze is never overwritten, so ink
+  cannot move when the renderer changes. Ink is stored in those page coordinates, one notebook per (conversation,
+  version); delete and unpair remove the annotation dir.
+- Markdown is drawn with the JetBrains parser (`org.jetbrains:markdown` 0.7.17, the one `multiplatform-markdown-renderer`
+  0.46.0 resolves to) plus `StaticLayout` onto a `Bitmap`, not with the Compose renderer: a Compose tree cannot be exported
+  as the frozen bitmap without an offscreen capture. The renderer dependency stays unused. The app module now applies the
+  kotlinx serialization plugin (layout.json).
+- Q13 = A: only the latest version is annotatable, so `thread_items.annotatesVersion` and the "based on vN" marker do not
+  exist; Room v2 adds only `specs.sketchIds` and `thread_items.serverId` (real `Migration(1, 2)`, no destructive
+  fallback, `2.json` committed). `serverId` is set at the upload ack, in the transaction that stores the conversation id.
+- Q12 = B: no Annotate mode. A finger swipe is read from the window callback of the Onyx wrapper (`FingerSwipeTracker`),
+  because that callback also sees events while raw drawing owns the pen; pen events never count. On the plain touch
+  fallback there is no swipe routing: finger drawing is switched off on a document page and Prev/Next page. Not confirmed
+  on the device (checklist, Documents).
+- Q11 = B: each inked page goes up as a full-page RGB PNG (frozen page plus ink, `PageRasterExporter`, no crop) with
+  `meta.annotates`; `annotates.pages[].page` is the page number also used in `meta.pages` (the connector requires it to be
+  one of them). More inked pages than `max_pages` become several uploads in page order, each with its own client id. The
+  draft is marked sent after every upload is queued; a repeated tap returns `AlreadySent`.
+- Spec sync triggers: after every `ConversationRepository.refresh()` success (`afterRefresh`), and the Documents tab
+  refreshes on open and every 20 s while shown. No event stream consumer exists in the app, so no `spec` event trigger.
+- The board wave (AppShell in MainActivity, tool strip) is not on main, so Documents is a panel tab (`PanelTabs`, order 20)
+  and an opened document replaces the split layout full screen (`AppContainer.openDocument`), reusing `BoardScreen` with a
+  background bitmap and `ToolbarOptions` (no page strip, "Send notes"). When the board wave lands this moves into its tab
+  registry and strip in one place (`DocumentHost`).
+- Sources: the connector's `GET /attachments/{id}` takes an attachment id, but a spec lists sketch (inbound) ids and the
+  app has no call that maps one to the other. The remote fallback therefore asks for the sketch id and, until the
+  connector offers a mapping, answers "no longer stored" for a sketch whose local thumbnails are gone. Local pages work.
+- Mermaid: `mermaid.min.js` 11.4.1 (MIT) is bundled under `app/src/main/assets/mermaid`, sha256
+  `a43bc1afd446f9c4cc66ac5dd45d02e8d65e26fc5344ec0ef787f88d6ddb6f9e` (the same constant is asserted by
+  `MermaidRendererTest`). The renderer takes an async capture host, so the 5 s timeout lives in `MermaidRenderer` and tests
+  never need a WebView; the real `WebViewCapture` is device-verified only.
+- Robolectric in this sandbox: the `android-all-instrumented` jar is not cached and Maven Central answers 429 after a few
+  downloads; tests were run with `JAVA_TOOL_OPTIONS=-Drobolectric.dependency.dir=<dir>` and the jar from the Google Maven
+  Central mirror. Document, paginator and exporter tests need `GraphicsMode.NATIVE` (legacy mode has no real bitmaps or
+  text measuring).
+
 ## 2026-11-04 PR 36 review: window-fed shape drags, ordered cancel, wrapping tool row
 
 - Shape drags are also fed from the `OnyxWithFallback` window-callback wrapper (mapped into view
@@ -374,3 +413,7 @@ Lessons that outlive a session. Newest first.
   returns before any write). Only rows whose serverId was known before the request started, and
   never rows with queued outbox items: a conversation acked while the request was in flight may
   be missing from the answer.
+
+- 2026-11-04: remote Sources fetch `/attachments/{sketchId}` for page 0. Verified on connector main
+  (plugins/sketch/router.py): the page 0 png attachment is inserted with id = the inbound sketch id,
+  so no extra route is needed. Other pages of a purged local sketch are not reachable by sketch id.

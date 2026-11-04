@@ -23,6 +23,16 @@ Language: Kotlin. Modules: `:core:model`, `:core:api`, `:ink:onyx`, `:app`.
   tool is selected the Onyx raw ink is off, so no freehand line is drawn along the drag.
 - The toolbar dock hides itself shortly after a stroke; tap the indicator to bring it back.
 
+## Documents
+
+The Documents tab lists the conversations that have a converted spec. Opening one shows the
+latest spec version as fixed-width pages (the notebook canvas width in both orientations, no
+scrolling): a finger swipe or Prev and Next turn pages, the pen always inks over the page, and
+"Send notes" uploads the inked pages (page picture plus ink) with the spec version they were
+written over, so the agent returns the next version. Older versions (the "v3" picker) are
+read-only, Share .md sends the markdown, Sources shows the sketches a version was made from.
+Mermaid blocks are drawn offline by a bundled renderer and fall back to code text.
+
 Test on the device with `docs/device-checklist.md`.
 
 ## Build

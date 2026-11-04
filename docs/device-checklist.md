@@ -66,6 +66,35 @@ Then:
       both shapes, then check the received PNG keeps the colours and the arrow heads and box
       corners are not cut off at the edges. Until then the export is covered by `PngExporterTest`.
 
+## Documents
+
+Open the Documents tab (side panel), pick a document with at least one spec version.
+
+- [ ] The list shows each document with its latest version and date, "Translating" while a
+      sketch is on its way and "Failed" after a failed one; Prev and Next page by ten.
+- [ ] The document opens as one fixed-width page with the counter "2/7" and no scrolling. Prev
+      and Next turn pages.
+- [ ] Finger swipe turns the page while the pen is down-capable under raw drawing (Q12 device
+      check): right to left is next, left to right previous. If finger events never reach the
+      app, record it here and keep Prev and Next as the only paging; do not add a mode.
+- [ ] The pen always inks on the latest version; a finger never leaves ink.
+- [ ] Ghosting on a page turn: after the turn the old page is gone within a moment and the pen
+      draws on the new page at once (no dead pen, no ink on the old page).
+- [ ] Legibility of the uploaded raster at 1568 px: Send notes, open the received PNG on the
+      server side, the printed text and the handwriting are both readable.
+- [ ] Kaleido ink colours over printed text: red, blue, green strokes over text look right in
+      the live ink and after lifting.
+- [ ] A mermaid block shows as a diagram (captured by the offline renderer); with the web view
+      failing or after 5 s it shows the diagram source as code text instead. Note which.
+- [ ] Rotate the tablet: the page is scaled to fit and centred and the ink stays aligned with
+      the text it was written over.
+- [ ] Open an older version from the "v3" picker: it is read-only ("Read only"), saved ink of
+      that version shows, the pen draws nothing. Share .md opens the system share sheet.
+- [ ] Sources lists the drawings and notes the version was made from; a purged one reads "no
+      longer stored" (the connector answers 410 for a purged file).
+- [ ] Send notes, then wait for the next spec version: the old draft turns read-only, the new
+      latest version opens clean.
+
 ## Diagnostics tab
 
 - [ ] After the whole run, Diagnostics still says "Input path: Onyx raw" and "Fallback reason:

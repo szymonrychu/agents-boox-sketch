@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html, body { margin: 0; background: #fff; } #out { padding: 8px; }</style>
+<script src="mermaid.min.js"></script>
+</head>
+<body>
+<div id="out"></div>
+<script>
+mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral", flowchart: { htmlLabels: false } });
+async function renderDiagram(source) {
+  try {
+    const result = await mermaid.render("diagram", source);
+    document.getElementById("out").innerHTML = result.svg;
+    Android.done(Math.ceil(document.body.getBoundingClientRect().height));
+  } catch (e) {
+    Android.fail(String(e));
+  }
+}
+</script>
+</body>
+</html>

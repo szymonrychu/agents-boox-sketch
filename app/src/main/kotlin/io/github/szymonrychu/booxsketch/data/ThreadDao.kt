@@ -32,4 +32,13 @@ interface ThreadDao {
         clientId: String,
         status: String,
     )
+
+    @Query("UPDATE thread_items SET serverId = :serverId WHERE clientId = :clientId")
+    suspend fun setServerId(
+        clientId: String,
+        serverId: String,
+    )
+
+    @Query("SELECT * FROM thread_items WHERE serverId = :serverId LIMIT 1")
+    suspend fun byServerId(serverId: String): ThreadItemEntity?
 }

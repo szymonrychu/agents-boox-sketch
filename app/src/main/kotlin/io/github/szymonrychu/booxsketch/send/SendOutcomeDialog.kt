@@ -30,6 +30,14 @@ fun sendOutcomeText(outcome: SendOutcome): String? =
             "Not sent: ${outcome.bytes / KIB} KiB is over the ${outcome.max / KIB} KiB limit per send. Send fewer pages."
         }
 
+        is SendOutcome.StaleVersion -> {
+            "A newer version exists; your notes stay with v${outcome.version}."
+        }
+
+        SendOutcome.AlreadySent -> {
+            "These notes were already sent."
+        }
+
         is SendOutcome.ExportFailed -> {
             "Not sent: page ${outcome.page + 1} cannot be exported (${outcome.reason})."
         }

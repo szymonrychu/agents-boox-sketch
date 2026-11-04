@@ -13,11 +13,26 @@ import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.documents.AnnotatedInput
+import io.github.szymonrychu.booxsketch.documents.AnnotationStore
+import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ID
+import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ORDER
+import io.github.szymonrychu.booxsketch.documents.DocumentInk
+import io.github.szymonrychu.booxsketch.documents.DocumentLayout
+import io.github.szymonrychu.booxsketch.documents.DocumentRow
+import io.github.szymonrychu.booxsketch.documents.DocumentViewModel
+import io.github.szymonrychu.booxsketch.documents.DocumentsTab
+import io.github.szymonrychu.booxsketch.documents.DocumentsViewModel
+import io.github.szymonrychu.booxsketch.documents.MarkdownPaginator
+import io.github.szymonrychu.booxsketch.documents.MermaidRenderer
+import io.github.szymonrychu.booxsketch.documents.SourcesViewModel
+import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
 import io.github.szymonrychu.booxsketch.ink.OnyxDiagnostics
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
+import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
@@ -100,11 +115,14 @@ class AppContainer(
         withContext(Dispatchers.IO) {
             database.clearAllTables()
             outboxRoot.deleteRecursively()
+            annotationStore.deleteAll()
             notebookStore.delete()
             tokenStore.clear()
         }
         outboxScheduler.cancelAll()
         conversations.select(null)
+        openDocument.value = null
+        documentInk.forget()
         boardViewModel.reset()
     }
 
@@ -117,7 +135,7 @@ class AppContainer(
     private var onyxProbed = false
 
     /** Finger drawing is on exactly when the Onyx pen path is not active, where palms would draw. */
-    internal fun fingerEnabled(): Boolean = !(onyxProbed && _onyxFailure.value == null)
+    internal fun fingerEnabled(): Boolean = openDocument.value == null && !(onyxProbed && _onyxFailure.value == null)
 
     private val _onyxFailure = MutableStateFlow<String?>(null)
 
@@ -171,6 +189,9 @@ class AppContainer(
         return ConnectorClient(origin, tokenStore::token, okHttpClient)
     }
 
+    /** Frozen document pages and ink, per conversation and spec version. */
+    val annotationStore: AnnotationStore by lazy { AnnotationStore(dir) }
+
     val conversations: ConversationRepository by lazy {
         ConversationRepository(
             database,
@@ -178,12 +199,54 @@ class AppContainer(
             app.getSharedPreferences("conversations", Context.MODE_PRIVATE),
             outboxRoot,
             onUnauthorized = pairingRepository::rejectToken,
+            afterRefresh = { specSync.sync() },
+            annotations = annotationStore,
         )
     }
 
+    /** The document the user opened from the Documents tab; null shows the board and panel. */
+    val openDocument = MutableStateFlow<DocumentRow?>(null)
+
+    val documentsViewModel: DocumentsViewModel by lazy { DocumentsViewModel(database, appScope) { openDocument.value = it } }
+
+    /** Every document page is laid out at the notebook canvas size, in both orientations. */
+    val documentLayout = DocumentLayout(BoardViewModel.DEFAULT_CANVAS.w, BoardViewModel.DEFAULT_CANVAS.h)
+
+    private val mermaid: MermaidRenderer by lazy { MermaidRenderer(app) }
+
+    /** A view model for one document; pages come from the markdown paginator on a background thread. */
+    fun documentViewModel(row: DocumentRow): DocumentViewModel =
+        DocumentViewModel(
+            conversationLocalId = row.conversationLocalId,
+            serverId = row.serverId,
+            db = database,
+            paginate = { markdown -> withContext(Dispatchers.Default) { MarkdownPaginator(documentLayout, mermaid).paginate(markdown) } },
+            store = annotationStore,
+            layout = documentLayout,
+            scope = appScope,
+        )
+
+    /** The ink of documents, one notebook per conversation and version. */
+    val documentInk: DocumentInk by lazy { DocumentInk(annotationStore, appScope) }
+
+    /** The sketches spec [version] of [serverId] was made from. */
+    fun sourcesViewModel(
+        serverId: String,
+        version: Int,
+    ): SourcesViewModel = SourcesViewModel(serverId, version, database, ::connector, File(app.cacheDir, "sources"), appScope)
+
+    /** Copies spec versions into Room: after a conversations refresh and while the Documents tab is shown. */
+    val specSync: SpecSync by lazy { SpecSync(database, ::connector, { conversations.latestSpecVersions }) }
+
     /** A 401 pauses the queue (never fails items) and drops the token, so the gate shows Pairing. */
     val outboxRunner: OutboxRunner by lazy {
-        OutboxRunner(database, ::connector, onNeedsPairing = pairingRepository::rejectToken, schedule = outboxScheduler::later)
+        OutboxRunner(
+            database,
+            ::connector,
+            onNeedsPairing = pairingRepository::rejectToken,
+            schedule = outboxScheduler::later,
+            annotations = annotationStore,
+        )
     }
 
     val sendUseCase: SendUseCase by lazy {
@@ -201,6 +264,7 @@ class AppContainer(
             limits = configCache::current,
             outboxRoot = outboxRoot,
             kick = ::kickOutbox,
+            annotations = annotationStore,
         )
     }
 
@@ -236,6 +300,33 @@ class AppContainer(
             "Not sent: the sketch could not be saved (${e.message ?: e.javaClass.simpleName})."
         }
 
+    /** Sends the ink of the open document draft; a refusal or failure shows in the send dialog, the draft then turns read-only. */
+    @Suppress("TooGenericExceptionCaught")
+    fun onSendNotes(
+        vm: DocumentViewModel,
+        caption: String?,
+    ) {
+        appScope.launch {
+            val state = vm.state.value
+            val canvas = Canvas(documentLayout.widthPx, documentLayout.pageHeightPx, DOCUMENT_DPI)
+            val notebook = documentInk.board(vm.conversationLocalId, state.version, state.pages.size, canvas).notebook.value
+            val inputs =
+                state.pages.mapIndexed { i, p ->
+                    AnnotatedInput(i, p.file, notebook.pages.getOrNull(i) ?: Page(emptyList(), false), docPage = i, lines = p.sourceLines)
+                }
+            _sendMessage.value =
+                try {
+                    sendOutcomeText(sendUseCase.sendAnnotation(vm.conversationLocalId, state.version, state.latestVersion, inputs, caption))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "send notes failed: $e")
+                    "Not sent: the notes could not be saved (${e.message ?: e.javaClass.simpleName})."
+                }
+            vm.refreshReadOnly()
+        }
+    }
+
     fun dismissSendMessage() {
         _sendMessage.value = null
     }
@@ -269,11 +360,13 @@ class AppContainer(
         // One line per feature, added by its task.
         PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
         PanelTabs.register(PanelTab(CONVERSATIONS_TAB_ID, "Conversations", order = 0) { ConversationsTab() })
+        PanelTabs.register(PanelTab(DOCUMENTS_TAB_ID, "Documents", DOCUMENTS_TAB_ORDER) { DocumentsTab() })
         PanelTabs.onOpenConversations = { PanelTabs.select(CONVERSATIONS_TAB_ID) }
     }
 
     private companion object {
         const val TAG = "BooxSketch"
+        const val DOCUMENT_DPI = 300f
         const val DIAGNOSTICS_ORDER = 900
     }
 }

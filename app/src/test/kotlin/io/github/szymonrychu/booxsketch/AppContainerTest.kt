@@ -147,4 +147,13 @@ class AppContainerTest {
         assertThat(PanelTabs.selectedId).isEqualTo("conversations")
         PanelTabs.clearForTest()
     }
+
+    @Test
+    fun documents_tab_is_registered_after_conversations_and_before_diagnostics() {
+        PanelTabs.clearForTest()
+        container(available = false)
+        val ids = PanelTabs.tabs.map { it.id }
+        assertThat(ids).containsAtLeast("conversations", "documents", "diagnostics").inOrder()
+        PanelTabs.clearForTest()
+    }
 }

@@ -53,6 +53,7 @@ class ErrorMappingTest {
                 listOf(
                     failure(401, "unauthorized") to ApiError.Unauthorized,
                     failure(404, "not_found") to ApiError.NotFound("not_found"),
+                    failure(410, "purged") to ApiError.Purged,
                     failure(409, "in_progress") to ApiError.InProgress,
                     failure(409, "no_spec") to ApiError.Conflict("no_spec"),
                     failure(413, "too_large") to ApiError.TooLarge("too_large"),

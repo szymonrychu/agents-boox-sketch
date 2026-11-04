@@ -14,6 +14,7 @@ lifecycle = "2.11.0"
 datastore = "1.3.0"
 core-ktx = "1.18.0"
 markdown-renderer = "0.46.0"
+jetbrains-markdown = "0.7.17"
 robolectric = "4.17"
 roborazzi = "1.77.0"
 ktlint-gradle = "14.2.0"
@@ -56,6 +57,7 @@ androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer" }
+jetbrains-markdown = { module = "org.jetbrains:markdown", version.ref = "jetbrains-markdown" }
 onyx-pen = { module = "com.onyx.android.sdk:onyxsdk-pen", version.ref = "onyx-pen" }
 onyx-device = { module = "com.onyx.android.sdk:onyxsdk-device", version.ref = "onyx-device" }
 onyx-base = { module = "com.onyx.android.sdk:onyxsdk-base", version.ref = "onyx-base" }

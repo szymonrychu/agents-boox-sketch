@@ -1,5 +1,6 @@
 package io.github.szymonrychu.booxsketch.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -57,6 +58,8 @@ data class ThreadItemEntity(
     val thumbDir: String?,
     val status: String,
     val createdAtMs: Long,
+    /** The connector's sketch id once the upload was acknowledged. */
+    val serverId: String? = null,
 )
 
 @Entity(tableName = "specs", primaryKeys = ["conversationServerId", "version"])
@@ -65,6 +68,8 @@ data class SpecEntity(
     val version: Int,
     val markdown: String,
     val createdAt: String,
+    /** JSON list of the sketch ids this version was made from. */
+    @ColumnInfo(defaultValue = "[]") val sketchIds: String = "[]",
 )
 
 @Entity(tableName = "cursors")

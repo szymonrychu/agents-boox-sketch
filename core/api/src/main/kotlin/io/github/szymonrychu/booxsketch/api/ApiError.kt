@@ -44,6 +44,9 @@ sealed class ApiError(
         val code: String,
     ) : ApiError("not found: $code")
 
+    /** 410: the stored file was purged after retention. */
+    data object Purged : ApiError("purged")
+
     /** 429, with the `Retry-After` seconds when the server sent them. */
     data class RateLimited(
         val retryAfterS: Long?,
@@ -73,6 +76,7 @@ internal fun mapError(
         404 -> ApiError.NotFound(code)
         409 -> if (code == "in_progress") ApiError.InProgress else ApiError.Conflict(code)
         413 -> ApiError.TooLarge(code)
+        410 -> ApiError.Purged
         415 -> ApiError.Unsupported
         422 -> ApiError.Invalid(code, detail)
         429 -> ApiError.RateLimited(retryAfter?.trim()?.toLongOrNull())
