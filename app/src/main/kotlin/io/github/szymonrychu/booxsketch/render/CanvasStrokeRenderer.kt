@@ -6,6 +6,9 @@ import android.graphics.Paint
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.Vec
+import io.github.szymonrychu.booxsketch.model.arrowHead
+import io.github.szymonrychu.booxsketch.model.rectOf
 
 /** Draws strokes onto an Android canvas: canvas px * [scale] + ([dx], [dy]). */
 interface StrokeRenderer {
@@ -45,6 +48,10 @@ class CanvasStrokeRenderer : StrokeRenderer {
         dy: Float,
     ) {
         if (s.points.isEmpty()) return
+        if (s.tool.isShape) {
+            if (s.points.size >= 2) drawShape(canvas, s, scale, dx, dy)
+            return
+        }
         val pts = s.points
         if (pts.size == 1) {
             val p = pts[0]
@@ -58,6 +65,27 @@ class CanvasStrokeRenderer : StrokeRenderer {
             val a = pts[i - 1]
             val b = pts[i]
             style(s, b, scale, avg = a)
+            canvas.drawLine(a.x * scale + dx, a.y * scale + dy, b.x * scale + dx, b.y * scale + dy, paint)
+        }
+    }
+
+    private fun drawShape(
+        canvas: Canvas,
+        s: Stroke,
+        scale: Float,
+        dx: Float,
+        dy: Float,
+    ) {
+        style(s, s.points.first())
+        if (s.tool == Tool.RECTANGLE) {
+            val r = rectOf(s)
+            canvas.drawRect(r.l * scale + dx, r.t * scale + dy, r.r * scale + dx, r.b * scale + dy, paint)
+            return
+        }
+        val tail = Vec(s.points.first().x, s.points.first().y)
+        val tip = Vec(s.points.last().x, s.points.last().y)
+        val (w1, w2) = arrowHead(tail, tip, s.width)
+        for ((a, b) in listOf(tail to tip, tip to w1, tip to w2)) {
             canvas.drawLine(a.x * scale + dx, a.y * scale + dy, b.x * scale + dx, b.y * scale + dy, paint)
         }
     }
@@ -79,6 +107,7 @@ class CanvasStrokeRenderer : StrokeRenderer {
                 Tool.MARKER -> s.width * 3f to 90
             }
         paint.strokeWidth = (w * scale).coerceAtLeast(1f)
+        paint.color = s.color.argb
         paint.alpha = alpha
     }
 }
