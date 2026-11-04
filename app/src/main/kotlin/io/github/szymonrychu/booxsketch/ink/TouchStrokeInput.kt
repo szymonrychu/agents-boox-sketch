@@ -40,6 +40,11 @@ class TouchStrokeInput(
     private var current: MutableList<Point>? = null
     private var erasing = false
 
+    @Volatile
+    private var penDown = false
+
+    override val strokeInProgress: Boolean get() = penDown
+
     /** When true the pen erases instead of drawing (the stylus eraser end always erases). */
     @Volatile
     var eraserMode = false
@@ -81,6 +86,7 @@ class TouchStrokeInput(
     }
 
     private fun drop() {
+        penDown = false
         current = null
         live.value = null
     }
@@ -102,6 +108,7 @@ class TouchStrokeInput(
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (!allowed(ev.x, ev.y)) return false
+                penDown = true
                 erasing = eraserMode || ev.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
                 current = if (erasing) null else mutableListOf()
                 collect(ev, includeHistory = false)
@@ -114,6 +121,7 @@ class TouchStrokeInput(
             }
 
             MotionEvent.ACTION_UP -> {
+                penDown = false
                 collect(ev, includeHistory = true)
                 commit()
             }

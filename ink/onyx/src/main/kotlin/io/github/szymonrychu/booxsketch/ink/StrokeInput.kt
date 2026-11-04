@@ -60,6 +60,9 @@ interface StrokeInput {
 
     fun releaseUi() = Unit
 
+    /** True from pen-down to pen-up of a stroke or erase. Restarting the input while true would drop that stroke. */
+    val strokeInProgress: Boolean get() = false
+
     val events: Flow<StrokeEvent>
 
     /**

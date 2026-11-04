@@ -152,4 +152,17 @@ class TouchStrokeInputTest {
         view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_ERASER, 130L, coords(10f, 10f)))
         assertThat(i.inProgress.value).isNull()
     }
+
+    @Test
+    fun stroke_in_progress_from_pen_down_to_pen_up() {
+        val i = input()
+        assertThat(i.strokeInProgress).isFalse()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 100L, coords(10f, 10f)))
+        assertThat(i.strokeInProgress).isTrue()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_UP, MotionEvent.TOOL_TYPE_STYLUS, 140L, coords(50f, 50f)))
+        assertThat(i.strokeInProgress).isFalse()
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_STYLUS, 200L, coords(10f, 10f)))
+        i.stop()
+        assertThat(i.strokeInProgress).isFalse()
+    }
 }

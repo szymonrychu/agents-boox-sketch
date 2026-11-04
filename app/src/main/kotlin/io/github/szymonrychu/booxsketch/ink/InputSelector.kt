@@ -342,6 +342,9 @@ private class OnyxWithFallback(
 
     override val freezesUi: Boolean get() = onyx.freezesUi
 
+    override val strokeInProgress: Boolean
+        get() = if (synchronized(lock) { fellBack }) touch.strokeInProgress else onyx.strokeInProgress
+
     override fun holdUi() {
         val fallen =
             synchronized(lock) {

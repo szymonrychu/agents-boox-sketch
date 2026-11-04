@@ -8,6 +8,9 @@ package io.github.szymonrychu.booxsketch.ink
 interface UiRefresh {
     fun uiChanged(settled: Boolean = true)
 
+    /** A show or hide of chrome: a settled change that ends with a full refresh. */
+    fun chromeChanged() = uiChanged()
+
     /** For inputs that do not freeze the screen. */
     object None : UiRefresh {
         override fun uiChanged(settled: Boolean) = Unit
