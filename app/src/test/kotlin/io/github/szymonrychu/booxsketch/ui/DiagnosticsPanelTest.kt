@@ -52,4 +52,13 @@ class DiagnosticsPanelTest {
         counts = ShapeDragCounts(window = 12, view = 0)
         compose.onNodeWithText("Shape drag events: window 12, view 0").assertIsDisplayed()
     }
+
+    @Test
+    fun pen_redraw_fallbacks_are_counted() {
+        var fallbacks by mutableStateOf(0)
+        compose.setContent { DiagnosticsPanel(InputStatus(InputPath.ONYX_RAW, null), rawEnabled = { false }, penFallbacks = fallbacks) }
+        compose.onNodeWithText("Pen redraw fallbacks: 0").assertIsDisplayed()
+        fallbacks = 3
+        compose.onNodeWithText("Pen redraw fallbacks: 3").assertIsDisplayed()
+    }
 }

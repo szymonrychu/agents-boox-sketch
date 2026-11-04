@@ -17,13 +17,15 @@ import androidx.compose.ui.unit.dp
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputStatus
 import io.github.szymonrychu.booxsketch.ink.ShapeDragCounts
+import io.github.szymonrychu.booxsketch.onyx.InkDiag
 
 /** The Diagnostics panel tab, fed by the process [selector]. */
 @Composable
 fun DiagnosticsTab(selector: InputSelector) {
     val status by selector.status.collectAsState()
     val shapeDrags by selector.shapeDrags.collectAsState()
-    DiagnosticsPanel(status, selector::rawEnabled, shapeDrags = shapeDrags)
+    val penFallbacks by InkDiag.fallbacks.collectAsState()
+    DiagnosticsPanel(status, selector::rawEnabled, shapeDrags = shapeDrags, penFallbacks = penFallbacks)
 }
 
 /**
@@ -31,6 +33,8 @@ fun DiagnosticsTab(selector: InputSelector) {
  * drawing is enabled and why touch was chosen. [rawEnabled] is read when shown and on Refresh.
  * [shapeDrags] counts shape drag events per source: on the device, a zero view count while the
  * window count grows means the raw layer claims the drag and only the window feed draws shapes.
+ * [penFallbacks] counts committed strokes the SDK pens did not redraw (the app renderer drew them);
+ * each one is logged under the InkDiag tag with its cause.
  */
 @Composable
 fun DiagnosticsPanel(
@@ -38,6 +42,7 @@ fun DiagnosticsPanel(
     rawEnabled: () -> Boolean,
     modifier: Modifier = Modifier,
     shapeDrags: ShapeDragCounts = ShapeDragCounts(),
+    penFallbacks: Int = 0,
 ) {
     var tick by remember { mutableIntStateOf(0) }
     val raw = remember(tick, status) { rawEnabled() }
@@ -46,6 +51,7 @@ fun DiagnosticsPanel(
         Text("Raw drawing enabled: ${if (raw) "yes" else "no"}", color = Color.Black)
         Text("Fallback reason: ${status.fallbackReason ?: "none"}", color = Color.Black)
         Text("Shape drag events: window ${shapeDrags.window}, view ${shapeDrags.view}", color = Color.Black)
+        Text("Pen redraw fallbacks: $penFallbacks", color = Color.Black)
         TextButton(onClick = { tick++ }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
             Text("Refresh", color = Color.Black)
         }

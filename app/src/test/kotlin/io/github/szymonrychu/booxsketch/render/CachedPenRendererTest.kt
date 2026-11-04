@@ -109,6 +109,27 @@ class CachedPenRendererTest {
     }
 
     @Test
+    fun fountain_and_brush_ink_two_and_a_half_widths_from_the_line_survives_the_cache() {
+        // The native pens size points from pressure and velocity past the nominal width; 1.5 widths clipped them.
+        for (tool in listOf(Tool.FOUNTAIN, Tool.BRUSH)) {
+            val (bmp, c) = board()
+            CachedPenRenderer(DotPen(grain = 2.5f)).draw(c, stroke.copy(tool = tool), 1f, 0f, 0f)
+            assertThat(bmp.getPixel(50, 60)).isEqualTo(PenColor.RED.argb)
+        }
+    }
+
+    @Test
+    fun fountain_and_brush_pad_wider_than_ballpoint_and_marker_and_narrower_than_charcoal() {
+        for (tool in listOf(Tool.FOUNTAIN, Tool.BRUSH)) {
+            assertThat(inkWidthFactor(tool)).isGreaterThan(inkWidthFactor(Tool.MARKER))
+            assertThat(inkWidthFactor(tool)).isLessThan(inkWidthFactor(Tool.CHARCOAL))
+            val b = inkBounds(stroke.copy(tool = tool), 1f, 0f, 0f)!!
+            assertThat(b.top).isAtMost(50f - 3f * 4f)
+        }
+        assertThat(inkWidthFactor(Tool.BALLPOINT)).isEqualTo(inkWidthFactor(Tool.MARKER))
+    }
+
+    @Test
     fun a_full_cache_evicts_and_renders_again() {
         val pen = DotPen()
         val r = CachedPenRenderer(pen, maxBytes = 1)

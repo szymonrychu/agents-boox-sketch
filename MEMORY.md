@@ -2,6 +2,46 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Redraw with the device pen settings, reset the e-ink mode (boox-squish)
+
+- Device report on v0.11.4, all tools: "Tools before redraw look right, then look squished". The
+  app geometry is ruled out (one uniform scale and offset; a 400x200 ellipse round-trips with
+  aspect 2.000, scratch test in the `boox-squish` scratchpad). Four causes fixed in one PR because
+  each device round trip is expensive; the InkDiag logs tell which one it was.
+- E-ink mode (fits "all tools"): `BoardSurfaceView` set `HAND_WRITING_REPAINT_MODE` for a touch
+  stroke or shape drag and never reset it, so every later frame was near-binary (no grey,
+  anti-aliasing or texture) and looked thinner. It is now reset (`EpdController.resetViewUpdateMode`,
+  as the vendor demo's `PenManager.refreshPartial`) when the stroke or drag ends, before the frame
+  with the result: `showLive(null)` resets without a frame (a frame there blinks the stroke out,
+  the #40 flicker), and `show` resets when no drag preview and no live stroke is left. A commit of
+  the previous stroke under a touch stroke in progress keeps the fast mode (no mode flip mid-stroke
+  while writing quickly). Raw drawing is not touched, so the pen latency and flicker fixes stand.
+- SDK pens follow the vendor OnyxPenDemo (`BrushScribbleShape`, `NewBrushScribbleShape`,
+  `CharcoalScribbleShape`, `PenInfoUtils`): fountain is `FountainShapes.createNeoPenV2` plus
+  `NeoPenRender` with a FILL paint (the V1 `NeoFountainPenWrapper` is gone); brush and both
+  charcoals are driven through create, onPenDown, onPenMove and onPenUp and read back with
+  `NeoPenUtils.readPointResult`/`readTextureResult`, with a full `NeoPenConfig` instead of the
+  wrappers' bare one. Points carry the stored 0..1 pressure and `maxTouchPressure` is 1 (supersedes
+  the raw pressure times device max of the boox-ink-match entry).
+- Pen settings come from `Device.getStrokeParameters(style)`, read as the demo does: fountain and
+  brush [pressure sensitivity, smooth level], the charcoals [tilt enabled, tilt scale]. Missing,
+  NaN or negative values take the `PenUtils` defaults (0.375, 0.6, tilt scale 3). Charcoal tilt
+  stays off when the stroke kept no tilt.
+- Charcoal screen matrix as the demo's `RendererUtils.getPointMatrix`: a translation to the view's
+  screen position (`getLocationOnScreen`), mapped with `NeoPenUtils.mapToPenCanvas` and back with
+  `mapFromPenCanvas`. The document view (not touched here, another branch owns it) keeps origin 0,0.
+  The bitmap cache does not key on the origin; it only moves the grain phase.
+- Cache padding: fountain and brush now pad 6x the width across (was 3x, i.e. 1.5x each side),
+  because the native pens size points from pressure and velocity and V2 adds 3 px; charcoal stays 8x.
+- Diagnostics: every `OnyxPenRenderer` fallback (exception, or the SDK drew nothing) is logged as
+  a warning with tag `InkDiag` and its exception and counted in `InkDiag.fallbacks`, shown as "Pen
+  redraw fallbacks" in the Diagnostics tab. Why: v0.11.4 showed "no improvement", and the silent
+  fallback could have hidden that the SDK pens never ran. Every committed stroke logs its raw input
+  box, redrawn ink bounds, view size and screen position and the stroke parameters
+  (`adb logcat -s InkDiag`). Device checks: docs/device-checklist.md "Redrawn strokes are not squished".
+- Not verified on the device: that `getStrokeParameters` returns the live firmware values on the
+  Note Air 6C, and that `resetViewUpdateMode` restores a non-flashing mode for the SurfaceView.
+
 ## 2026-11-04 Strip eraser erases with the pen tip on the Onyx path (boox-eraser)
 
 - Device report on v0.11.2: the eraser does not work. Root cause: the eraser selection only ever
