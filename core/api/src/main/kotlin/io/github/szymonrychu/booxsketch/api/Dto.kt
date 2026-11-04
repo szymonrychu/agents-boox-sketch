@@ -103,6 +103,7 @@ data class ConversationDto(
     val title: String? = null,
     @SerialName("created_at") val createdAt: String,
     @SerialName("latest_spec_version") val latestSpecVersion: Int? = null,
+    @SerialName("latest_feedback_id") val latestFeedbackId: Int? = null,
 )
 
 /** 201 body of `POST /conversations`. */
@@ -134,6 +135,25 @@ data class SpecDto(
     val markdown: String,
     val created: String,
     @SerialName("sketch_ids") val sketchIds: List<String>,
+)
+
+/** The `Feedback` schema: something the translator tells the user, kept apart from the document. */
+@Serializable
+data class FeedbackDto(
+    val id: Int,
+    /** `question`, `uncertain`, `illegible` or `note`; unknown kinds are shown as they are. */
+    val kind: String,
+    val text: String,
+    val where: String? = null,
+    @SerialName("spec_version") val specVersion: Int? = null,
+    @SerialName("created_at") val createdAt: String,
+)
+
+/** Response of `GET /conversations/{id}/feedback`: items after the cursor, oldest first (at most 100). */
+@Serializable
+data class FeedbackPage(
+    val items: List<FeedbackDto>,
+    val cursor: Int,
 )
 
 /** A live session a spec can be handed to. */

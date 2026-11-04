@@ -171,6 +171,46 @@ class ConnectorClientTest {
             assertThat(rows).hasSize(2)
             assertThat(rows[0].latestSpecVersion).isEqualTo(2)
             assertThat(rows[1].title).isEqualTo("t")
+            assertThat(rows[0].latestFeedbackId).isNull()
+        }
+
+    @Test
+    fun conversations_carry_latest_feedback_id() =
+        runTest {
+            server.enqueue(
+                json(
+                    """[{"id":"$conv","title":null,"created_at":"2026-11-03T10:00:00Z","latest_spec_version":1,"latest_feedback_id":7}]""",
+                ),
+            )
+            assertThat(client.conversations().single().latestFeedbackId).isEqualTo(7)
+        }
+
+    @Test
+    fun feedback_lists_items_after_the_cursor() =
+        runTest {
+            server.enqueue(
+                json(
+                    """{"items":[{"id":4,"kind":"question","text":"Which box?","where":"top left","spec_version":2,
+                    "created_at":"2026-11-03T10:00:00Z"},{"id":5,"kind":"note","text":"Red ink","where":null,"spec_version":null,
+                    "created_at":"2026-11-03T10:00:01Z"}],"cursor":5}""",
+                ),
+            )
+            val page = client.feedback(conv, 3)
+            assertThat(server.takeRequest().path).isEqualTo("/app/v1/sketch/conversations/$conv/feedback?after=3")
+            assertThat(page.cursor).isEqualTo(5)
+            assertThat(page.items.map { it.id }).containsExactly(4, 5).inOrder()
+            assertThat(page.items[0].where).isEqualTo("top left")
+            assertThat(page.items[0].specVersion).isEqualTo(2)
+            assertThat(page.items[1].where).isNull()
+            assertThat(page.items[1].specVersion).isNull()
+        }
+
+    @Test
+    fun feedback_of_an_unknown_conversation_is_not_found() =
+        runTest {
+            server.enqueue(json("""{"error":"not_found","detail":""}""", 404))
+            val result = runCatching { client.feedback(conv, 0) }
+            assertThat(result.exceptionOrNull()).isInstanceOf(ApiError.NotFound::class.java)
         }
 
     @Test
