@@ -1,7 +1,11 @@
 package io.github.szymonrychu.booxsketch.board
 
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -13,21 +17,29 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import androidx.core.content.OnConfigurationChangedProvider
+import androidx.core.util.Consumer
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.onyx.UiRefresher
 import io.github.szymonrychu.booxsketch.ui.BoardChrome
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Full-screen board with the toolbar dock overlaid at the bottom. [chrome] carries the shell state
@@ -36,6 +48,8 @@ import kotlinx.coroutines.launch
  * [overlays] are window-coordinate rects of anything drawn over the board; they and the toolbar
  * are excluded from raw pen input. For inputs that freeze the e-ink panel, raw drawing starts only
  * after the first frame and toolbar changes are refreshed through a [UiRefresher].
+ * [panel], when given, is the side panel drawn over the right edge of the board ([SidePanelHost]),
+ * hidden by default behind an indicator; it never resizes the board.
  */
 @Suppress("LongParameterList")
 @Composable
@@ -49,7 +63,19 @@ fun BoardScreen(
     chrome: BoardChrome? = null,
     background: Bitmap? = null,
     toolbar: ToolbarOptions = ToolbarOptions(),
-) = BoardScreenWith(vm, input, modifier, setEraser, onSend, overlays, chrome, background = background, toolbarOptions = toolbar)
+    panel: (@Composable () -> Unit)? = null,
+) = BoardScreenWith(
+    vm,
+    input,
+    modifier,
+    setEraser,
+    onSend,
+    overlays,
+    chrome,
+    background = background,
+    toolbarOptions = toolbar,
+    panel = panel,
+)
 
 /** Arguments of the dock slot of [BoardScreenWith]; the default slot is [ToolbarDock]. */
 internal class DockParams(
@@ -60,13 +86,14 @@ internal class DockParams(
     val onExcludeChange: (List<Rect>) -> Unit,
     val rememberedDockSize: IntSize?,
     val onDockSize: (IntSize) -> Unit,
+    val layoutEpoch: Int,
     val toolbar: @Composable () -> Unit,
 )
 
 internal typealias DockContent = @Composable BoxScope.(DockParams) -> Unit
 
 private val DefaultDock: DockContent = { p ->
-    ToolbarDock(p.visible, p.onShow, p.onHide, p.ui, p.onExcludeChange, p.rememberedDockSize, p.onDockSize, p.toolbar)
+    ToolbarDock(p.visible, p.onShow, p.onHide, p.ui, p.onExcludeChange, p.rememberedDockSize, p.onDockSize, p.layoutEpoch, p.toolbar)
 }
 
 /** [BoardScreen] with the dock replaceable, so tests can drive the dock's exclude reports. */
@@ -83,6 +110,7 @@ internal fun BoardScreenWith(
     dock: DockContent = DefaultDock,
     background: Bitmap? = null,
     toolbarOptions: ToolbarOptions = ToolbarOptions(),
+    panel: (@Composable () -> Unit)? = null,
 ) {
     val notebook by vm.notebook.collectAsState()
     val tool by vm.tool.collectAsState()
@@ -98,29 +126,18 @@ internal fun BoardScreenWith(
     val view = LocalView.current
     // Created during composition so raw drawing is held off before the board first starts it.
     val ui = remember(input, view) { UiRefresher.forView(view, input) }
-    // A dock show or hide tap holds raw drawing (on top of the refresher's hold) until the input runs with the new rects.
-    var awaiting by remember { mutableStateOf<Boolean?>(null) }
+    // A dock or panel show or hide holds raw drawing (on top of the refresher's hold) until the input runs with the new rects.
+    val holds = remember(input) { ChromeHolds(input) }
     // Stop the input first: closing the refresher releases its holds, which must not re-enable a session about to close.
     DisposableEffect(input, ui) {
         onDispose {
             input.stop()
             (ui as? UiRefresher)?.close()
-            if (awaiting != null) input.releaseUi()
+            holds.release()
         }
     }
-    var dockReport by remember { mutableStateOf(DockReport(true, emptyList())) }
     val dockVisible = chrome?.visible ?: true
-
-    fun changeDock(
-        target: Boolean,
-        apply: () -> Unit,
-    ) {
-        apply()
-        // Without a chrome nothing changes, so no dock report would ever settle a hold.
-        if (chrome == null) return
-        if (awaiting == null) input.holdUi()
-        awaiting = target
-    }
+    val control = OverlayControl(chrome, holds, hasPanel = panel != null)
     // Auto-hide goes through the same hold and full refresh as a tap; it is refused while a stroke is in progress
     // (the hold restarts the input and would drop that stroke), and the shell retries after the next quiet gap.
     DisposableEffect(chrome, input, ui) {
@@ -128,16 +145,13 @@ internal fun BoardScreenWith(
             if (input.strokeInProgress) {
                 false
             } else {
-                if (chrome.visible) {
-                    ui.chromeChanged()
-                    changeDock(false) { chrome.hide() }
-                }
+                control.dismissAll(ui)
                 true
             }
         }
         onDispose { chrome?.autoHideHandler = null }
     }
-    val exclude = dockReport.rects + (chrome?.overlays ?: emptyList()) + overlays
+    val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(
             notebook = notebook,
@@ -153,51 +167,203 @@ internal fun BoardScreenWith(
             onShapeDrag = vm::onShapeDrag,
             onShapeCancel = vm::onShapeCancel,
             background = background,
+            // A finger tap on the board dismisses every overlay in one burst.
+            onBoardTap = { control.dismissAll(ui) },
         )
-        // The board ignores system bars; the dock keeps clear of them.
+        // The board ignores system bars; the dock and the panel keep clear of them. The panel is drawn on top:
+        // its indicator must stay reachable even where a tall (wrapped) dock reaches the right edge.
         val dockArea = Modifier.fillMaxSize()
         Box(if (chrome == null) dockArea else dockArea.windowInsetsPadding(chrome.insets.only(DOCK_INSET_SIDES))) {
             dock(
                 DockParams(
                     visible = dockVisible,
-                    onShow = { changeDock(true) { chrome?.show() } },
-                    onHide = { changeDock(false) { chrome?.hide() } },
+                    onShow = control::showDock,
+                    onHide = control::hideAll,
                     ui = ui,
-                    onExcludeChange = { dockReport = DockReport(dockVisible, it) },
+                    onExcludeChange = { holds.report(DOCK_KEY, dockVisible, it) },
                     rememberedDockSize = chrome?.dockSize,
                     onDockSize = { chrome?.dockSize = it },
+                    layoutEpoch = holds.layoutEpoch,
                     toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui, options = toolbarOptions) },
                 ),
             )
         }
+        if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
     }
-    // Settled: this composition hands BoardView the exclude list of the dock state that was asked for.
-    val settled = dockSettled(awaiting, dockReport.visible, dockReport.rects)
+    RelayoutOnConfigurationChange(holds, ui, chrome, hasPanel = panel != null)
+    // Settled: this composition hands BoardView the exclude list of every overlay state that was asked for.
+    val settled = holds.settled
     LaunchedEffect(settled, exclude) {
         if (settled) {
             // One frame on, BoardView has restarted the input with that list; only then lift the hold.
             withFrameNanos { }
-            awaiting = null
-            input.releaseUi()
+            holds.finishIfSettled()
         }
+    }
+}
+
+/**
+ * A rotation (the activity handles it, no recreate) lays the board, the panel and the dock out
+ * again. The hold is taken in the activity's configuration listener, which runs before the view
+ * tree is laid out with the new size, so raw drawing is off before the board restarts its input
+ * with the new limit. The full refresh is asked for at the same moment: the refresher runs it after
+ * the next draw, which is the new layout (asked later, no further draw might ever come). The hold
+ * is released through the usual [ChromeHolds] settle, once the dock and panel reported rects for the new layout.
+ */
+@Composable
+private fun RelayoutOnConfigurationChange(
+    holds: ChromeHolds,
+    ui: UiRefresh,
+    chrome: BoardChrome?,
+    hasPanel: Boolean,
+) {
+    val context = LocalContext.current
+    val provider = context.findConfigurationProvider() ?: return
+    // The layout this composition was built for; the listener compares the next configuration against it.
+    val current = layoutOf(LocalConfiguration.current)
+    var changes by remember { mutableIntStateOf(0) }
+    val latestChrome by rememberUpdatedState(chrome)
+    val latestHasPanel by rememberUpdatedState(hasPanel)
+    DisposableEffect(provider, holds, ui) {
+        var seen = current
+        val listener =
+            Consumer<Configuration> { config ->
+                val layout = layoutOf(config)
+                if (layout != seen) {
+                    seen = layout
+                    ui.chromeChanged()
+                    holds.report(LAYOUT_KEY, false, emptyList())
+                    // Rects reported for the old layout are stale: settle only on reports from the new one.
+                    // The epoch makes the dock and the panel report again even when their rects are equal.
+                    holds.relayout(DOCK_KEY, PANEL_KEY)
+                    holds.change(LAYOUT_KEY, true, needsRects = false) { }
+                    changes++
+                }
+            }
+        provider.addOnConfigurationChangedListener(listener)
+        onDispose { provider.removeOnConfigurationChangedListener(listener) }
+    }
+    LaunchedEffect(changes) {
+        if (changes > 0) {
+            // Launched by the recomposition of the new layout; one frame on it has been measured and
+            // placed. Then wait, like the dock and panel show or hide, until the dock (and the panel,
+            // when composed) report non-empty rects for the state they are in.
+            withFrameNanos { }
+            val reported =
+                withTimeoutOrNull(ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS) {
+                    snapshotFlow { holds.overlaysReported(latestChrome, latestHasPanel) }.first { it }
+                }
+            if (reported == null) {
+                // Defence in depth: nothing reported in time, so release with the rects measured before.
+                Log.w(
+                    TAG,
+                    "relayout: no dock or panel report within ${ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS} ms, releasing with the last rects",
+                )
+                holds.acceptStaleRects(DOCK_KEY, PANEL_KEY)
+            }
+            holds.report(LAYOUT_KEY, true, emptyList())
+        }
+    }
+}
+
+private fun layoutOf(config: Configuration) = Triple(config.orientation, config.screenWidthDp, config.screenHeightDp)
+
+private tailrec fun Context.findConfigurationProvider(): OnConfigurationChangedProvider? =
+    when (this) {
+        is OnConfigurationChangedProvider -> this
+        is ContextWrapper -> baseContext.findConfigurationProvider()
+        else -> null
+    }
+
+/**
+ * Show and hide of the chrome over the board (dock, side panel), each through [holds] so raw drawing
+ * stays off until the input runs with the new rects. Without a [chrome] nothing changes, so no report
+ * would ever settle a hold: the change is applied without one. The same holds for the panel when no
+ * panel host is composed ([hasPanel] false).
+ */
+private class OverlayControl(
+    private val chrome: BoardChrome?,
+    private val holds: ChromeHolds,
+    private val hasPanel: Boolean,
+) {
+    val anyVisible: Boolean get() = chrome != null && (chrome.visible || chrome.panelVisible)
+
+    private fun change(
+        key: String,
+        tracked: Boolean,
+        target: Boolean,
+        apply: () -> Unit,
+    ) = if (tracked) holds.change(key, target, apply = apply) else apply()
+
+    fun showDock() = change(DOCK_KEY, chrome != null, true) { chrome?.show() }
+
+    fun showPanel() = change(PANEL_KEY, chrome != null && hasPanel, true) { chrome?.showPanel() }
+
+    fun hidePanel() = change(PANEL_KEY, chrome != null && hasPanel, false) { chrome?.hidePanel() }
+
+    /** Full refresh plus [hideAll] when anything is shown; with everything hidden it does nothing (no refresh). */
+    fun dismissAll(ui: UiRefresh) {
+        if (!anyVisible) return
+        ui.chromeChanged()
+        hideAll()
+    }
+
+    /** Hides the dock and the panel in one burst: one hold, released once both report their hidden state. */
+    fun hideAll() {
+        if (chrome == null) return
+        val panelWasVisible = chrome.panelVisible
+        if (chrome.visible) change(DOCK_KEY, true, false) { chrome.hide() }
+        if (panelWasVisible) hidePanel()
+    }
+}
+
+/** The side panel host over the right edge, inside the system bars, reporting its rects to [holds]. */
+@Composable
+private fun BoxScope.PanelLayer(
+    chrome: BoardChrome?,
+    control: OverlayControl,
+    ui: UiRefresh,
+    holds: ChromeHolds,
+    panel: @Composable () -> Unit,
+) {
+    val visible = chrome?.panelVisible ?: false
+    val area = Modifier.matchParentSize()
+    Box(if (chrome == null) area else area.windowInsetsPadding(chrome.insets.only(PANEL_INSET_SIDES))) {
+        SidePanelHost(
+            visible = visible,
+            onShow = control::showPanel,
+            onHide = control::hidePanel,
+            ui = ui,
+            onExcludeChange = { holds.report(PANEL_KEY, visible, it) },
+            layoutEpoch = holds.layoutEpoch,
+            panel = panel,
+        )
     }
 }
 
 private val DOCK_INSET_SIDES = WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
 
-/**
- * True when the dock has reported the rects of the state that was [awaiting] (null: no change pending).
- * Empty [rects] never count: right after a show or hide the new panel's rect is not measured yet, and
- * releasing the input hold then would run raw drawing with no exclude over the toolbar.
- */
+private val PANEL_INSET_SIDES = WindowInsetsSides.Vertical + WindowInsetsSides.End
+
+private const val DOCK_KEY = "dock"
+private const val PANEL_KEY = "panel"
+private const val LAYOUT_KEY = "layout"
+private const val TAG = "BoardScreen"
+
+/** [overlaySettled] for the dock with a change pending to [awaiting] (null: no change pending); the dock always needs rects. */
 internal fun dockSettled(
     awaiting: Boolean?,
     visible: Boolean,
     rects: List<Rect>,
-): Boolean = awaiting != null && visible == awaiting && rects.isNotEmpty()
+): Boolean = awaiting != null && overlaySettled(awaiting, needsRects = true, visible = visible, rects = rects)
 
-/** The dock's exclude rects as reported while it was [visible]. */
-private class DockReport(
-    val visible: Boolean,
-    val rects: List<Rect>,
-)
+/**
+ * True when the dock (and the panel, when composed) reported non-empty rects for the state [chrome] shows;
+ * with no chrome there is nothing to wait for.
+ */
+private fun ChromeHolds.overlaysReported(
+    chrome: BoardChrome?,
+    hasPanel: Boolean,
+): Boolean =
+    chrome == null ||
+        (reported(DOCK_KEY, chrome.visible) && (!hasPanel || reported(PANEL_KEY, chrome.panelVisible)))

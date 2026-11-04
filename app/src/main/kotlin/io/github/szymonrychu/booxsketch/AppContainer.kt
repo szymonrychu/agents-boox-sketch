@@ -16,7 +16,6 @@ import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.documents.AnnotatedInput
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ID
-import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ORDER
 import io.github.szymonrychu.booxsketch.documents.DocumentInk
 import io.github.szymonrychu.booxsketch.documents.DocumentLayout
 import io.github.szymonrychu.booxsketch.documents.DocumentRow
@@ -51,10 +50,12 @@ import io.github.szymonrychu.booxsketch.send.SendBoard
 import io.github.szymonrychu.booxsketch.send.SendOutcome
 import io.github.szymonrychu.booxsketch.send.SendUseCase
 import io.github.szymonrychu.booxsketch.send.sendOutcomeText
+import io.github.szymonrychu.booxsketch.ui.BOARD_TAB_ID
 import io.github.szymonrychu.booxsketch.ui.DiagnosticsTab
 import io.github.szymonrychu.booxsketch.ui.PanelTab
 import io.github.szymonrychu.booxsketch.ui.PanelTabs
-import io.github.szymonrychu.booxsketch.ui.SplitStateStore
+import io.github.szymonrychu.booxsketch.ui.TabRegistry
+import io.github.szymonrychu.booxsketch.ui.TabSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +67,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
+import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ORDER as DOCUMENTS_PANEL_TAB_ORDER
 
 /**
  * Process-wide singletons, created once in [App.onCreate]. Later features add exactly one line
@@ -88,16 +90,13 @@ class AppContainer(
     val okHttpClient: OkHttpClient by lazy { httpFactory() }
 
     /** Own IO scope, so DataStore file reads and writes never touch the main thread. */
-    val splitStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val splitStateStore: SplitStateStore by lazy {
-        SplitStateStore.create(splitStoreScope, File(dir, "datastore/split.preferences_pb"))
-    }
+    val storeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val tokenStore: TokenStore by lazy {
         TokenStore(
             PreferenceDataStoreFactory.create(
                 corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
-                scope = splitStoreScope,
+                scope = storeScope,
             ) { File(dir, "datastore/token.preferences_pb") },
             keyProvider,
             log = { Log.w(TAG, it) },
@@ -352,21 +351,29 @@ class AppContainer(
         onRepaired()
     }
 
+    /** Top-level tabs of the app shell; the Drawing tab hosts the board. Declared before init, which registers into it. */
+    val tabs = TabRegistry()
+
     init {
         registerFeatures()
     }
 
     private fun registerFeatures() {
         // One line per feature, added by its task.
+        tabs.register(TabSpec(BOARD_TAB_ID, "Drawing", order = DRAWING_TAB_ORDER) { })
+        // wave B: Tasks tab, wave C: Documents tab register here (Documents is a panel tab until then)
         PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
         PanelTabs.register(PanelTab(CONVERSATIONS_TAB_ID, "Conversations", order = 0) { ConversationsTab() })
-        PanelTabs.register(PanelTab(DOCUMENTS_TAB_ID, "Documents", DOCUMENTS_TAB_ORDER) { DocumentsTab() })
+        PanelTabs.register(PanelTab(DOCUMENTS_TAB_ID, "Documents", DOCUMENTS_PANEL_TAB_ORDER) { DocumentsTab() })
         PanelTabs.onOpenConversations = { PanelTabs.select(CONVERSATIONS_TAB_ID) }
     }
 
-    private companion object {
-        const val TAG = "BooxSketch"
-        const val DOCUMENT_DPI = 300f
-        const val DIAGNOSTICS_ORDER = 900
+    companion object {
+        private const val TAG = "BooxSketch"
+        private const val DOCUMENT_DPI = 300f
+        private const val DIAGNOSTICS_ORDER = 900
+        const val DRAWING_TAB_ORDER = 10
+        const val TASKS_TAB_ORDER = 20
+        const val DOCUMENTS_TAB_ORDER = 30
     }
 }

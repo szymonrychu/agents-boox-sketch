@@ -8,8 +8,10 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
@@ -132,6 +134,65 @@ class InputGate(
 }
 
 /**
+ * Recognises a finger tap: a finger ACTION_UP within [slop] px and [timeoutMs] of its ACTION_DOWN,
+ * with a single pointer and no stroke in progress at either end. Stylus taps are strokes (they arm
+ * the auto-hide instead), and on inputs that draw with the finger a finger tap is a stroke too.
+ */
+internal class TapDetector(
+    private val slop: Float,
+    private val timeoutMs: Long = TAP_TIMEOUT_MS,
+) {
+    private var tracking = false
+    private var downX = 0f
+    private var downY = 0f
+    private var downAt = 0L
+
+    /** Feeds [ev]; true when it ends a tap. */
+    fun onEvent(
+        ev: MotionEvent,
+        strokeInProgress: Boolean,
+    ): Boolean {
+        val finger = ev.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER
+        return when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                tracking = finger && !strokeInProgress
+                downX = ev.x
+                downY = ev.y
+                downAt = ev.eventTime
+                false
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (tracking && !near(ev)) tracking = false
+                false
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val tap = tracking && finger && !strokeInProgress && near(ev) && ev.eventTime - downAt <= timeoutMs
+                tracking = false
+                tap
+            }
+
+            else -> {
+                // A second pointer or a cancel ends the gesture as a non-tap.
+                tracking = false
+                false
+            }
+        }
+    }
+
+    private fun near(ev: MotionEvent): Boolean {
+        val dx = ev.x - downX
+        val dy = ev.y - downY
+        return dx * dx + dy * dy <= slop * slop
+    }
+
+    companion object {
+        const val TAP_TIMEOUT_MS = 300L
+    }
+}
+
+/**
  * Surface the page strokes are drawn on. Every redraw runs inside [refresher] (the input's
  * refresh, which lifts the raw-drawing screen freeze), and a load, page switch or clear also
  * schedules a debounced GC full refresh. Strokes appended while [rawLive] are not drawn at all:
@@ -141,7 +202,8 @@ class InputGate(
  * [showLive] draws the stroke in progress of an input without vendor ink (touch) on top of the
  * page while the pen moves, in the e-ink handwriting update mode; no animation, one frame per
  * input event. A shape drag's snapped preview is part of [show], so the commit swaps preview for
- * shape in one frame.
+ * shape in one frame. A finger tap calls [onTap]; it is
+ * seen in [dispatchTouchEvent], before whichever touch listener the input installed.
  */
 class BoardSurfaceView(
     context: Context,
@@ -178,6 +240,10 @@ class BoardSurfaceView(
     var onSurfaceCreated: () -> Unit = {}
     var onSurfaceDestroyed: () -> Unit = {}
     var onFocus: (Boolean) -> Unit = {}
+    var onTap: () -> Unit = {}
+    var strokeInProgress: () -> Boolean = { false }
+
+    private val tap = TapDetector(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
 
     private val main = Handler(Looper.getMainLooper())
     private val fullRefresh =
@@ -331,6 +397,12 @@ class BoardSurfaceView(
         onSurfaceDestroyed()
     }
 
+    // Before super: the inputs replace the view's touch listener (shape drags, touch fallback) and may consume the event.
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (tap.onEvent(event, strokeInProgress())) onTap()
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         onFocus(hasWindowFocus)
@@ -351,7 +423,8 @@ class BoardSurfaceView(
  * preview a frame before the shape is committed.
  * [exclude] are window-coordinate rects (toolbar, overlays) where the pen must not draw; input
  * is (re)started on every layout and exclude change, closed when the surface goes away, and
- * paused while the activity is paused or the window has no focus.
+ * paused while the activity is paused or the window has no focus. [onBoardTap] fires for a finger
+ * tap on the board (never a stylus, never while [StrokeInput.strokeInProgress]).
  */
 @Suppress("LongParameterList")
 @Composable
@@ -366,12 +439,14 @@ fun BoardView(
     onShapeDrag: (Stroke) -> Unit = {},
     onShapeCancel: () -> Unit = {},
     background: Bitmap? = null,
+    onBoardTap: () -> Unit = {},
 ) {
     val surface = remember { arrayOfNulls<BoardSurfaceView>(1) }
     val strokeCb by rememberUpdatedState(onStroke)
     val eraseCb by rememberUpdatedState(onErase)
     val shapeDragCb by rememberUpdatedState(onShapeDrag)
     val shapeCancelCb by rememberUpdatedState(onShapeCancel)
+    val tapCb by rememberUpdatedState(onBoardTap)
     val excludeNow by rememberUpdatedState(exclude)
     val gate = remember(input) { InputGate(input) }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { gate.setResumed(false) }
@@ -388,6 +463,8 @@ fun BoardView(
                 v.onSurfaceCreated = { startOn(v) }
                 v.onSurfaceDestroyed = { input.stop() }
                 v.onFocus = gate::setFocused
+                v.onTap = { tapCb() }
+                v.strokeInProgress = { input.strokeInProgress }
                 v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> startOn(v) }
             }
         },

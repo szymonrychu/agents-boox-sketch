@@ -1,12 +1,15 @@
 package io.github.szymonrychu.booxsketch.board
 
 import android.graphics.Rect
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +26,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -51,6 +55,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
+// One class: the tests share the shell, dock and input fixtures (LargeClass).
+@Suppress("LargeClass")
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class BoardChromeWiringTest {
@@ -70,6 +76,8 @@ class BoardChromeWiringTest {
         withChrome: Boolean = true,
         insets: WindowInsets = WindowInsets(0, 0, 0, 0),
         dock: DockContent? = null,
+        panel: (@Composable () -> Unit)? = null,
+        size: androidx.compose.runtime.State<DpSize>? = null,
     ) {
         val registry = TabRegistry()
         registry.register(TabSpec(BOARD_TAB_ID, "Drawings", 10) { })
@@ -77,11 +85,17 @@ class BoardChromeWiringTest {
         val vm = vm()
         compose.setContent {
             host = LocalView.current
+            val shellModifier = size?.let { Modifier.size(it.value) } ?: Modifier
             AppShell(
+                modifier = shellModifier,
                 tabs = registry,
                 board = { chrome ->
                     val c = if (withChrome) chrome else null
-                    if (dock == null) BoardScreen(vm, input, chrome = c) else BoardScreenWith(vm, input, chrome = c, dock = dock)
+                    if (dock == null) {
+                        BoardScreen(vm, input, chrome = c, panel = panel)
+                    } else {
+                        BoardScreenWith(vm, input, chrome = c, dock = dock, panel = panel)
+                    }
                 },
                 state = state,
                 insets = insets,
@@ -470,5 +484,314 @@ class BoardChromeWiringTest {
         compose.waitForIdle()
         compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
         compose.onNodeWithTag(TAG_INDICATOR).assertDoesNotExist()
+    }
+
+    private val testPanel: @Composable () -> Unit = { Text("panel") }
+
+    private fun commitStroke() {
+        strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
+    }
+
+    private fun lastStartWith(rect: Rect): Int = input.log.indexOfLast { it.startsWith("start:") && it.contains(rect.toString()) }
+
+    @Test
+    fun panel_show_holds_raw_drawing_until_panel_rect_is_in_excludes() {
+        show(panel = testPanel)
+        createSurface()
+        input.log.clear()
+
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        val panel = rectOf(TAG_PANEL_HOST)
+
+        assertThat(state.panelVisible).isTrue()
+        assertThat(input.log.first()).isEqualTo("hold")
+        val started = lastStartWith(panel)
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun panel_hide_via_auto_hide_releases_hold_once() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        commitStroke()
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
+        val indicator = rectOf(TAG_PANEL_INDICATOR)
+        assertThat(state.panelVisible).isFalse()
+        assertThat(input.log.first()).isEqualTo("hold")
+        // Dock and panel hide in one burst: the start that carries both indicators comes before raw drawing is back on.
+        val dockIndicator = rectOf(TAG_INDICATOR).toString()
+        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(indicator.toString()) && it.contains(dockIndicator) }
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun auto_hide_refused_during_stroke_keeps_panel_until_quiet() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        commitStroke()
+        compose.mainClock.advanceTimeBy(100)
+        input.strokeInProgress = true
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS * 3)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+
+        assertThat(state.panelVisible).isTrue()
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertIsDisplayed()
+        assertThat(input.log).isEmpty()
+
+        input.strokeInProgress = false
+        compose.mainClock.autoAdvance = false
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertThat(state.panelVisible).isFalse()
+        assertThat(input.log.first()).isEqualTo("hold")
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    private fun fingerTap() {
+        fun ev(
+            action: Int,
+            time: Long,
+        ): MotionEvent {
+            val props =
+                MotionEvent.PointerProperties().also {
+                    it.id = 0
+                    it.toolType = MotionEvent.TOOL_TYPE_FINGER
+                }
+            val coords =
+                MotionEvent.PointerCoords().also {
+                    it.x = 200f
+                    it.y = 200f
+                }
+            return MotionEvent.obtain(1_000L, time, action, 1, arrayOf(props), arrayOf(coords), 0, 0, 1f, 1f, 0, 0, 0, 0)
+        }
+        val v = surface()!!
+        compose.runOnUiThread {
+            v.dispatchTouchEvent(ev(MotionEvent.ACTION_DOWN, 1_000L))
+            v.dispatchTouchEvent(ev(MotionEvent.ACTION_UP, 1_050L))
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun tap_on_board_hides_dock_and_panel_with_one_hold_release_pair() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        input.log.clear()
+
+        fingerTap()
+
+        compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
+        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
+        val panelIndicator = rectOf(TAG_PANEL_INDICATOR).toString()
+        val dockIndicator = rectOf(TAG_INDICATOR).toString()
+        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(panelIndicator) && it.contains(dockIndicator) }
+        assertThat(input.log.first()).isEqualTo("hold")
+        assertThat(started).isAtLeast(0)
+        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        // One board hold for both overlays, plus at most the refresher's own hold for the full refresh.
+        assertThat(holds()).isAtMost(2)
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun tap_with_everything_hidden_changes_nothing() {
+        show(panel = testPanel)
+        createSurface()
+        compose.onNodeWithTag(TAG_HIDE).performClick()
+        compose.waitForIdle()
+        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
+        input.log.clear()
+
+        fingerTap()
+
+        assertThat(input.log).isEmpty()
+        compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).assertIsDisplayed()
+    }
+
+    @Test
+    fun size_change_with_dock_visible_restarts_with_new_dock_rect() {
+        val size = mutableStateOf(DpSize(400.dp, 300.dp))
+        show(size = size)
+        createSurface()
+        val before = rectOf(TAG_DOCK)
+        input.log.clear()
+
+        compose.runOnUiThread { size.value = DpSize(300.dp, 400.dp) }
+        compose.waitForIdle()
+        val after = rectOf(TAG_DOCK)
+
+        assertThat(after).isNotEqualTo(before)
+        assertThat(lastStart()).contains(after.toString())
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
+        assertThat(releases()).isEqualTo(holds())
+    }
+
+    @Test
+    fun relayout_hold_waits_for_the_dock_to_report_non_empty_rects() {
+        val measured = mutableStateOf(true)
+        val dock: DockContent =
+            { p ->
+                val rects = if (measured.value) listOf(Rect(0, 500, 400, 600)) else emptyList()
+                var reported by remember { mutableStateOf<List<Rect>?>(null) }
+                SideEffect {
+                    if (rects != reported) {
+                        reported = rects
+                        p.onExcludeChange(rects)
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        // The new layout has not measured the dock yet: it reports no rect.
+        compose.runOnUiThread { measured.value = false }
+        compose.waitForIdle()
+        input.log.clear()
+
+        rotate()
+        // Raw drawing stays held while the dock has no rect in the new layout (the layout hold and the
+        // refresher's hold for the full refresh, which only a real draw releases).
+        assertThat(holds()).isEqualTo(2)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.runOnUiThread { measured.value = true }
+        compose.waitForIdle()
+        // The layout hold is released once, after the input restarted with the new rects.
+        assertThat(releases()).isEqualTo(1)
+        assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfLast { it.startsWith("start:") } - 1)
+    }
+
+    @Test
+    fun relayout_hold_ignores_the_stale_rect_reported_before_the_rotation() {
+        val oldRect = Rect(0, 500, 400, 600)
+        val newRect = Rect(0, 300, 600, 400)
+        val current = mutableStateOf(oldRect)
+        val dock: DockContent =
+            { p ->
+                val rects = listOf(current.value)
+                var reported by remember { mutableStateOf<List<Rect>?>(null) }
+                SideEffect {
+                    if (rects != reported) {
+                        reported = rects
+                        p.onExcludeChange(rects)
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        input.log.clear()
+
+        rotate()
+        // The old rect is still stored but no report came from the new layout: raw drawing stays held
+        // (the layout hold and the refresher's hold for the full refresh).
+        assertThat(holds()).isEqualTo(2)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.runOnUiThread { current.value = newRect }
+        compose.waitForIdle()
+        assertThat(releases()).isEqualTo(1)
+        // The restarted input carries the new rect (clipped to the window), not the stale one.
+        assertThat(lastStart()).contains("Rect(0, 300 -")
+        assertThat(lastStart()).doesNotContain("Rect(0, 500 -")
+        assertThat(input.log.indexOf("release")).isGreaterThan(input.log.indexOfLast { it.startsWith("start:") } - 1)
+    }
+
+    private fun rotate() {
+        compose.runOnUiThread {
+            val activity = host!!.context as android.app.Activity
+            val config = android.content.res.Configuration(activity.resources.configuration)
+            config.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT
+            config.screenWidthDp += 10
+            (activity as androidx.activity.ComponentActivity).onConfigurationChanged(config)
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun relayout_with_identical_rects_still_releases() {
+        // A 180 degree rotation or a config change that moves nothing: the rects stay equal, so a dock
+        // that reports only on change never reports again. The layout epoch makes it report anyway.
+        val rect = Rect(0, 500, 400, 600)
+        val dock: DockContent =
+            { p ->
+                var reportedEpoch by remember { mutableStateOf<Int?>(null) }
+                SideEffect {
+                    if (reportedEpoch != p.layoutEpoch) {
+                        reportedEpoch = p.layoutEpoch
+                        p.onExcludeChange(listOf(rect))
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        input.log.clear()
+
+        rotate()
+
+        assertThat(releases()).isEqualTo(1)
+    }
+
+    @Test
+    fun relayout_without_any_report_releases_after_the_fallback_timeout() {
+        val rect = Rect(0, 500, 400, 600)
+        val dock: DockContent =
+            { p ->
+                var reported by remember { mutableStateOf(false) }
+                SideEffect {
+                    if (!reported) {
+                        reported = true
+                        p.onExcludeChange(listOf(rect))
+                    }
+                }
+            }
+        show(dock = dock)
+        createSurface()
+        compose.waitForIdle()
+        input.log.clear()
+
+        compose.mainClock.autoAdvance = false
+        rotate()
+        compose.mainClock.advanceTimeBy(ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS - 100)
+        assertThat(releases()).isEqualTo(0)
+
+        compose.mainClock.advanceTimeBy(200)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertThat(releases()).isEqualTo(1)
+        // Released with the rects measured before: the exclude is not empty.
+        assertThat(emptyStartsWhileEnabled()).isEmpty()
     }
 }

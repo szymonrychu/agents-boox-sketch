@@ -10,7 +10,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.IntSize
 
-/** Tab selection and board-chrome (tab bar) visibility of the app shell. */
+/** Tab selection, board-chrome (tab bar, dock) and side panel visibility of the app shell. */
 @Stable
 class ShellState(
     selected: String = BOARD_TAB_ID,
@@ -20,6 +20,10 @@ class ShellState(
         private set
 
     var chromeVisible: Boolean by mutableStateOf(chromeVisible)
+        private set
+
+    /** Side panel overlay over the board. Hidden by default and not saved: a restart starts hidden. */
+    var panelVisible: Boolean by mutableStateOf(false)
         private set
 
     /** Last measured dock size in px; null until measured. Not saved. */
@@ -40,13 +44,23 @@ class ShellState(
         chromeVisible = true
     }
 
+    /** Hides the chrome and the side panel. */
     fun hide() {
         chromeVisible = false
+        panelVisible = false
     }
 
-    /** Arms the auto-hide, only while the chrome is visible. */
+    fun showPanel() {
+        panelVisible = true
+    }
+
+    fun hidePanel() {
+        panelVisible = false
+    }
+
+    /** Arms the auto-hide, only while the chrome or the panel is visible. */
     fun onStrokeCommitted() {
-        if (chromeVisible) tick++
+        if (chromeVisible || panelVisible) tick++
     }
 
     companion object {

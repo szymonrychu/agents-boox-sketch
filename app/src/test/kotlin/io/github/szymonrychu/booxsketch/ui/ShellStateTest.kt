@@ -52,4 +52,36 @@ class ShellStateTest {
         assertThat(state.selected).isEqualTo("spec")
         assertThat(state.chromeVisible).isFalse()
     }
+
+    @Test
+    fun panel_is_hidden_by_default() {
+        assertThat(ShellState().panelVisible).isFalse()
+    }
+
+    @Test
+    fun hide_hides_chrome_and_panel() {
+        val state = ShellState()
+        state.showPanel()
+        state.hide()
+        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
+    }
+
+    @Test
+    fun show_panel_does_not_show_chrome() {
+        val state = ShellState(chromeVisible = false)
+        state.showPanel()
+        assertThat(state.panelVisible).isTrue()
+        assertThat(state.chromeVisible).isFalse()
+        state.hidePanel()
+        assertThat(state.panelVisible).isFalse()
+    }
+
+    @Test
+    fun stroke_while_only_the_panel_is_visible_arms() {
+        val state = ShellState(chromeVisible = false)
+        state.showPanel()
+        state.onStrokeCommitted()
+        assertThat(state.strokeTick).isEqualTo(1)
+    }
 }

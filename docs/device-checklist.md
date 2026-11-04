@@ -60,6 +60,18 @@ Then:
 - [ ] With the dock visible, pen taps on swatches and tool chips change the selection and never
       leave ink on the toolbar.
 
+## Side panel and tap to dismiss
+
+- [ ] Launch: no panel, a small "Show panel" indicator at the right centre; tap it: the panel
+      covers the right edge (about half the width in landscape), the board is not resized.
+- [ ] With raw drawing on (ballpoint selected), a finger tap on the board hides the dock and the
+      panel at once with one GC flash; the pen draws right after. If nothing happens, finger
+      events do not reach the board view in raw mode (see MEMORY "tap to dismiss").
+- [ ] A finger tap on the panel or between toolbar buttons does not hide anything.
+- [ ] Pen strokes over the open panel and over the panel indicator draw nothing.
+- [ ] Rotate with panel and a popup open: both stay inside the screen, one GC flash, pen draws
+      right after, nothing draws under the panel.
+
 ## Export
 
 - [ ] Once Send is wired to the export (not yet on main): send a page with coloured strokes and

@@ -1,10 +1,12 @@
 package io.github.szymonrychu.booxsketch
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.board.TAG_PANEL_INDICATOR
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,6 +33,9 @@ class MainActivityEraserTest {
 
     @Test
     fun activity_shows_board_and_conversations_panel() {
+        // The panel is hidden by default since SplitLayout was removed (T-36 Q3): open it first.
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
         compose.onNodeWithText("No conversations yet. Send a sketch to start one.").assertExists()
         compose.onNodeWithText("Diagnostics").assertExists()
         compose.onNodeWithText("Undo").assertExists()

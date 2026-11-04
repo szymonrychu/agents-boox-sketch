@@ -37,6 +37,85 @@ Lessons that outlive a session. Newest first.
   all on the Note Air 6C (`SFTouchRender`). If it never arrives, the surface still syncs before
   every raw-off; add a 700 ms timer from `onEndRawDrawing` only then (one mechanism).
 
+## 2026-11-04 Pen limit spans the system bars on the full-screen board; relayout waits for overlay rects
+- The deleted test `board_bounds_passed_to_stroke_input_do_not_overlap_system_bar_insets` guarded the old
+  SplitLayout, which padded the board by the bar insets. The old code never excluded the bars explicitly; the
+  limit was just the board's own bounds. The board is now full screen by design (2026-11-03), so the Onyx limit
+  rect is the whole view and covers the bars. Bars are not excluded: the dock and panel keep clear of them via
+  insets (`board_ignores_system_bar_insets` covers that) and the OS owns bar touches itself. The test no longer applies.
+- The rotation relayout hold no longer settles after one fixed frame: it also waits for the dock (and the panel
+  when composed) to have reported non-empty rects for their current state, like `dockSettled`.
+
+## 2026-11-04 Relayout hold cannot deadlock on equal rects (fix of 7a60809)
+
+- A relayout drops the stored dock and panel rects and waits for fresh reports, but the dock and panel
+  only reported when their rects changed, so a 180 degree rotation (same rects) never released the hold.
+  `ChromeHolds.relayout` now bumps `layoutEpoch`; `ToolbarDock` and `SidePanelHost` report again on
+  every epoch change even with equal rects (`relayout_with_identical_rects_still_releases`).
+- Defence in depth: if no fresh report comes within `ChromeHolds.RELAYOUT_REPORT_TIMEOUT_MS` = 600 ms,
+  the hold is released with the rects measured before (`acceptStaleRects`) and a warning goes to the
+  log (`Log.w`, tag BoardScreen; the app's only diagnostics sink besides the Onyx fallback reason,
+  which would be misleading here). Why 600 ms: the relayout's full refresh runs 300 ms after the
+  draw (`FULL_REFRESH_DELAY_MS`, same as `RAW_CALLBACK_TIMEOUT_MS`), a healthy report takes one or two
+  frames, so 600 ms (= `AUTO_HIDE_AFTER_STROKE_MS`) never cuts a healthy wait short and a stuck hold
+  ends before the next auto-hide.
+
+## 2026-11-04 Board wave A rebased onto the documents wave (#38), pairing code (#39) and flicker fix (#40)
+
+- Documents stays a panel tab (`PanelTabs`, `documents.DOCUMENTS_TAB_ORDER` = 20) inside the side panel that
+  `AppShell` hosts over the board; it is not yet a top-level `TabRegistry` tab. Why: the Drawing tab must stay the
+  only top-level tab in PR 1 (no tab bar, `MainActivityShellTest`), and moving Documents to the tab bar is wave C.
+  `AppContainer` imports the panel order as `DOCUMENTS_PANEL_TAB_ORDER` because its companion now also declares the
+  top-level `DOCUMENTS_TAB_ORDER` = 30 for wave C, which would otherwise shadow the import.
+- An opened document (`AppContainer.openDocument`) still replaces the whole UI full screen through `DocumentHost`,
+  exactly as on main where it replaced the split layout; the shell is not composed meanwhile. `MainActivity` hoists
+  `rememberShellState()` above that switch, so closing the document returns to the board with the shell state it had
+  (panel shown on the Documents tab, chrome). Why not inside the board slot: the document screen has its own top bar
+  and close, and a future tab bar would overlay it; the full-screen switch keeps every behaviour of both sides.
+- `BoardView` keeps both the documents `background` bitmap and the board-tap detector (`onBoardTap`); the
+  tap detector only reads touch events and does not touch the raw-drawing path of #41 (no surface redraw while raw is live).
+
+## 2026-11-04 Board overlays: ChromeHolds, side panel, tap to dismiss (board wave A, PR 1)
+
+- Every overlay over the board (dock, side panel; popups next) changes state through
+  `ChromeHolds`: the first change of a burst takes one `holdUi`, each overlay reports its state
+  and rects, and the hold is released once, one frame after every awaited overlay reported the
+  requested state with non-empty rects. Why: a tap that hides dock and panel together must not
+  release after the first report and run raw drawing with the second overlay's stale rect.
+  A panel key is awaited only while a panel host is composed (no host, no report, stuck hold).
+- `ShellState.hide()` hides the panel too, so the dock's hide button, the auto-hide and a board
+  tap all hide dock and panel in one burst (`OverlayControl.hideAll`).
+- Pen taps dismiss through the stroke auto-hide, finger taps through `onBoardTap`. Why: a pen tap
+  in raw mode is a stroke. The finger tap is detected in `BoardSurfaceView.dispatchTouchEvent`,
+  before whichever touch listener the input installed (the shape drag and touch fallback inputs
+  replace the view listener and may consume the event), so the plan's window-callback fallback
+  was not needed for the listener swap. Whether the firmware still delivers finger events to the
+  view while raw drawing is on is device-only (checklist item); if it does not, feed the detector
+  from the `OnyxWithFallback` window callback mapped into view pixels.
+- The panel and the dock swallow every pointer event (`awaitEachGesture { awaitPointerEvent() }`),
+  so a tap between their buttons never falls through to the board and dismisses them.
+- SplitLayout removed 2026-11-04 (T-36 Q3): the panel is an overlay hidden by default; the board
+  is never resized, so its limit rect only changes on rotation. `SplitState`, `SplitStateStore`
+  and `split.preferences_pb` are gone; the DataStore IO scope stays as `AppContainer.storeScope`
+  for the token store. `MainActivity` hosts `AppShell` with `container.tabs` (Drawing tab,
+  order 10; Tasks 20 and Documents 30 are reserved registration points).
+- `MainActivityEraserTest.activity_shows_board_and_conversations_panel` now opens the panel via
+  its indicator first: the test asserted the always-visible split panel, which no longer exists.
+- Rotation is handled with `android:configChanges` (orientation, screen size, smallest screen
+  size, screen layout, keyboard), not by recreating the activity. Why: a recreate closes and
+  reopens the Onyx helper (first-frame gate plus GC flash, "Toolbar refresh" entry) and drops the
+  open panel state. Before the change (Robolectric, `MainActivityRotationTest`) all five rotation
+  tests failed: the activity was recreated. `BoardScreen` takes the `ChromeHolds` hold (key
+  `layout`) and asks `chromeChanged` in the activity's `OnConfigurationChangedListener`, not in a
+  composition effect. Why: the view tree is laid out with the new size before compose sees the
+  new `LocalConfiguration`, so an effect-taken hold let the board restart its input with the old
+  layout's rects while raw drawing was on; and a `chromeChanged` asked after the new layout drew
+  waits for a draw that never comes, leaving the refresher's hold on. The layout key reports one
+  frame after the new layout, the release follows through the usual settle. The board view
+  restarts the input on its own layout change listener with the new size.
+- The side panel layer is composed above the dock: the wrapped bottom dock reached the right
+  edge on small screens and swallowed the panel indicator's tap.
+
 ## 2026-11-04 Documents tab and handwritten notes (plan boox-sketch-app 3.6)
 
 - Frozen pages: a document version is paginated once into page PNGs (`AnnotationStore`, `layout.json` written last as the
@@ -459,7 +538,7 @@ Lessons that outlive a session. Newest first.
 
 - 2026-11-04 boox-pairing-code: pairing takes the server origin plus a 6-digit code (supersedes the 2026-11-03 two-field token decision). The app calls the public `POST /pair` (no Authorization header), proves the returned token with `GET /config`, then stores origin and token in the Keystore-backed `TokenStore` as before; nothing is stored on any failure. The code goes through six boxes fed by an on-screen 3x4 keypad (no IME, 72 dp keys, black borders, no ripple), Pair enables at six digits and never auto-submits (a typo would silently burn the server's 5-attempt budget per code); every failed attempt clears the digits and nothing auto-retries. `invalid_code` (400) becomes `CodeRejected` (the server gives one body for unknown, expired, used and locked), 429 becomes `RateLimited(retryAfter)`. A bare host in the origin field gets `https://` (no path, https only; debug still allows http for 127.0.0.1). No default origin is compiled in (public repo rule). `PairedDto.toString` masks the token.
 
-- 2026-11-04 stroke-flicker: a committed pen stroke redraws the board through
+- 2026-11-04 stroke-flicker (superseded by the 2026-11-04 pen ink latency entry: drawCommitted was removed): a committed pen stroke redraws the board through
   `StrokeInput.drawCommitted`, which on Onyx with raw drawing active does NOT toggle raw drawing;
   `BoardSurfaceView.show` uses it only when strokes were appended to the same page, index,
   background and preview. Why: `refresh` disables raw drawing (pen state PAUSE), which drops the

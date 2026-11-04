@@ -110,10 +110,10 @@ class AppContainerTest {
     }
 
     @Test
-    fun split_store_runs_on_its_own_io_scope() {
+    fun store_runs_on_its_own_io_scope() {
         val c = container(available = false)
-        assertThat(c.splitStoreScope.coroutineContext[ContinuationInterceptor]).isEqualTo(Dispatchers.IO)
-        assertThat(c.splitStoreScope).isNotSameInstanceAs(c.appScope)
+        assertThat(c.storeScope.coroutineContext[ContinuationInterceptor]).isEqualTo(Dispatchers.IO)
+        assertThat(c.storeScope).isNotSameInstanceAs(c.appScope)
     }
 
     @Test
