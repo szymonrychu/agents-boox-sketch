@@ -266,6 +266,10 @@ class OnyxStrokeInput(
         }
     }
 
+    override fun drawCommitted(redraw: () -> Unit) {
+        if (drawing != null && active()) redraw() else refresh(redraw)
+    }
+
     /** Raw drawing off: the SDK sends no end callback for a stroke it cuts, so the pen is no longer down. */
     private fun disable(d: RawDrawing) {
         penDown = false

@@ -101,3 +101,9 @@ Open the Documents tab (side panel), pick a document with at least one spec vers
       none", and "Raw drawing enabled" matches the selected tool after a tap on Refresh.
 - [ ] Notification shade, app switch and back: the pen draws again with the selected tool and
       colour.
+
+## Stroke flicker
+
+- [ ] Draw ten quick strokes with the ballpoint: each stays on screen the whole time, with no
+      brief vanish and reappear after the pen lifts. Then undo, erase and switch page: the
+      board shows the right ink after each (these still redraw through a raw drawing toggle).

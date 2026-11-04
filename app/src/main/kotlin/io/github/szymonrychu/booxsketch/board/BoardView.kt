@@ -76,6 +76,12 @@ internal fun needsFullRefresh(
     strokes: List<Stroke>,
 ): Boolean = prevIndex != index || (prevStrokes.isNotEmpty() && strokes.isEmpty())
 
+/** True when [new] is [old] plus at least one appended stroke (nothing removed or changed). */
+internal fun isAppend(
+    old: List<Stroke>,
+    new: List<Stroke>,
+): Boolean = new.size > old.size && new.subList(0, old.size) == old
+
 /** Pauses [input] while the activity is paused or the window lost focus; resumes when both are back. */
 class InputGate(
     private val input: StrokeInput,
@@ -131,6 +137,9 @@ class BoardSurfaceView(
     val surfaceReady: Boolean get() = ready
 
     var refresher: (() -> Unit) -> Unit = { it() }
+
+    /** Runs the redraw after strokes were only added to the shown page; see [StrokeInput.drawCommitted]. */
+    var committer: (() -> Unit) -> Unit = { it() }
     var onSurfaceCreated: () -> Unit = {}
     var onSurfaceDestroyed: () -> Unit = {}
     var onFocus: (Boolean) -> Unit = {}
@@ -161,6 +170,7 @@ class BoardSurfaceView(
         val sameBackground = background === this.background
         val samePage = page == this.page && strokes == this.strokes && index == shownIndex && sameBackground
         if (samePage && preview == this.preview) return
+        val appended = sameBackground && onlyAppended(page, strokes, index, preview)
         val full = needsFullRefresh(shownIndex, this.strokes, index, strokes) || (shownIndex != null && !sameBackground)
         val dragging = preview != null && samePage
         this.background = background
@@ -169,9 +179,17 @@ class BoardSurfaceView(
         shownIndex = index
         this.preview = preview
         if (dragging) handwritingMode()
-        redraw()
+        redraw(appended)
         if (full) fullRefresh.request()
     }
+
+    /** True when the new state differs from the shown one only by strokes added to the same page. */
+    private fun onlyAppended(
+        page: PageCanvas,
+        strokes: List<Stroke>,
+        index: Int,
+        preview: Stroke?,
+    ) = page == this.page && index == shownIndex && preview == this.preview && isAppend(this.strokes, strokes)
 
     /**
      * Shows [stroke] (view pixels) over the page right away. Null only forgets it: the stroke is
@@ -191,9 +209,9 @@ class BoardSurfaceView(
         Epd.handwritingMode(this)
     }
 
-    private fun redraw() {
+    private fun redraw(appended: Boolean = false) {
         if (!ready) return
-        refresher { draw() }
+        (if (appended) committer else refresher) { draw() }
     }
 
     private fun draw() {
@@ -289,6 +307,7 @@ fun BoardView(
             BoardSurfaceView(ctx).also { v ->
                 surface[0] = v
                 v.refresher = input::refresh
+                v.committer = input::drawCommitted
                 v.onSurfaceCreated = { startOn(v) }
                 v.onSurfaceDestroyed = { input.stop() }
                 v.onFocus = gate::setFocused
