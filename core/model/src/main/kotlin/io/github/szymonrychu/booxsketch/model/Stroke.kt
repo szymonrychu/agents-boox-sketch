@@ -2,7 +2,7 @@ package io.github.szymonrychu.booxsketch.model
 
 import kotlinx.serialization.Serializable
 
-/** One sampled pen position. Tilt is kept locally only; it is not part of the wire format. */
+/** One sampled pen position. Tilt is optional and travels in strokes.json version 3. */
 @Serializable
 data class Point(
     val x: Float,
