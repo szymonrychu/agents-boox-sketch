@@ -133,7 +133,8 @@ class CanvasStrokeRenderer(
             when (s.tool) {
                 Tool.FOUNTAIN -> s.width * (0.35f + 0.65f * pressure) to 255
                 Tool.BRUSH -> s.width * (0.2f + 0.8f * pressure) to 255
-                Tool.BALLPOINT, Tool.RECTANGLE, Tool.ARROW -> s.width to 255
+                Tool.BALLPOINT -> s.width * (BALLPOINT_MIN + (1f - BALLPOINT_MIN) * pressure) to 255
+                Tool.RECTANGLE, Tool.ARROW -> s.width to 255
                 Tool.CHARCOAL -> s.width to (110 + 100 * pressure).toInt()
                 Tool.CHARCOAL_V2 -> s.width * 1.2f to (80 + 90 * pressure).toInt()
                 Tool.MARKER -> s.width * 3f to 90
@@ -141,5 +142,13 @@ class CanvasStrokeRenderer(
         paint.strokeWidth = (w * scale).coerceAtLeast(1f)
         paint.color = s.color.argb
         paint.alpha = alpha
+    }
+
+    private companion object {
+        /**
+         * Ballpoint width at zero pressure, as a share of the stroke width. The live pencil style draws in the vendor
+         * native layer, so its curve is not in the SDK bytecode; this is a modest ramp (0.6x to 1x).
+         */
+        const val BALLPOINT_MIN = 0.6f
     }
 }

@@ -42,6 +42,32 @@ class CanvasStrokeRendererTest {
         color,
     )
 
+    private fun thickness(
+        tool: Tool,
+        pressure: Float,
+    ): Int {
+        val s = Stroke("s", tool, 20f, listOf(Point(50f, 200f, pressure, 0), Point(350f, 200f, pressure, 1)), PenColor.BLACK)
+        val bmp = render(s)
+        return (0 until 400).count { bmp.getPixel(200, it) != Color.WHITE }
+    }
+
+    @Test
+    fun ballpoint_width_follows_pressure() {
+        val full = thickness(Tool.BALLPOINT, 1f)
+        val light = thickness(Tool.BALLPOINT, 0f)
+        assertThat(full).isAtLeast(19)
+        assertThat(light).isLessThan(full)
+        assertThat(light).isAtLeast(full / 2)
+        assertThat(thickness(Tool.BALLPOINT, 0.5f)).isGreaterThan(light)
+    }
+
+    @Test
+    fun marker_and_shapes_ignore_pressure() {
+        for (tool in listOf(Tool.MARKER, Tool.RECTANGLE, Tool.ARROW)) {
+            assertThat(thickness(tool, 0f)).isEqualTo(thickness(tool, 1f))
+        }
+    }
+
     @Test
     fun red_ballpoint_pixels_are_red() {
         val px = render(line(Tool.BALLPOINT, PenColor.RED)).getPixel(200, 200)

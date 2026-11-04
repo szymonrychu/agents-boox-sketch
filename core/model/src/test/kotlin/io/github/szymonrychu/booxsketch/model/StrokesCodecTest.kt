@@ -34,13 +34,40 @@ class StrokesCodecTest {
     }
 
     @Test
-    fun decode_encode_roundtrip_without_tilt() {
+    fun decode_encode_roundtrip_keeps_tilt() {
         val bytes = StrokesCodec.encode(canvas, page)
         val (c, strokes) = StrokesCodec.decode(bytes)
         assertThat(c).isEqualTo(canvas)
         assertThat(strokes.map { it.tool }).containsExactly(Tool.FOUNTAIN, Tool.RECTANGLE, Tool.ARROW).inOrder()
-        assertThat(strokes.flatMap { it.points }.all { it.tiltX == null && it.tiltY == null }).isTrue()
+        assertThat(strokes[0].points[0].tiltX).isEqualTo(0.1f)
+        assertThat(strokes[0].points[0].tiltY).isEqualTo(0.1f)
+        assertThat(strokes[0].points[1].tiltX).isNull()
+        assertThat(strokes[0].points[1].tiltY).isNull()
         assertThat(StrokesCodec.encode(c, Page(strokes, true))).isEqualTo(bytes)
+    }
+
+    @Test
+    fun tilt_is_appended_only_when_reported_and_a_missing_axis_is_zero() {
+        val one = Page(listOf(Stroke("a", Tool.BALLPOINT, 4f, listOf(Point(1f, 2f, 0.5f, 0, 0.25f, null), Point(3f, 4f, 0.5f, 5)))), true)
+        val text = String(StrokesCodec.encode(canvas, one))
+        assertThat(text).contains("[1.0,2.0,0.5,0,0.25,0.0],[3.0,4.0,0.5,5]")
+        val pts = StrokesCodec.decode(text.toByteArray()).second[0].points
+        assertThat(pts[0].tiltY).isEqualTo(0f)
+        assertThat(pts[1].tiltX).isNull()
+    }
+
+    @Test
+    fun version_2_without_tilt_still_decodes() {
+        val bytes = doc(2, """{"tool":"fountain","color":"black","width":1.0,"points":$pts2}""")
+        val pts = StrokesCodec.decode(bytes).second[0].points
+        assertThat(pts).hasSize(2)
+        assertThat(pts[0].tiltX).isNull()
+    }
+
+    @Test
+    fun point_with_five_values_rejected() {
+        val bytes = doc(stroke = """{"tool":"fountain","color":"black","width":1.0,"points":[[0,0,1,0,0.5]]}""")
+        assertThrows(IllegalArgumentException::class.java) { StrokesCodec.decode(bytes) }
     }
 
     @Test
@@ -50,7 +77,7 @@ class StrokesCodecTest {
     }
 
     private fun doc(
-        version: Int = 2,
+        version: Int = 3,
         stroke: String,
     ) = """{"version":$version,"canvas":{"w":1,"h":1,"dpi":1.0},"strokes":[$stroke]}""".toByteArray()
 

@@ -233,3 +233,14 @@ with its exception.
       page updates once, without a flash on unchanged pages.
 - [ ] Revoke the device on the web Devices page, then tap anything in Tasks: the pairing screen
       appears.
+
+## Tilt and ballpoint pressure
+
+- [ ] Draw a stroke with the pen held tilted, send the page, and open the uploaded strokes
+      file (connector attachment): points carry six values [x, y, pressure, t, tiltX, tiltY]
+      and the file says version 3. A stroke drawn with a finger has four values per point.
+- [ ] Ballpoint redraw: write a line pressing lightly and then hard. After undo and redo (or a
+      page switch and back) the redrawn stroke narrows where the live ink was light; compare
+      the light part against the live ink. If the redraw is clearly thinner or fatter than the
+      live ink, the 0.6x-1x ramp (`BALLPOINT_MIN`) needs tuning.
+- [ ] Marker, rectangle and arrow redraw at a constant width as before.

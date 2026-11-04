@@ -14,9 +14,14 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
-/** strokes.json wire format, version 2. Point times are relative to the first point of the page; tilt is dropped. */
+/**
+ * strokes.json wire format, version 3. Point times are relative to the first point of the page.
+ * A point is [x, y, pressure, t] and, when the pen reported tilt, [x, y, pressure, t, tiltX, tiltY]
+ * (a missing axis is written as 0). Version 2 files (4 values per point) still decode.
+ */
 object StrokesCodec {
-    private const val VERSION = 2
+    private const val VERSION = 3
+    private const val VERSION_NO_TILT = 2
 
     fun encode(
         canvas: Canvas,
@@ -52,16 +57,18 @@ object StrokesCodec {
                                         "points",
                                         buildJsonArray {
                                             s.points.forEach { p ->
-                                                add(
-                                                    JsonArray(
-                                                        listOf(
-                                                            JsonPrimitive(p.x),
-                                                            JsonPrimitive(p.y),
-                                                            JsonPrimitive(p.pressure),
-                                                            JsonPrimitive(p.tMs - t0),
-                                                        ),
-                                                    ),
-                                                )
+                                                val values =
+                                                    mutableListOf(
+                                                        JsonPrimitive(p.x),
+                                                        JsonPrimitive(p.y),
+                                                        JsonPrimitive(p.pressure),
+                                                        JsonPrimitive(p.tMs - t0),
+                                                    )
+                                                if (p.tiltX != null || p.tiltY != null) {
+                                                    values += JsonPrimitive(p.tiltX ?: 0f)
+                                                    values += JsonPrimitive(p.tiltY ?: 0f)
+                                                }
+                                                add(JsonArray(values))
                                             }
                                         },
                                     )
@@ -78,7 +85,7 @@ object StrokesCodec {
     fun decode(bytes: ByteArray): Pair<Canvas, List<Stroke>> {
         try {
             val root = Json.parseToJsonElement(String(bytes, Charsets.UTF_8)).jsonObject
-            require(root.getValue("version").jsonPrimitive.int == VERSION) { "unsupported version" }
+            require(root.getValue("version").jsonPrimitive.int in VERSION_NO_TILT..VERSION) { "unsupported version" }
             val c = root.getValue("canvas").jsonObject
             val canvas = Canvas(c.getValue("w").jsonPrimitive.int, c.getValue("h").jsonPrimitive.int, c.getValue("dpi").jsonPrimitive.float)
             val strokes =
@@ -91,8 +98,15 @@ object StrokesCodec {
                     val pts =
                         o.getValue("points").jsonArray.map { pe ->
                             val a = pe.jsonArray
-                            require(a.size == 4) { "point needs 4 values" }
-                            Point(a[0].jsonPrimitive.float, a[1].jsonPrimitive.float, a[2].jsonPrimitive.float, a[3].jsonPrimitive.long)
+                            require(a.size == 4 || a.size == 6) { "point needs 4 or 6 values" }
+                            Point(
+                                a[0].jsonPrimitive.float,
+                                a[1].jsonPrimitive.float,
+                                a[2].jsonPrimitive.float,
+                                a[3].jsonPrimitive.long,
+                                a.getOrNull(4)?.jsonPrimitive?.float,
+                                a.getOrNull(5)?.jsonPrimitive?.float,
+                            )
                         }
                     require(!tool.isShape || pts.size == 2) { "shape needs exactly 2 points" }
                     Stroke("s$i", tool, o.getValue("width").jsonPrimitive.float, pts, color)
