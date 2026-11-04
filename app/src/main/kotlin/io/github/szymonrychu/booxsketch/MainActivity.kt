@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
                 val openDoc by container.openDocument.collectAsState()
                 val doc = openDoc
                 if (doc != null) {
-                    DocumentHost(container, doc)
+                    DocumentHost(container, doc, input)
                 } else {
                     SplitLayout(
                         board = {

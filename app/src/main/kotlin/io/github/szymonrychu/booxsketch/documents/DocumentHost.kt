@@ -11,13 +11,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import io.github.szymonrychu.booxsketch.AppContainer
+import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import kotlinx.coroutines.launch
 
-/** Shows the document [row] full screen until Close; owns its view model. */
+/** Shows the document [row] full screen until Close; owns its view model. [input] is the pen input shared with the board. */
 @Composable
 fun DocumentHost(
     container: AppContainer,
     row: DocumentRow,
+    input: StrokeInput,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -32,6 +34,8 @@ fun DocumentHost(
         SourcesScreen(items, onClose = { showSources = false })
         return
     }
+    val turner = remember(vm, input) { PageTurner(input, { delta -> if (delta > 0) vm.next() else vm.prev() }, ::awaitFrames) }
+    val inkable = !state.readOnly
     DocumentScreen(
         title = row.title,
         state = state,
@@ -46,7 +50,28 @@ fun DocumentHost(
             }
         },
         onSources = { showSources = true },
-        onPrev = vm::prev,
-        onNext = vm::next,
+        onPrev = { if (inkable) scope.launch { turner.turn(-1) } else vm.prev() },
+        onNext = { if (inkable) scope.launch { turner.turn(1) } else vm.next() },
+        pageArea = { modifier ->
+            DocumentPageArea(
+                conversationLocalId = row.conversationLocalId,
+                state = state,
+                layout = container.documentLayout,
+                ink = container.documentInk,
+                input = input,
+                turner = turner,
+                onFingerSwipe = { container.inputSelector.onFingerSwipe = it },
+                setEraser = container::setEraser,
+                onSendNotes = {},
+                modifier = modifier,
+                onReadOnlySwipe = { dir ->
+                    if (dir == SwipeDir.NEXT) {
+                        vm.next()
+                    } else if (dir == SwipeDir.PREV) {
+                        vm.prev()
+                    }
+                },
+            )
+        },
     )
 }

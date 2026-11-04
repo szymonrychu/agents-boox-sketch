@@ -48,7 +48,8 @@ fun BoardScreen(
     overlays: List<Rect> = emptyList(),
     chrome: BoardChrome? = null,
     background: Bitmap? = null,
-) = BoardScreenWith(vm, input, modifier, setEraser, onSend, overlays, chrome, background = background)
+    toolbar: ToolbarOptions = ToolbarOptions(),
+) = BoardScreenWith(vm, input, modifier, setEraser, onSend, overlays, chrome, background = background, toolbarOptions = toolbar)
 
 /** Arguments of the dock slot of [BoardScreenWith]; the default slot is [ToolbarDock]. */
 internal class DockParams(
@@ -81,6 +82,7 @@ internal fun BoardScreenWith(
     chrome: BoardChrome? = null,
     dock: DockContent = DefaultDock,
     background: Bitmap? = null,
+    toolbarOptions: ToolbarOptions = ToolbarOptions(),
 ) {
     val notebook by vm.notebook.collectAsState()
     val tool by vm.tool.collectAsState()
@@ -164,7 +166,7 @@ internal fun BoardScreenWith(
                     onExcludeChange = { dockReport = DockReport(dockVisible, it) },
                     rememberedDockSize = chrome?.dockSize,
                     onDockSize = { chrome?.dockSize = it },
-                    toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui) },
+                    toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui, options = toolbarOptions) },
                 ),
             )
         }

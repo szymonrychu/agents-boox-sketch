@@ -61,6 +61,12 @@ private val CHIP_MIN_HEIGHT = 48.dp
 /** Test tag of the swatch for [color]. */
 internal fun colorTag(color: PenColor) = "color_${color.wire}"
 
+/** What differs on a document page: no page strip (pages are the document's) and its own Send label. */
+data class ToolbarOptions(
+    val pageControls: Boolean = true,
+    val sendLabel: String = "Send",
+)
+
 /**
  * Tools (pens, rectangle, arrow), colour swatches, width, eraser, undo, redo, clear, page strip, caption and Send. [onSend] gets
  * `all = false` on tap (changed pages only, D47 B) and `all = true` from the long-press
@@ -74,6 +80,7 @@ fun BoardToolbar(
     modifier: Modifier = Modifier,
     onSend: (all: Boolean, caption: String?) -> Unit = { _, _ -> },
     ui: UiRefresh = UiRefresh.None,
+    options: ToolbarOptions = ToolbarOptions(),
 ) {
     val notebook by vm.notebook.collectAsState()
     val tool by vm.tool.collectAsState()
@@ -92,15 +99,17 @@ fun BoardToolbar(
         }
         ColorRow(vm, ui)
         EditRow(vm, ui)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = ui.act { vm.selectPage(notebook.current - 1) }, enabled = notebook.current > 0) { Text("Previous") }
-            Text("page ${notebook.current + 1} of $pageCount", Modifier.testTag(TAG_PAGE_LABEL))
-            TextButton(
-                onClick = ui.act { vm.selectPage(notebook.current + 1) },
-                enabled = notebook.current < pageCount - 1,
-            ) { Text("Next") }
-            TextButton(onClick = ui.act(vm::addPage)) { Text("Add page") }
-            TextButton(onClick = ui.act { vm.deletePage(notebook.current) }) { Text("Delete page") }
+        if (options.pageControls) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = ui.act { vm.selectPage(notebook.current - 1) }, enabled = notebook.current > 0) { Text("Previous") }
+                Text("page ${notebook.current + 1} of $pageCount", Modifier.testTag(TAG_PAGE_LABEL))
+                TextButton(
+                    onClick = ui.act { vm.selectPage(notebook.current + 1) },
+                    enabled = notebook.current < pageCount - 1,
+                ) { Text("Next") }
+                TextButton(onClick = ui.act(vm::addPage)) { Text("Add page") }
+                TextButton(onClick = ui.act { vm.deletePage(notebook.current) }) { Text("Delete page") }
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
@@ -113,7 +122,11 @@ fun BoardToolbar(
                 modifier = Modifier.weight(1f),
             )
             Box {
-                SendButton(onTap = { onSend(false, caption.ifBlank { null }) }, onLongPress = ui.act { menu = true })
+                SendButton(
+                    options.sendLabel,
+                    onTap = { onSend(false, caption.ifBlank { null }) },
+                    onLongPress = ui.act { menu = options.pageControls },
+                )
                 DropdownMenu(expanded = menu, onDismissRequest = ui.act { menu = false }) {
                     DropdownMenuItem(
                         text = { Text(SEND_ALL_LABEL) },
@@ -234,6 +247,7 @@ private fun EditRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SendButton(
+    label: String,
     onTap: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -246,6 +260,6 @@ private fun SendButton(
             .combinedClickable(onClick = onTap, onLongClick = onLongPress)
             .padding(horizontal = 24.dp, vertical = 12.dp),
     ) {
-        Text("Send", color = MaterialTheme.colorScheme.onPrimary)
+        Text(label, color = MaterialTheme.colorScheme.onPrimary)
     }
 }
