@@ -2,6 +2,19 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-04 Fountain redraw keeps the live width (boox-fountain, fix/fountain-width)
+
+- Device report on v0.12.1, verbatim: "fountain gets thiner after redraw, but besides that it's all
+  fixed (the rest of the tools don't change after redraw)". The SDK pens run on the device now.
+- Cause: PR #51's `width - 3` (min 0) before `createNeoPenV2`. Bytecode (FountainShapes.javap):
+  `config.width = width + 3.0f / scale` (`FOUNTAIN_PEN_V1_COMPENSATION`, scale = the 6th float arg,
+  our DISPLAY_SCALE 1), so the SDK itself adds 3 px and that is the width the live ink has. Our
+  subtraction was a guess ("live raw ink has no addition") and the device disproved it.
+- Fix: `fountainWidth` returns the BrushMapping width unchanged. Only fountain changed. The test
+  `the_fountain_width_cancels_the_3_px_that_create_neo_pen_v2_adds` asserted width-3 and is no
+  longer accurate; replaced by `the_fountain_redraw_width_is_the_live_width_unchanged`. Checklist
+  line under "Redrawn strokes are not squished" tightened.
+
 ## 2026-11-04 Redraw with the device pen settings, reset the e-ink mode (boox-squish)
 
 - Device report on v0.11.4, all tools: "Tools before redraw look right, then look squished". The
@@ -41,8 +54,7 @@ Lessons that outlive a session. Newest first.
   live raw ink is sized by `TouchHelper.setStrokeWidth(BrushMapping.width)`, which
   `RawInputReader.setStrokeWidth` hands unchanged to the native renderer (no addition in the Java
   code); the demo itself passes the same px to both and so redraws 3 px wider than it inks. We hand
-  `createNeoPenV2` `width - 3` (min 0) so the redraw equals the live width; a width under 3 px
-  redraws at 3. Unverified on the device whether the native live ink adds its own amount.
+  `createNeoPenV2` `width - 3` (min 0) (SUPERSEDED, see the boox-fountain entry below: wrong).
 - Charcoal screen matrix as the demo's `RendererUtils.getPointMatrix`: a translation to the view's
   screen position (`getLocationOnScreen`), mapped with `NeoPenUtils.mapToPenCanvas` and back with
   `mapFromPenCanvas`. The document view (not touched here, another branch owns it) keeps origin 0,0.

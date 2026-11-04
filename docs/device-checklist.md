@@ -216,6 +216,9 @@ with its exception.
       problem; look at the SDK pen redraw instead.
 - [ ] Fountain width: at the same selected width, the committed fountain stroke is as wide as the
       live ink was (not about 3 px fatter).
+- [ ] Fountain width after redraw (v0.12.1 report "fountain gets thiner after redraw"): draw a
+      fountain stroke, then undo and redo (or switch page and back): it keeps the width it had
+      while drawing, neither thinner nor fatter; the other tools stay unchanged.
 
 ## Tasks tab
 

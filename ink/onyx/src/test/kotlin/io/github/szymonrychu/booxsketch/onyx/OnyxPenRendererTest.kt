@@ -162,9 +162,8 @@ class OnyxPenRendererTest {
     }
 
     @Test
-    fun the_fountain_width_cancels_the_3_px_that_create_neo_pen_v2_adds() {
-        val table = mapOf(10f to 7f, 3f to 0f, 1f to 0f, 4.5f to 1.5f)
-        for ((live, handed) in table) assertThat(fountainWidth(live)).isEqualTo(handed)
+    fun the_fountain_redraw_width_is_the_live_width_unchanged() {
+        for (live in listOf(10f, 4.5f, 3f, 1f, 0f)) assertThat(fountainWidth(live)).isEqualTo(live)
     }
 
     @Test
