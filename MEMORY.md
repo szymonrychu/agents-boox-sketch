@@ -37,6 +37,21 @@ Lessons that outlive a session. Newest first.
   all on the Note Air 6C (`SFTouchRender`). If it never arrives, the surface still syncs before
   every raw-off; add a 700 ms timer from `onEndRawDrawing` only then (one mechanism).
 
+## 2026-11-04 Board wave A rebased onto the documents wave (#38), pairing code (#39) and flicker fix (#40)
+
+- Documents stays a panel tab (`PanelTabs`, `documents.DOCUMENTS_TAB_ORDER` = 20) inside the side panel that
+  `AppShell` hosts over the board; it is not yet a top-level `TabRegistry` tab. Why: the Drawing tab must stay the
+  only top-level tab in PR 1 (no tab bar, `MainActivityShellTest`), and moving Documents to the tab bar is wave C.
+  `AppContainer` imports the panel order as `DOCUMENTS_PANEL_TAB_ORDER` because its companion now also declares the
+  top-level `DOCUMENTS_TAB_ORDER` = 30 for wave C, which would otherwise shadow the import.
+- An opened document (`AppContainer.openDocument`) still replaces the whole UI full screen through `DocumentHost`,
+  exactly as on main where it replaced the split layout; the shell is not composed meanwhile. `MainActivity` hoists
+  `rememberShellState()` above that switch, so closing the document returns to the board with the shell state it had
+  (panel shown on the Documents tab, chrome). Why not inside the board slot: the document screen has its own top bar
+  and close, and a future tab bar would overlay it; the full-screen switch keeps every behaviour of both sides.
+- `BoardView` keeps both the documents `background` bitmap and the board-tap detector (`onBoardTap`); the
+  `drawCommitted` path for pure appends (#40) is untouched by the tap detector, which only reads touch events.
+
 ## 2026-11-04 Board overlays: ChromeHolds, side panel, tap to dismiss (board wave A, PR 1)
 
 - Every overlay over the board (dock, side panel; popups next) changes state through
