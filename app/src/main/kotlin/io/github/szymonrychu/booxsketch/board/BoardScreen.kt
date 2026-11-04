@@ -155,8 +155,8 @@ internal fun BoardScreenWith(
             // A finger tap on the board dismisses every overlay in one burst.
             onBoardTap = { control.dismissAll(ui) },
         )
-        // The board ignores system bars; the panel and the dock keep clear of them. The dock is drawn on top.
-        if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
+        // The board ignores system bars; the dock and the panel keep clear of them. The panel is drawn on top:
+        // its indicator must stay reachable even where a tall (wrapped) dock reaches the right edge.
         val dockArea = Modifier.fillMaxSize()
         Box(if (chrome == null) dockArea else dockArea.windowInsetsPadding(chrome.insets.only(DOCK_INSET_SIDES))) {
             dock(
@@ -172,6 +172,7 @@ internal fun BoardScreenWith(
                 ),
             )
         }
+        if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
     }
     // Settled: this composition hands BoardView the exclude list of every overlay state that was asked for.
     val settled = holds.settled

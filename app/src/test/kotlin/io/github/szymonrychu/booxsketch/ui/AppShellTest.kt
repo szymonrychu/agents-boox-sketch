@@ -242,7 +242,8 @@ abstract class AppShellTestBase {
         }
         compose.mainClock.autoAdvance = false
         strokeCommitted()
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 1)
+        // advanceTimeBy rounds up to whole frames and the timer starts on the first frame after the commit.
+        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
         assertThat(chrome!!.panelVisible).isFalse()
         assertThat(state.chromeVisible).isFalse()
     }
