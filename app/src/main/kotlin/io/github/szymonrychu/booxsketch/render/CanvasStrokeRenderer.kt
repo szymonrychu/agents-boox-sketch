@@ -76,7 +76,7 @@ class CanvasStrokeRenderer : StrokeRenderer {
         dx: Float,
         dy: Float,
     ) {
-        style(s, s.points.first())
+        style(s, s.points.first(), scale)
         if (s.tool == Tool.RECTANGLE) {
             val r = rectOf(s)
             canvas.drawRect(r.l * scale + dx, r.t * scale + dy, r.r * scale + dx, r.b * scale + dy, paint)

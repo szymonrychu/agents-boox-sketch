@@ -18,11 +18,14 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35])
 class CanvasStrokeRendererTest {
-    private fun render(s: Stroke): Bitmap {
+    private fun render(
+        s: Stroke,
+        scale: Float = 1f,
+    ): Bitmap {
         val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.drawColor(Color.WHITE)
-        CanvasStrokeRenderer().draw(c, listOf(s), 1f, 0f, 0f)
+        CanvasStrokeRenderer().draw(c, listOf(s), scale, 0f, 0f)
         return bmp
     }
 
@@ -93,5 +96,41 @@ class CanvasStrokeRendererTest {
     fun black_default_unchanged() {
         val s = Stroke("b", Tool.BALLPOINT, 10f, listOf(Point(50f, 200f, 1f, 0), Point(350f, 200f, 1f, 1)))
         assertThat(render(s).getPixel(200, 200)).isEqualTo(Color.BLACK)
+    }
+
+    @Test
+    fun rectangle_stroke_width_scales_with_canvas() {
+        val s =
+            Stroke(
+                "r",
+                Tool.RECTANGLE,
+                6f,
+                listOf(Point(50f, 50f, 1f, 0), Point(150f, 150f, 1f, 1)),
+                PenColor.BLUE,
+            )
+        val bmp = render(s, 2f)
+        // top edge at y=100, 12 px thick: 94..105
+        assertThat(bmp.getPixel(200, 95)).isEqualTo(PenColor.BLUE.argb)
+        assertThat(bmp.getPixel(200, 104)).isEqualTo(PenColor.BLUE.argb)
+        assertThat(bmp.getPixel(200, 90)).isEqualTo(Color.WHITE)
+        assertThat(bmp.getPixel(200, 108)).isEqualTo(Color.WHITE)
+    }
+
+    @Test
+    fun arrow_shaft_width_scales_with_canvas() {
+        val s =
+            Stroke(
+                "a",
+                Tool.ARROW,
+                6f,
+                listOf(Point(25f, 100f, 1f, 0), Point(175f, 100f, 1f, 1)),
+                PenColor.GREEN,
+            )
+        val bmp = render(s, 2f)
+        // shaft at y=200, 12 px thick: 194..205
+        assertThat(bmp.getPixel(150, 195)).isEqualTo(PenColor.GREEN.argb)
+        assertThat(bmp.getPixel(150, 204)).isEqualTo(PenColor.GREEN.argb)
+        assertThat(bmp.getPixel(150, 190)).isEqualTo(Color.WHITE)
+        assertThat(bmp.getPixel(150, 208)).isEqualTo(Color.WHITE)
     }
 }
