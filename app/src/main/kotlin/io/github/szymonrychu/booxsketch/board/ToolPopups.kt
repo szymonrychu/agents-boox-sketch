@@ -1,3 +1,6 @@
+// one small composable per popup and widget
+@file:Suppress("TooManyFunctions")
+
 package io.github.szymonrychu.booxsketch.board
 
 import androidx.compose.foundation.Canvas

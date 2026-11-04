@@ -1,3 +1,6 @@
+// one small draw function per glyph; IconKind and ToolIcon belong together
+@file:Suppress("TooManyFunctions", "MatchingDeclarationName")
+
 package io.github.szymonrychu.booxsketch.board
 
 import androidx.compose.foundation.Canvas

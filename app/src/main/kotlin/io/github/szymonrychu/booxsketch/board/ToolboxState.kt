@@ -9,6 +9,8 @@ import io.github.szymonrychu.booxsketch.model.Tool
 /** What a popup next to the tool strip is about. PEN, ERASER and SHAPE belong to the selected tool. */
 enum class ToolPopup { PEN, ERASER, SHAPE, COLOUR, PAGES, SEND }
 
+private val ToolPopup.toolBound: Boolean get() = this == ToolPopup.PEN || this == ToolPopup.ERASER || this == ToolPopup.SHAPE
+
 /** What a tap on a strip button asks of the caller. */
 enum class TapResult {
     /** An unselected tool was tapped: select it, no popup. */
@@ -45,17 +47,24 @@ class ToolboxState(
         if (target != popup) gate(target) { popup = target }
     }
 
+    /** The popup a tap on [target] leads to (null: none), without changing anything. */
+    fun popupAfterTap(
+        target: ToolPopup,
+        alreadySelected: Boolean,
+    ): ToolPopup? =
+        when {
+            target.toolBound && !alreadySelected -> null
+            popup == target -> null
+            else -> target
+        }
+
     fun tap(
         target: ToolPopup,
         alreadySelected: Boolean,
     ): TapResult {
-        val toolBound = target == ToolPopup.PEN || target == ToolPopup.ERASER || target == ToolPopup.SHAPE
-        if (toolBound && !alreadySelected) {
-            set(null)
-            return TapResult.SelectOnly
-        }
-        set(if (popup == target) null else target)
-        return TapResult.TogglePopup
+        val next = popupAfterTap(target, alreadySelected)
+        set(next)
+        return if (target.toolBound && !alreadySelected) TapResult.SelectOnly else TapResult.TogglePopup
     }
 
     fun close() = set(null)
@@ -63,7 +72,6 @@ class ToolboxState(
     /** The selected tool kind changed: closes the popup of a tool that is no longer selected. */
     fun onToolChanged(selected: ToolPopup?) {
         val p = popup ?: return
-        val toolBound = p == ToolPopup.PEN || p == ToolPopup.ERASER || p == ToolPopup.SHAPE
-        if (toolBound && p != selected) set(null)
+        if (p.toolBound && p != selected) set(null)
     }
 }

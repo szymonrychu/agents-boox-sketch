@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,6 +28,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import androidx.core.content.OnConfigurationChangedProvider
@@ -42,7 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Full-screen board with the toolbar dock overlaid at the bottom. [chrome] carries the shell state
+ * Full-screen board with the tool strip dock overlaid on the left edge (popups to its right). [chrome] carries the shell state
  * (dock visibility, tab bar rects, stroke feedback); null, as in previews and tests, keeps the dock
  * always visible. [setEraser] mirrors the eraser toggle into inputs that need it.
  * [overlays] are window-coordinate rects of anything drawn over the board; they and the toolbar
@@ -77,7 +79,8 @@ fun BoardScreen(
     panel = panel,
 )
 
-/** Arguments of the dock slot of [BoardScreenWith]; the default slot is [ToolbarDock]. */
+/** Arguments of the dock slot of [BoardScreenWith]; the default slot is [ToolboxDock]. */
+@Suppress("LongParameterList")
 internal class DockParams(
     val visible: Boolean,
     val onShow: () -> Unit,
@@ -87,13 +90,30 @@ internal class DockParams(
     val rememberedDockSize: IntSize?,
     val onDockSize: (IntSize) -> Unit,
     val layoutEpoch: Int,
-    val toolbar: @Composable () -> Unit,
+    val onPopupExcludeChange: (List<Rect>) -> Unit,
+    val popup: ToolPopup?,
+    val popupAnchorY: Float,
+    val strip: @Composable () -> Unit,
+    val popupContent: @Composable () -> Unit,
 )
 
 internal typealias DockContent = @Composable BoxScope.(DockParams) -> Unit
 
 private val DefaultDock: DockContent = { p ->
-    ToolbarDock(p.visible, p.onShow, p.onHide, p.ui, p.onExcludeChange, p.rememberedDockSize, p.onDockSize, p.layoutEpoch, p.toolbar)
+    ToolboxDock(
+        p.visible,
+        p.onShow,
+        p.ui,
+        p.onExcludeChange,
+        p.onPopupExcludeChange,
+        p.rememberedDockSize,
+        p.onDockSize,
+        p.popup,
+        p.popupAnchorY,
+        p.layoutEpoch,
+        p.strip,
+        p.popupContent,
+    )
 }
 
 /** [BoardScreen] with the dock replaceable, so tests can drive the dock's exclude reports. */
@@ -136,8 +156,13 @@ internal fun BoardScreenWith(
             holds.release()
         }
     }
+    // A popup open or close holds raw drawing like a dock change: until the popup rect is (not) in the excludes.
+    val toolbox =
+        remember(holds) {
+            ToolboxState { target, apply -> holds.change(POPUP_KEY, target != null, needsRects = target != null, apply = apply) }
+        }
     val dockVisible = chrome?.visible ?: true
-    val control = OverlayControl(chrome, holds, hasPanel = panel != null)
+    val control = OverlayControl(chrome, holds, toolbox, hasPanel = panel != null)
     // Auto-hide goes through the same hold and full refresh as a tap; it is refused while a stroke is in progress
     // (the hold restarts the input and would drop that stroke), and the shell retries after the next quiet gap.
     DisposableEffect(chrome, input, ui) {
@@ -151,6 +176,7 @@ internal fun BoardScreenWith(
         }
         onDispose { chrome?.autoHideHandler = null }
     }
+    val popup = toolbox.popup
     val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(
@@ -170,10 +196,18 @@ internal fun BoardScreenWith(
             // A finger tap on the board dismisses every overlay in one burst.
             onBoardTap = { control.dismissAll(ui) },
         )
-        // The board ignores system bars; the dock and the panel keep clear of them. The panel is drawn on top:
-        // its indicator must stay reachable even where a tall (wrapped) dock reaches the right edge.
+        // The board ignores system bars; the dock and the panel keep clear of them. The strip also starts below
+        // the tab bar (which spans the top edge while the chrome is visible). The panel is drawn on top.
         val dockArea = Modifier.fillMaxSize()
-        Box(if (chrome == null) dockArea else dockArea.windowInsetsPadding(chrome.insets.only(DOCK_INSET_SIDES))) {
+        val density = LocalDensity.current
+        Box(
+            if (chrome == null) {
+                dockArea
+            } else {
+                val below = maxOf(chrome.insets.getTop(density), chrome.overlays.maxOfOrNull { it.bottom } ?: 0)
+                dockArea.windowInsetsPadding(chrome.insets.only(DOCK_INSET_SIDES)).padding(top = with(density) { below.toDp() })
+            },
+        ) {
             dock(
                 DockParams(
                     visible = dockVisible,
@@ -184,13 +218,27 @@ internal fun BoardScreenWith(
                     rememberedDockSize = chrome?.dockSize,
                     onDockSize = { chrome?.dockSize = it },
                     layoutEpoch = holds.layoutEpoch,
-                    toolbar = { BoardToolbar(vm, onSend = onSend, ui = ui, options = toolbarOptions) },
+                    onPopupExcludeChange = { holds.report(POPUP_KEY, popup != null, it) },
+                    popup = popup,
+                    popupAnchorY = toolbox.anchorY,
+                    strip = {
+                        ToolStrip(
+                            vm,
+                            toolbox,
+                            onHide = control::hideAll,
+                            ui = ui,
+                            options = toolbarOptions,
+                        )
+                    },
+                    popupContent = {
+                        popup?.let { ToolPopupContent(it, vm, toolbox, onSend, ui, options = toolbarOptions) }
+                    },
                 ),
             )
         }
         if (panel != null) PanelLayer(chrome, control, ui, holds, panel)
     }
-    RelayoutOnConfigurationChange(holds, ui, chrome, hasPanel = panel != null)
+    RelayoutOnConfigurationChange(holds, ui, chrome, hasPanel = panel != null, onLayoutChange = toolbox::close)
     // Settled: this composition hands BoardView the exclude list of every overlay state that was asked for.
     val settled = holds.settled
     LaunchedEffect(settled, exclude) {
@@ -216,6 +264,7 @@ private fun RelayoutOnConfigurationChange(
     ui: UiRefresh,
     chrome: BoardChrome?,
     hasPanel: Boolean,
+    onLayoutChange: () -> Unit,
 ) {
     val context = LocalContext.current
     val provider = context.findConfigurationProvider() ?: return
@@ -224,6 +273,7 @@ private fun RelayoutOnConfigurationChange(
     var changes by remember { mutableIntStateOf(0) }
     val latestChrome by rememberUpdatedState(chrome)
     val latestHasPanel by rememberUpdatedState(hasPanel)
+    val latestOnLayoutChange by rememberUpdatedState(onLayoutChange)
     DisposableEffect(provider, holds, ui) {
         var seen = current
         val listener =
@@ -232,6 +282,8 @@ private fun RelayoutOnConfigurationChange(
                 if (layout != seen) {
                     seen = layout
                     ui.chromeChanged()
+                    // The popup is anchored to a strip button of the old layout: it closes (same burst, same hold).
+                    latestOnLayoutChange()
                     holds.report(LAYOUT_KEY, false, emptyList())
                     // Rects reported for the old layout are stale: settle only on reports from the new one.
                     // The epoch makes the dock and the panel report again even when their rects are equal.
@@ -284,6 +336,7 @@ private tailrec fun Context.findConfigurationProvider(): OnConfigurationChangedP
 private class OverlayControl(
     private val chrome: BoardChrome?,
     private val holds: ChromeHolds,
+    private val toolbox: ToolboxState,
     private val hasPanel: Boolean,
 ) {
     val anyVisible: Boolean get() = chrome != null && (chrome.visible || chrome.panelVisible)
@@ -312,7 +365,10 @@ private class OverlayControl(
     fun hideAll() {
         if (chrome == null) return
         val panelWasVisible = chrome.panelVisible
-        if (chrome.visible) change(DOCK_KEY, true, false) { chrome.hide() }
+        if (chrome.visible) {
+            toolbox.close()
+            change(DOCK_KEY, true, false) { chrome.hide() }
+        }
         if (panelWasVisible) hidePanel()
     }
 }
@@ -341,12 +397,13 @@ private fun BoxScope.PanelLayer(
     }
 }
 
-private val DOCK_INSET_SIDES = WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
+private val DOCK_INSET_SIDES = WindowInsetsSides.Bottom + WindowInsetsSides.Start
 
 private val PANEL_INSET_SIDES = WindowInsetsSides.Vertical + WindowInsetsSides.End
 
 private const val DOCK_KEY = "dock"
 private const val PANEL_KEY = "panel"
+private const val POPUP_KEY = "popup"
 private const val LAYOUT_KEY = "layout"
 private const val TAG = "BoardScreen"
 

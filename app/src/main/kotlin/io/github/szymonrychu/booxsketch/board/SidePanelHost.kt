@@ -59,7 +59,7 @@ internal fun panelWidthFraction(
 
 /**
  * The side panel as an overlay on the right edge of the board, full height of this box; hidden it
- * collapses to a 48 dp indicator at the right centre. Like [ToolbarDock], every show or hide tells
+ * collapses to a 48 dp indicator at the right centre. Like [ToolboxDock], every show or hide tells
  * [ui] first (hold, full refresh) and then flips the state, and [onExcludeChange] gets the pen
  * exclude rects (window px): the panel while [visible], the indicator otherwise. The panel rect is
  * estimated from the parent size until measured, so the first frame already excludes it. Taps on

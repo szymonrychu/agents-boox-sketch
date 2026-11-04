@@ -4,16 +4,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +42,8 @@ import io.github.szymonrychu.booxsketch.model.Tool
 internal val STRIP_WIDTH = 56.dp
 internal val STRIP_BUTTON = 48.dp
 internal val SWATCH_FRAME = 3.dp
+private const val BUTTON_COUNT = 10
+private val LocalButtonHeight = compositionLocalOf { STRIP_BUTTON }
 
 /** Test tag of a strip button. */
 internal fun stripTag(name: String) = "strip_$name"
@@ -96,50 +102,56 @@ fun ToolStrip(
     val rectangle = !eraser && tool == Tool.RECTANGLE
     val arrow = !eraser && tool == Tool.ARROW
 
-    Column(
-        modifier.width(STRIP_WIDTH).fillMaxHeight(),
-        verticalArrangement = Arrangement.SpaceEvenly,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        StripButton("pen", pen.wire, selected == ToolPopup.PEN, onClick = { y ->
-            state.press(ToolPopup.PEN, selected == ToolPopup.PEN, y, ui) { vm.setTool(state.lastPen) }
-        }) { ToolIcon(pen.iconKind()) }
-        StripButton("eraser", "Eraser", eraser, onClick = { y ->
-            state.press(ToolPopup.ERASER, eraser, y, ui) { vm.setEraser(true) }
-        }) { ToolIcon(IconKind.ERASER) }
-        StripButton("rectangle", "Rectangle", rectangle, onClick = { y ->
-            state.press(ToolPopup.SHAPE, rectangle, y, ui) { vm.setTool(Tool.RECTANGLE) }
-        }) { ToolIcon(IconKind.RECTANGLE) }
-        StripButton("arrow", "Arrow", arrow, onClick = { y ->
-            state.press(ToolPopup.SHAPE, arrow, y, ui) { vm.setTool(Tool.ARROW) }
-        }) { ToolIcon(IconKind.ARROW) }
-        StripButton("colour", "Colour", state.popup == ToolPopup.COLOUR, onClick = { y ->
-            state.press(ToolPopup.COLOUR, false, y, ui) {}
-        }) { ToolIcon(IconKind.COLOUR, fill = Color(color.argb)) }
-        StripButton("undo", "Undo", enabled = canUndo, onClick = { ui.act(vm::undo)() }) { ToolIcon(IconKind.UNDO) }
-        StripButton("redo", "Redo", enabled = canRedo, onClick = { ui.act(vm::redo)() }) { ToolIcon(IconKind.REDO) }
-        if (options.pageControls) {
-            StripButton("pages", "Pages", state.popup == ToolPopup.PAGES, onClick = { y ->
-                state.press(ToolPopup.PAGES, false, y, ui) {}
-            }) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ToolIcon(IconKind.PAGES, Modifier.size(PAGES_ICON))
-                    Text(
-                        "${notebook.current + 1}/${notebook.pages.size}",
-                        fontSize = 12.sp,
-                        lineHeight = 12.sp,
-                        textAlign = TextAlign.Center,
-                    )
+    BoxWithConstraints(modifier.width(STRIP_WIDTH).fillMaxHeight()) {
+        // 48 dp buttons; on a window too short for all of them they shrink to fit instead of scrolling or clipping.
+        val height = minOf(STRIP_BUTTON, maxHeight / (if (options.pageControls) BUTTON_COUNT else BUTTON_COUNT - 1))
+        CompositionLocalProvider(LocalButtonHeight provides height) {
+            Column(
+                Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceEvenly,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                StripButton("pen", pen.wire, selected == ToolPopup.PEN, onClick = { y ->
+                    state.press(ToolPopup.PEN, selected == ToolPopup.PEN, y, ui) { vm.setTool(state.lastPen) }
+                }) { ToolIcon(pen.iconKind()) }
+                StripButton("eraser", "Eraser", eraser, onClick = { y ->
+                    state.press(ToolPopup.ERASER, eraser, y, ui) { vm.setEraser(true) }
+                }) { ToolIcon(IconKind.ERASER) }
+                StripButton("rectangle", "Rectangle", rectangle, onClick = { y ->
+                    state.press(ToolPopup.SHAPE, rectangle, y, ui) { vm.setTool(Tool.RECTANGLE) }
+                }) { ToolIcon(IconKind.RECTANGLE) }
+                StripButton("arrow", "Arrow", arrow, onClick = { y ->
+                    state.press(ToolPopup.SHAPE, arrow, y, ui) { vm.setTool(Tool.ARROW) }
+                }) { ToolIcon(IconKind.ARROW) }
+                StripButton("colour", "Colour", state.popup == ToolPopup.COLOUR, onClick = { y ->
+                    state.press(ToolPopup.COLOUR, false, y, ui) {}
+                }) { ToolIcon(IconKind.COLOUR, fill = Color(color.argb)) }
+                StripButton("undo", "Undo", enabled = canUndo, onClick = { ui.act(vm::undo)() }) { ToolIcon(IconKind.UNDO) }
+                StripButton("redo", "Redo", enabled = canRedo, onClick = { ui.act(vm::redo)() }) { ToolIcon(IconKind.REDO) }
+                if (options.pageControls) {
+                    StripButton("pages", "Pages", state.popup == ToolPopup.PAGES, onClick = { y ->
+                        state.press(ToolPopup.PAGES, false, y, ui) {}
+                    }) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            ToolIcon(IconKind.PAGES, Modifier.size(PAGES_ICON))
+                            Text(
+                                "${notebook.current + 1}/${notebook.pages.size}",
+                                fontSize = 12.sp,
+                                lineHeight = 12.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
                 }
+                StripButton("send", options.sendLabel, state.popup == ToolPopup.SEND, onClick = { y ->
+                    state.press(ToolPopup.SEND, false, y, ui) {}
+                }) { ToolIcon(IconKind.SEND) }
+                StripButton("hide", HIDE_TOOLS_LABEL, onClick = {
+                    ui.chromeChanged()
+                    onHide()
+                }) { ToolIcon(IconKind.HIDE) }
             }
         }
-        StripButton("send", options.sendLabel, state.popup == ToolPopup.SEND, onClick = { y ->
-            state.press(ToolPopup.SEND, false, y, ui) {}
-        }) { ToolIcon(IconKind.SEND) }
-        StripButton("hide", HIDE_TOOLS_LABEL, onClick = {
-            ui.chromeChanged()
-            onHide()
-        }) { ToolIcon(IconKind.HIDE) }
     }
 }
 
@@ -154,9 +166,11 @@ private fun ToolboxState.press(
     select: () -> Unit,
 ) {
     this.anchorY = anchorY
-    val before = popup
+    // A popup change is a full refresh: asked for first, so the refresher's hold is taken before the board's.
+    val changes = popupAfterTap(target, alreadySelected) != popup
+    if (changes) ui.chromeChanged()
     if (tap(target, alreadySelected) == TapResult.SelectOnly) select()
-    if (popup != before) ui.chromeChanged() else ui.uiChanged()
+    if (!changes) ui.uiChanged()
 }
 
 /**
@@ -191,7 +205,7 @@ private fun StripButton(
     val frame = if (selected == true) Modifier.border(SWATCH_FRAME, Color.Black, RoundedCornerShape(8.dp)) else Modifier
     Box(
         Modifier
-            .size(STRIP_BUTTON)
+            .size(STRIP_BUTTON, LocalButtonHeight.current)
             .testTag(stripTag(name))
             .onGloballyPositioned { coords = it }
             .semantics(mergeDescendants = true) { contentDescription = description }

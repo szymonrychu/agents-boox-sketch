@@ -34,4 +34,20 @@ class DockSettledTest {
         assertThat(dockSettled(false, true, listOf(rect))).isFalse()
         assertThat(dockSettled(true, false, listOf(rect))).isFalse()
     }
+
+    @Test
+    fun a_closed_popup_settles_without_rects() {
+        assertThat(overlaySettled(target = false, needsRects = false, visible = false, rects = emptyList())).isTrue()
+    }
+
+    @Test
+    fun an_open_popup_needs_its_rect() {
+        assertThat(overlaySettled(target = true, needsRects = true, visible = true, rects = emptyList())).isFalse()
+        assertThat(overlaySettled(target = true, needsRects = true, visible = true, rects = listOf(rect))).isTrue()
+    }
+
+    @Test
+    fun a_closing_popup_is_not_settled_while_it_still_reports_open() {
+        assertThat(overlaySettled(target = false, needsRects = false, visible = true, rects = listOf(rect))).isFalse()
+    }
 }
