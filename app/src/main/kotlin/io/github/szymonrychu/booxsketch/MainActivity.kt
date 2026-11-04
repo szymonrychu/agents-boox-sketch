@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.github.szymonrychu.booxsketch.board.BoardScreen
+import io.github.szymonrychu.booxsketch.documents.DocumentHost
 import io.github.szymonrychu.booxsketch.ink.CountedPause
 import io.github.szymonrychu.booxsketch.pairing.PairingScreen
 import io.github.szymonrychu.booxsketch.send.SendOutcomeDialog
@@ -67,25 +68,31 @@ class MainActivity : ComponentActivity() {
                 val sendMessage by container.sendMessage.collectAsState()
                 PauseInputWhile(sendMessage != null, input)
                 sendMessage?.let { SendOutcomeDialog(it, container::dismissSendMessage) }
-                SplitLayout(
-                    board = {
-                        BoardScreen(
-                            vm = container.boardViewModel,
-                            input = input,
-                            setEraser = container::setEraser,
-                            onSend = { all, caption ->
-                                askNotificationPermission()
-                                container.onSend(all, caption)
-                            },
-                        )
-                    },
-                    panel = { PanelShell() },
-                    state = split,
-                    onStateChange = {
-                        edited = it
-                        scope.launch { container.splitStateStore.save(it) }
-                    },
-                )
+                val openDoc by container.openDocument.collectAsState()
+                val doc = openDoc
+                if (doc != null) {
+                    DocumentHost(container, doc)
+                } else {
+                    SplitLayout(
+                        board = {
+                            BoardScreen(
+                                vm = container.boardViewModel,
+                                input = input,
+                                setEraser = container::setEraser,
+                                onSend = { all, caption ->
+                                    askNotificationPermission()
+                                    container.onSend(all, caption)
+                                },
+                            )
+                        },
+                        panel = { PanelShell() },
+                        state = split,
+                        onStateChange = {
+                            edited = it
+                            scope.launch { container.splitStateStore.save(it) }
+                        },
+                    )
+                }
             }
         }
     }

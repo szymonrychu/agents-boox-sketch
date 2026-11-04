@@ -16,9 +16,13 @@ import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ID
 import io.github.szymonrychu.booxsketch.documents.DOCUMENTS_TAB_ORDER
+import io.github.szymonrychu.booxsketch.documents.DocumentLayout
 import io.github.szymonrychu.booxsketch.documents.DocumentRow
+import io.github.szymonrychu.booxsketch.documents.DocumentViewModel
 import io.github.szymonrychu.booxsketch.documents.DocumentsTab
 import io.github.szymonrychu.booxsketch.documents.DocumentsViewModel
+import io.github.szymonrychu.booxsketch.documents.MarkdownPaginator
+import io.github.szymonrychu.booxsketch.documents.MermaidRenderer
 import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
@@ -198,6 +202,23 @@ class AppContainer(
     val openDocument = MutableStateFlow<DocumentRow?>(null)
 
     val documentsViewModel: DocumentsViewModel by lazy { DocumentsViewModel(database, appScope) { openDocument.value = it } }
+
+    /** Every document page is laid out at the notebook canvas size, in both orientations. */
+    val documentLayout = DocumentLayout(BoardViewModel.DEFAULT_CANVAS.w, BoardViewModel.DEFAULT_CANVAS.h)
+
+    private val mermaid: MermaidRenderer by lazy { MermaidRenderer(app) }
+
+    /** A view model for one document; pages come from the markdown paginator on a background thread. */
+    fun documentViewModel(row: DocumentRow): DocumentViewModel =
+        DocumentViewModel(
+            conversationLocalId = row.conversationLocalId,
+            serverId = row.serverId,
+            db = database,
+            paginate = { markdown -> withContext(Dispatchers.Default) { MarkdownPaginator(documentLayout, mermaid).paginate(markdown) } },
+            store = annotationStore,
+            layout = documentLayout,
+            scope = appScope,
+        )
 
     /** Copies spec versions into Room: after a conversations refresh and while the Documents tab is shown. */
     val specSync: SpecSync by lazy { SpecSync(database, ::connector, { conversations.latestSpecVersions }) }
