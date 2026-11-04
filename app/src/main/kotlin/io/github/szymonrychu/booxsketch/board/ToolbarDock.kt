@@ -79,10 +79,8 @@ fun BoxScope.ToolbarDock(
     toolbar: @Composable () -> Unit,
 ) {
     var parent by remember { mutableStateOf<Rect?>(null) }
-    var measuredDock by remember { mutableStateOf<Rect?>(null) }
-    var measuredIndicator by remember { mutableStateOf<Rect?>(null) }
-    if (!visible && measuredDock != null) measuredDock = null
-    if (visible && measuredIndicator != null) measuredIndicator = null
+    // Keyed on visibility so a measurement never outlives the panel it was taken from.
+    val measured = remember(visible) { mutableStateOf<Rect?>(null) }
 
     Box(Modifier.matchParentSize().onGloballyPositioned { parent = it.windowRect() })
 
@@ -92,7 +90,7 @@ fun BoxScope.ToolbarDock(
             val s = rememberedDockSize
             if (p == null || s == null) null else Rect(p.left, p.bottom - s.height, p.right, p.bottom)
         }
-    val excludes = dockExcludeRects(visible, measuredDock ?: estimate, measuredIndicator)
+    val excludes = dockExcludeRects(visible, measured.value ?: estimate, measured.value)
     var reported by remember { mutableStateOf<List<Rect>?>(null) }
     SideEffect {
         if (excludes != reported) {
@@ -106,13 +104,13 @@ fun BoxScope.ToolbarDock(
             ui = ui,
             onHide = onHide,
             onPositioned = {
-                measuredDock = it.windowRect()
+                measured.value = it.windowRect()
                 onDockSize(IntSize(it.size.width, it.size.height))
             },
             toolbar = toolbar,
         )
     } else {
-        ShowIndicator(ui = ui, onShow = onShow, onPositioned = { measuredIndicator = it.windowRect() })
+        ShowIndicator(ui = ui, onShow = onShow, onPositioned = { measured.value = it.windowRect() })
     }
 }
 

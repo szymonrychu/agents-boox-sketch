@@ -155,4 +155,42 @@ class ToolbarDockTest {
         compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
         compose.onNode(hasText("tools") and hasAnyAncestor(hasTestTag(TAG_DOCK))).assertExists()
     }
+
+    @Test
+    fun measured_dock_rect_replaces_the_estimate_in_the_reported_excludes() {
+        val reports = mutableListOf<List<Rect>>()
+        compose.setContent {
+            Box(Modifier.size(400.dp, 300.dp)) {
+                ToolbarDock(true, {}, {}, UiRefresh.None, { reports += it }, IntSize(400, 10), {}) {
+                    Box(Modifier.height(20.dp))
+                }
+            }
+        }
+        compose.waitForIdle()
+        val d = compose.density.density
+        val measured = compose.onNodeWithTag(TAG_DOCK).getUnclippedBoundsInRoot()
+        val last = reports.last()
+        assertThat(last).hasSize(1)
+        assertThat(last[0].height()).isNotEqualTo(10)
+        assertThat(last[0].height().toFloat()).isWithin(1f).of((measured.bottom - measured.top).value * d)
+        assertThat(last[0].bottom).isEqualTo((300 * d).toInt())
+    }
+
+    @Test
+    fun indicator_rect_reaches_the_excludes_when_hidden() {
+        val reports = mutableListOf<List<Rect>>()
+        compose.setContent {
+            Box(Modifier.size(400.dp, 300.dp)) {
+                ToolbarDock(false, {}, {}, UiRefresh.None, { reports += it }, null, {}) { Text("tools") }
+            }
+        }
+        compose.waitForIdle()
+        val d = compose.density.density
+        val last = reports.last()
+        assertThat(last).hasSize(1)
+        assertThat(last[0].width().toFloat()).isWithin(1f).of(48 * d)
+        assertThat(last[0].height().toFloat()).isWithin(1f).of(48 * d)
+        assertThat(last[0].right.toFloat()).isWithin(1f).of((400 - 8) * d)
+        assertThat(last[0].bottom.toFloat()).isWithin(1f).of((300 - 8) * d)
+    }
 }
