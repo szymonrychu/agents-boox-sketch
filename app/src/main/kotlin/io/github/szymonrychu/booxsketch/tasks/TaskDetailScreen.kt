@@ -115,6 +115,7 @@ fun TaskDetailScreen(
                 }
                 when (tab) {
                     SubTab.OVERVIEW -> OverviewTab(task, state, vm, onFilterSession)
+                    SubTab.DECISIONS -> DecisionsTab(task, state, vm::answer)
                     else -> Unit
                 }
             }

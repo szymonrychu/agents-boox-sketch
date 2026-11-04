@@ -27,6 +27,10 @@ data class TaskDetailState(
     val error: String? = null,
     val labelError: String? = null,
     val editingBody: Boolean = false,
+    /** Decisions with an answer in flight; a second Submit tap is ignored. */
+    val answering: Set<Long> = emptySet(),
+    /** A per-decision message, for example [ALREADY_ANSWERED_TEXT]. */
+    val decisionNotice: Map<Long, String> = emptyMap(),
 )
 
 /**
@@ -77,6 +81,32 @@ class TaskDetailViewModel(
         val task = mutable.value.task ?: return
         if (label !in task.labels) return
         write { client.patchLabels(key, task.version, task.labels - label) }
+    }
+
+    /** Answers an open decision with option index [choice] or free [text]. 409 shows "Already answered" and reloads. */
+    fun answer(
+        decisionId: Long,
+        choice: Int?,
+        text: String?,
+        note: String?,
+    ) {
+        if (decisionId in mutable.value.answering) return
+        mutable.update { it.copy(answering = it.answering + decisionId, decisionNotice = it.decisionNotice - decisionId, error = null) }
+        scope.launch {
+            try {
+                client.answer(key, decisionId, choice, text, note)
+                load(keepBanner = false, quiet = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: ApiError.AlreadyAnswered) {
+                mutable.update { it.copy(decisionNotice = it.decisionNotice + (decisionId to ALREADY_ANSWERED_TEXT)) }
+                load(keepBanner = false, quiet = true)
+            } catch (e: ApiError) {
+                fail(e)
+            } finally {
+                mutable.update { it.copy(answering = it.answering - decisionId) }
+            }
+        }
     }
 
     /** Runs [call] as a write that answers with the whole task; ignored while another write runs. */
