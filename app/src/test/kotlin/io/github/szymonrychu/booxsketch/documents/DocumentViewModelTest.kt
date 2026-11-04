@@ -13,8 +13,9 @@ import io.github.szymonrychu.booxsketch.data.SpecEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -53,7 +54,9 @@ class DocumentViewModelTest {
 
     @After
     fun tearDown() {
-        scope.cancel()
+        // Join, not just cancel: a freeze in flight on the IO dispatcher is not interruptible and would otherwise write into
+        // the TemporaryFolder after the rule deleted it, leaking an exception into the next test's TestScope.
+        runBlocking { scope.coroutineContext.job.cancelAndJoin() }
         db.close()
     }
 
