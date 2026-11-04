@@ -39,6 +39,7 @@ class OnyxStrokeInputTest {
     private class Fixture {
         val view = View(ApplicationProvider.getApplicationContext())
         var callback: RawInputCallback? = null
+        val enables = mutableListOf<Boolean>()
         val raw =
             object : RawDrawing {
                 override fun setLimitRect(
@@ -48,7 +49,9 @@ class OnyxStrokeInputTest {
 
                 override fun open() = Unit
 
-                override fun setEnabled(enabled: Boolean) = Unit
+                override fun setEnabled(enabled: Boolean) {
+                    enables += enabled
+                }
 
                 override fun setBrush(
                     style: Int,
@@ -107,5 +110,44 @@ class OnyxStrokeInputTest {
         f.penDown()
         f.input.stop()
         assertThat(f.input.strokeInProgress).isFalse()
+    }
+
+    @Test
+    fun draw_committed_while_raw_is_active_redraws_without_toggling_raw_drawing() {
+        val f = Fixture()
+        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
+        f.enables.clear()
+        var drawn = 0
+        f.input.drawCommitted { drawn++ }
+        assertThat(drawn).isEqualTo(1)
+        assertThat(f.enables).isEmpty()
+    }
+
+    @Test
+    fun draw_committed_only_redraws_when_raw_is_paused_held_or_on_a_shape_tool() {
+        val f = Fixture()
+        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
+        f.input.pause()
+        f.enables.clear()
+        var drawn = 0
+        f.input.drawCommitted { drawn++ }
+        f.input.resume()
+        f.input.holdUi()
+        f.input.drawCommitted { drawn++ }
+        f.input.releaseUi()
+        f.input.setTool(Tool.RECTANGLE, 4f)
+        f.enables.clear()
+        f.input.drawCommitted { drawn++ }
+        assertThat(drawn).isEqualTo(3)
+        assertThat(f.enables).isEmpty()
+    }
+
+    @Test
+    fun refresh_still_brackets_the_redraw_with_a_disable_and_enable() {
+        val f = Fixture()
+        f.input.start(f.view, Rect(0, 0, 100, 100), emptyList())
+        f.enables.clear()
+        f.input.refresh { f.enables += true }
+        assertThat(f.enables).containsExactly(false, true, true).inOrder()
     }
 }

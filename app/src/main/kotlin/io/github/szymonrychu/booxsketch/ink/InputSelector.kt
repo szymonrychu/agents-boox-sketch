@@ -476,6 +476,24 @@ private class OnyxWithFallback(
         if (!drawn) redraw()
     }
 
+    /** Like [refresh], but an Onyx input with raw drawing active redraws without the disable and enable. */
+    override fun drawCommitted(redraw: () -> Unit) {
+        val fallen =
+            synchronized(lock) {
+                disarm()
+                fellBack
+            }
+        if (fallen) return touch.drawCommitted(redraw)
+        var drawn = false
+        guarded {
+            onyx.drawCommitted {
+                drawn = true
+                redraw()
+            }
+        }
+        if (!drawn) redraw()
+    }
+
     @Suppress("TooGenericExceptionCaught")
     private inline fun guarded(block: () -> Unit) {
         try {
