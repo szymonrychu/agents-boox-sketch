@@ -146,6 +146,30 @@ class OnyxFallbackWatchTest {
         }
 
     @Test
+    fun stylus_down_on_open_popup_does_not_arm_fallback_watch() =
+        runTest {
+            val activity = startOnActivity(this)
+            // A popup open inside the board: strip, popup and tab bar are all excluded.
+            input.start(view, board, listOf(tabBar, Rect(0, 20, 20, 90), Rect(20, 40, 60, 80)))
+            activity.window.callback.dispatchTouchEvent(stylusDown(40f, 60f))
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+            assertThat(log).doesNotContain("touch:start")
+        }
+
+    @Test
+    fun stylus_down_on_panel_indicator_does_not_arm_fallback_watch() =
+        runTest {
+            val activity = startOnActivity(this)
+            // Everything hidden: the panel indicator on the right edge and the strip indicator are the only excludes.
+            input.start(view, board, listOf(Rect(92, 40, 100, 60), Rect(0, 40, 8, 60)))
+            activity.window.callback.dispatchTouchEvent(stylusDown(96f, 50f))
+            advanceTimeBy(InputSelector.RAW_CALLBACK_TIMEOUT_MS + 1)
+            assertThat(log).doesNotContain("diag")
+            assertThat(log).doesNotContain("touch:start")
+        }
+
+    @Test
     fun pen_down_while_raw_drawing_is_off_keeps_onyx() =
         runTest {
             val activity = startOnActivity(this)
