@@ -7,6 +7,8 @@ import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.emptyPreferences
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import io.github.szymonrychu.booxsketch.api.TaskEvents
+import io.github.szymonrychu.booxsketch.api.TasksClient
 import io.github.szymonrychu.booxsketch.board.BoardViewModel
 import io.github.szymonrychu.booxsketch.board.NotebookStore
 import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
@@ -51,6 +53,9 @@ import io.github.szymonrychu.booxsketch.send.SendBoard
 import io.github.szymonrychu.booxsketch.send.SendOutcome
 import io.github.szymonrychu.booxsketch.send.SendUseCase
 import io.github.szymonrychu.booxsketch.send.sendOutcomeText
+import io.github.szymonrychu.booxsketch.tasks.TASKS_TAB_ID
+import io.github.szymonrychu.booxsketch.tasks.TasksController
+import io.github.szymonrychu.booxsketch.tasks.TasksTab
 import io.github.szymonrychu.booxsketch.ui.BOARD_TAB_ID
 import io.github.szymonrychu.booxsketch.ui.DiagnosticsTab
 import io.github.szymonrychu.booxsketch.ui.PanelTab
@@ -63,7 +68,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -124,6 +131,7 @@ class AppContainer(
         openDocument.value = null
         documentInk.forget()
         boardViewModel.reset()
+        tasks.reset()
     }
 
     val boardViewModel: BoardViewModel by lazy { BoardViewModel(notebookStore, appScope, Dispatchers.IO) }
@@ -350,6 +358,19 @@ class AppContainer(
         onRepaired()
     }
 
+    private fun taskConnector(): ConnectorClient? =
+        tokenStore.originFlow.value?.let { ConnectorClient(it, tokenStore::token, okHttpClient) }
+
+    /** Navigation and view models of the Tasks tab; the change stream is collected only while the tab is on screen. */
+    val tasks: TasksController by lazy {
+        TasksController(
+            clientProvider = { taskConnector()?.let(::TasksClient) },
+            events = flow { taskConnector()?.let { emitAll(TaskEvents(it, okHttpClient).changes()) } },
+            scope = appScope,
+            onUnauthorized = { appScope.launch { pairingRepository.rejectToken() } },
+        )
+    }
+
     /** Top-level tabs of the app shell; the Drawing tab hosts the board. Declared before init, which registers into it. */
     val tabs = TabRegistry()
 
@@ -360,7 +381,8 @@ class AppContainer(
     private fun registerFeatures() {
         // One line per feature, added by its task.
         tabs.register(TabSpec(BOARD_TAB_ID, "Drawing", order = DRAWING_TAB_ORDER) { })
-        // wave B: Tasks tab, wave C: Documents tab register here (Documents is a panel tab until then)
+        tabs.register(TabSpec(TASKS_TAB_ID, "Tasks", order = TASKS_TAB_ORDER) { TasksTab(it) })
+        // wave C: the Documents tab registers here (it is a panel tab until then)
         PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
         PanelTabs.register(PanelTab(CONVERSATIONS_TAB_ID, "Conversations", order = 0) { ConversationsTab() })
         PanelTabs.register(PanelTab(DOCUMENTS_TAB_ID, "Documents", DOCUMENTS_PANEL_TAB_ORDER) { DocumentsTab() })
