@@ -192,6 +192,9 @@ internal fun BoardScreenWith(
             background = background,
             // A finger tap on the board dismisses every overlay in one burst.
             onBoardTap = { control.dismissAll(ui) },
+            // Strip, popup or panel open: the board is excluded from raw drawing and a pen or finger down on it dismisses them.
+            dismissMode = control.anyVisible,
+            onDismiss = { control.dismissAll(ui) },
         )
         // The board ignores system bars; the dock and the panel keep clear of them. The strip also starts below
         // the tab bar (which spans the top edge while the chrome is visible). The panel is drawn on top.

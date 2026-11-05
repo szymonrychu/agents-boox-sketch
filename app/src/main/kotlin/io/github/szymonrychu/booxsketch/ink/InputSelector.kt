@@ -209,6 +209,10 @@ private class OnyxWithFallback(
 
     override val events: Flow<StrokeEvent> = merge(onyx.events, touch.events)
 
+    /** Sees every window touch event, besides the swipe and drag feeds; the board uses it for dismiss mode. */
+    @Volatile
+    override var onWindowTouch: ((MotionEvent) -> Unit)? = null
+
     /** Only touch (fallback or shape drags) has a stroke in progress to draw; raw ink is drawn by the vendor SDK. */
     override val inProgress: StateFlow<Stroke?> = touch.inProgress
 
@@ -297,6 +301,7 @@ private class OnyxWithFallback(
                     if (isStylusDown(event)) onStylusDownInWindow(event.x, event.y)
                     feedShapeDrag(event)
                     fingerSwipes.feed(event)
+                    onWindowTouch?.invoke(event)
                     return original.dispatchTouchEvent(event)
                 }
             }

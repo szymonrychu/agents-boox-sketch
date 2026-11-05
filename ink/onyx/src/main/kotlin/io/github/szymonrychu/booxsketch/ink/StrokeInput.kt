@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.ink
 
 import android.graphics.Rect
+import android.view.MotionEvent
 import android.view.View
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
@@ -91,6 +92,14 @@ interface StrokeInput {
 
     /** True from pen-down to pen-up of a stroke or erase. Restarting the input while true would drop that stroke. */
     val strokeInProgress: Boolean get() = false
+
+    /**
+     * Where the input forwards every touch event it sees in the window callback (window pixels, before any view
+     * and also while raw drawing owns the pen); null for none. Inputs without a window callback ignore it.
+     */
+    var onWindowTouch: ((MotionEvent) -> Unit)?
+        get() = null
+        set(_) = Unit
 
     val events: Flow<StrokeEvent>
 

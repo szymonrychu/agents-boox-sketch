@@ -2,6 +2,27 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-05 Dismiss mode: a touch on the board closes the strip, popup and panel (T-46 P0)
+
+- Reported bug: with raw drawing on, a pen tap on the board inked at once (the firmware draws before
+  the app sees anything) and the overlays went away only 600 ms later; a finger tap might not reach the
+  view at all. Decision (user, Q18): dismiss and consume. While the strip, a popup or the panel is open
+  the board is in dismiss mode: the whole board rect is one more exclude in the same `ChromeHolds` change
+  that shows the overlay (`BoardView` adds it in `startInput`, keyed on `dismissMode`), so the firmware
+  draws nothing and `TouchStrokeInput.allowed` starts no stroke (shape tools and the eraser included).
+- Any pen or finger DOWN on the board in dismiss mode calls the same `dismissAll` path as a tap and the
+  gesture is swallowed up to its lift (`BoardSurfaceView.onGesture`, the view consumes it). The board
+  stays excluded for the whole swallowed gesture (a `swallowing` state in `BoardView`), then the excludes
+  drop to the indicator rects only. So the one GC flash and the hold/release pair are the usual ones.
+- The DOWN also comes from the window callback (`StrokeInput.onWindowTouch`, wired in `OnyxWithFallback`
+  next to `FingerSwipeTracker`), because the window sees events before any view and while raw drawing
+  owns the pen; a down inside the overlay rects (strip, popup, panel, tab bar) is ignored there. Both
+  sources feed one idempotent state machine, so a down seen twice dismisses once.
+- Hold release can land before the lift (the overlays reported hidden), with the board still excluded;
+  the lift then only narrows the exclude to the indicators, with no hold (nothing visible changes).
+- Two `BoardChromeWiringTest` tests asserted the exact exclude list `[dock, bar]` of an open strip; they
+  now expect the board rect too, because that list is no longer accurate by design.
+
 ## 2026-11-04 Fountain redraw keeps the live width (boox-fountain, fix/fountain-width)
 
 - Device report on v0.12.1, verbatim: "fountain gets thiner after redraw, but besides that it's all
@@ -153,6 +174,26 @@ Lessons that outlive a session. Newest first.
   multiplies by the same scale back. So rotation or relayout cannot skew it, and `setTool` (tool or
   width change) plus `enable` already re-apply the brush. `LiveInkWidthTest` checks live equals redrawn
   for every pen at three view scales. The factors in `BrushMapping` must follow `CanvasStrokeRenderer.style`.
+
+## 2026-11-05 Notebook page grid in page pixels (T-46 P1; replaces the 2026-11-04 5 mm view-pixel grid)
+
+- Every page is a notebook page (user, Q2: no page kinds). The grid is no longer 5 mm from the display
+  dpi anchored at the view corner: that drifted from the strokes in landscape, where the page is scaled
+  0.75x. Rows, bands and margin are defined in page-canvas pixels (`NotebookGeometry`, `:core:model`,
+  pure Kotlin) and `BoardGrid` draws them through the frame's `BoardGeometry` (scale, dx, dy), the same
+  mapping the ink uses, so they stay locked to strokes in both orientations.
+- Numbers (user, Q3 and Q4): cell 53 px (6 mm in portrait), row pitch 106 px (12 mm), top margin one row,
+  16 rows (70 px foot), row line closes its row (annotation band above, text band below, for the later
+  text layer), right margin 30 percent (x from 983). Row lines 1 px `0xFFD3D3D3` over the text column
+  only (x 53..983), no verticals there; one 1 px vertical at the margin; sparse dots `0xFFBDBDBD`, 2 page
+  px (never below 2 view px), at cell intersections; a dot that a row line would cover is skipped.
+- Same paint discipline as the first version: painted in `BoardSurfaceView.paint` right after the white
+  fill (under the document background and the ink), one pass, only primitives inside the dirty clip,
+  two reused float buffers, no new surface frame and no raw drawing toggle. 1 px lines sit on the view
+  pixel row `floor(y) + 0.5` so a non-anti-aliased line covers exactly one row.
+- View-only: `PngExporter`, `PageRasterExporter` and `StrokesCodec` never see it (pinned by
+  `GridNotExportedTest`, now also checking the dot colour). `BoardPreviewCanvas` does not draw it, so
+  the screenshot goldens are unchanged.
 
 ## 2026-11-04 Pen ink latency after #40 (boox-latency)
 

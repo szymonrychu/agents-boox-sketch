@@ -76,6 +76,18 @@ Then:
       moving the pen slider: its width is the same fixed one every time.
 - [ ] Colour popup: six colours in a 3x2 grid, the selected one framed with a white centre mark; the colour
       icon on the strip shows the current colour.
+- [ ] Notebook grid, portrait: a light grey 1 px row line every 12 mm over the text column (starting
+      one row below the top edge, 16 rows), sparse 2 px dots every 6 mm in both directions, and one
+      thin vertical line at 30 percent of the page width from the right edge with dots only to its
+      right. Hold a ruler to the screen: 10 rows measure 120 mm. Rows and dots are readable but
+      not louder than ink.
+- [ ] Notebook grid, landscape: the page is centred and smaller (rows about 9 mm), the same rows and
+      margin line, nothing drawn on the blank sides. A stroke written on a row line stays on that line
+      after rotating back and forth (grid and ink never drift apart).
+- [ ] Grid ghosting: write 50 strokes over rows and margin in each orientation, then clear the page:
+      no grid residue, no darker dots or lines where strokes were erased. Pen latency and flicker are
+      unchanged against the build without the grid. A sent sketch shows no grid in its translated
+      spec or in past drawings.
 - [ ] Open and close a popup: one GC flash, no popup residue left on the board, the pen draws right after.
 - [ ] Pen strokes started over the strip or over an open popup draw nothing and the popup keeps working.
 - [ ] Hide chevron: the strip collapses to a small "Show tools" tab on the left edge; tap it to bring the
@@ -92,6 +104,13 @@ Then:
       panel at once with one GC flash; the pen draws right after. If nothing happens, finger
       events do not reach the board view in raw mode (see MEMORY "tap to dismiss").
 - [ ] A finger tap on the panel or between toolbar buttons does not hide anything.
+- [ ] Dismiss mode: with the strip, a popup or the side panel open, a pen tap on the board
+      hides all of them at once and leaves no ink, also for a pen drag (nothing is drawn up to
+      the lift, no stroke is added: undo does not remove anything). A finger tap and a finger
+      drag do the same. Try it with ballpoint, with a shape tool and with the eraser selected.
+      If a pen tap does nothing, stylus events do not reach the board view or the window
+      callback while the whole board is excluded from raw drawing (see MEMORY "dismiss mode").
+- [ ] After the dismiss lift the pen draws at once; the next stroke is not clipped at its start.
 - [ ] Pen strokes over the open panel and over the panel indicator draw nothing.
 - [ ] Rotate with panel and a popup open: both stay inside the screen, one GC flash, pen draws
       right after, nothing draws under the panel.
