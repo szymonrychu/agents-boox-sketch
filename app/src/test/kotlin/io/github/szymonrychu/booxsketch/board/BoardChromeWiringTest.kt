@@ -187,6 +187,8 @@ class BoardChromeWiringTest {
             }.map { it.index }
     }
 
+    private fun boardRect() = surface()!!.let { Rect(0, 0, it.width, it.height) }
+
     private fun lastStart(): String = input.log.last { it.startsWith("start:") }
 
     @Test
@@ -317,7 +319,9 @@ class BoardChromeWiringTest {
         createSurface()
         val dock = rectOf(TAG_DOCK)
         val bar = rectOf(TAG_TAB_BAR)
-        assertThat(lastStart()).isEqualTo("start:${listOf(dock, bar)}")
+        // The open strip puts the whole board in the excludes too (dismiss mode).
+        val open = "start:${listOf(dock, bar, boardRect())}"
+        assertThat(lastStart()).isEqualTo(open)
         input.log.clear()
 
         compose.onNodeWithTag(TAG_HIDE).performClick()
@@ -325,7 +329,7 @@ class BoardChromeWiringTest {
         val indicator = rectOf(TAG_INDICATOR)
 
         assertThat(input.log.first()).isEqualTo("hold")
-        assertThat(input.log).doesNotContain("start:${listOf(dock, bar)}")
+        assertThat(input.log).doesNotContain(open)
         assertThat(input.log).contains("start:${listOf(indicator)}")
         assertThat(enabledAt()).isGreaterThan(input.log.lastIndexOf("start:${listOf(indicator)}"))
     }
@@ -381,7 +385,8 @@ class BoardChromeWiringTest {
         compose.onNodeWithTag(TAG_INDICATOR).performClick()
         compose.waitForIdle()
 
-        val want = "start:${listOf(dock, bar)}"
+        // The open strip puts the whole board in the excludes too (dismiss mode).
+        val want = "start:${listOf(dock, bar, boardRect())}"
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(input.log).contains(want)
         assertThat(enabledAt()).isGreaterThan(input.log.indexOf(want))

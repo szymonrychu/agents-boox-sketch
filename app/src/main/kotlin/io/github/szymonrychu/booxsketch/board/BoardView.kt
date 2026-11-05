@@ -16,10 +16,13 @@ import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -224,6 +227,7 @@ internal class TapDetector(
  * ([einkMode]). A finger tap calls [onTap]; it is
  * seen in [dispatchTouchEvent], before whichever touch listener the input installed.
  */
+@Suppress("TooManyFunctions") // surface callbacks, frame drawing and the dismiss gesture
 class BoardSurfaceView(
     context: Context,
     renderer: StrokeRenderer? = null,
@@ -268,6 +272,20 @@ class BoardSurfaceView(
     var onFocus: (Boolean) -> Unit = {}
     var onTap: () -> Unit = {}
     var strokeInProgress: () -> Boolean = { false }
+
+    /**
+     * Dismiss mode: an overlay (strip, popup or side panel) is open, so the board is excluded from raw drawing and
+     * any pen or finger down on it calls [onDismiss] and is swallowed up to its lift (see [onGesture]).
+     */
+    var dismissMode = false
+    var onDismiss: () -> Unit = {}
+
+    /** Called with true when a swallowed gesture starts and with false when it ends. */
+    var onSwallow: (Boolean) -> Unit = {}
+
+    /** Overlay rects (view pixels) a window-callback down must miss to count as a down on the board. */
+    internal var overlayRects: List<Rect> = emptyList()
+    private var swallowing = false
 
     private val tap = TapDetector(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
 
@@ -466,8 +484,49 @@ class BoardSurfaceView(
 
     // Before super: the inputs replace the view's touch listener (shape drags, touch fallback) and may consume the event.
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (onGesture(event.actionMasked)) return true
         if (tap.onEvent(event, strokeInProgress())) onTap()
         return super.dispatchTouchEvent(event)
+    }
+
+    /**
+     * A touch event from the window callback (it sees events before any view, also while raw drawing owns the pen),
+     * in window pixels. A down on the board outside the overlays starts the dismiss; the lift ends it even when the
+     * view itself never gets the events.
+     */
+    fun onWindowTouch(event: MotionEvent) {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val loc = IntArray(2).also { getLocationInWindow(it) }
+            val x = (event.x - loc[0]).toInt()
+            val y = (event.y - loc[1]).toInt()
+            if (x !in 0 until width || y !in 0 until height || overlayRects.any { it.contains(x, y) }) return
+        }
+        onGesture(event.actionMasked)
+    }
+
+    /**
+     * Dismiss mode state machine, fed by the view and the window callback (idempotent across both copies of an
+     * event). A down in [dismissMode] calls [onDismiss] and starts swallowing; the gesture ends at its up or cancel.
+     * True while the event belongs to a swallowed gesture, so the caller consumes it: no ink, no stroke.
+     */
+    private fun onGesture(action: Int): Boolean {
+        when (action) {
+            MotionEvent.ACTION_DOWN -> if (dismissMode && !swallowing) startSwallow()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (swallowing) return endSwallow()
+        }
+        return swallowing
+    }
+
+    private fun startSwallow() {
+        swallowing = true
+        onSwallow(true)
+        onDismiss()
+    }
+
+    private fun endSwallow(): Boolean {
+        swallowing = false
+        onSwallow(false)
+        return true
     }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
@@ -493,7 +552,7 @@ class BoardSurfaceView(
  * paused while the activity is paused or the window has no focus. [onBoardTap] fires for a finger
  * tap on the board (never a stylus, never while [StrokeInput.strokeInProgress]).
  */
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "LongMethod") // the view wiring is one block of callbacks
 @Composable
 fun BoardView(
     notebook: Notebook,
@@ -507,6 +566,8 @@ fun BoardView(
     onShapeCancel: () -> Unit = {},
     background: Bitmap? = null,
     onBoardTap: () -> Unit = {},
+    dismissMode: Boolean = false,
+    onDismiss: () -> Unit = {},
 ) {
     val surface = remember { arrayOfNulls<BoardSurfaceView>(1) }
     val strokeCb by rememberUpdatedState(onStroke)
@@ -514,12 +575,17 @@ fun BoardView(
     val shapeDragCb by rememberUpdatedState(onShapeDrag)
     val shapeCancelCb by rememberUpdatedState(onShapeCancel)
     val tapCb by rememberUpdatedState(onBoardTap)
+    val dismissCb by rememberUpdatedState(onDismiss)
     val excludeNow by rememberUpdatedState(exclude)
+    // The board stays excluded from raw drawing for the whole swallowed gesture, even after the overlays are gone.
+    var swallowing by remember { mutableStateOf(false) }
+    val boardExcluded = dismissMode || swallowing
+    val boardExcludedNow by rememberUpdatedState(boardExcluded)
     val gate = remember(input) { InputGate(input) }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { gate.setResumed(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { gate.setResumed(true) }
 
-    fun startOn(v: BoardSurfaceView) = v.startInput(input, excludeNow)
+    fun startOn(v: BoardSurfaceView) = v.startInput(input, excludeNow, boardExcludedNow)
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -531,14 +597,23 @@ fun BoardView(
                 v.onSurfaceDestroyed = { input.stop() }
                 v.onFocus = gate::setFocused
                 v.onTap = { tapCb() }
+                v.onDismiss = { dismissCb() }
+                v.onSwallow = { swallowing = it }
                 v.strokeInProgress = { input.strokeInProgress }
                 v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> startOn(v) }
             }
         },
-        update = { it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current, preview, background) },
+        update = {
+            it.dismissMode = dismissMode
+            it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current, preview, background)
+        },
         onRelease = { input.stop() },
     )
-    LaunchedEffect(exclude) { surface[0]?.let { startOn(it) } }
+    LaunchedEffect(exclude, boardExcluded) { surface[0]?.let { startOn(it) } }
+    DisposableEffect(input) {
+        input.onWindowTouch = { ev -> surface[0]?.onWindowTouch(ev) }
+        onDispose { input.onWindowTouch = null }
+    }
     LaunchedEffect(input) {
         input.inProgress.collect { s ->
             val v = surface[0]
@@ -567,15 +642,19 @@ fun BoardView(
 /**
  * (Re)starts [input] on this view with [exclude] window rects. Does nothing while the surface does
  * not exist (a layout or exclude change after surfaceDestroyed must not reopen raw drawing) or the
- * view has no size; surfaceCreated calls it again.
+ * view has no size; surfaceCreated calls it again. With [boardExcluded] (dismiss mode) the whole
+ * board is one more exclude rect, so the firmware draws nothing and no stroke starts on it.
  */
 internal fun BoardSurfaceView.startInput(
     input: StrokeInput,
     exclude: List<Rect>,
+    boardExcluded: Boolean = false,
 ) {
     if (!surfaceReady || width <= 0 || height <= 0) return
     val loc = IntArray(2).also { getLocationInWindow(it) }
-    input.start(this, Rect(0, 0, width, height), excludeRectsInView(loc[0], loc[1], width, height, exclude))
+    val overlays = excludeRectsInView(loc[0], loc[1], width, height, exclude)
+    overlayRects = overlays
+    input.start(this, Rect(0, 0, width, height), if (boardExcluded) overlays + Rect(0, 0, width, height) else overlays)
 }
 
 /** Non-surface rendering of a page for previews and screenshot tests, where a SurfaceView does not draw. */

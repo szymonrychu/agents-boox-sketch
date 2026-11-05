@@ -95,6 +95,13 @@ Then:
       panel at once with one GC flash; the pen draws right after. If nothing happens, finger
       events do not reach the board view in raw mode (see MEMORY "tap to dismiss").
 - [ ] A finger tap on the panel or between toolbar buttons does not hide anything.
+- [ ] Dismiss mode: with the strip, a popup or the side panel open, a pen tap on the board
+      hides all of them at once and leaves no ink, also for a pen drag (nothing is drawn up to
+      the lift, no stroke is added: undo does not remove anything). A finger tap and a finger
+      drag do the same. Try it with ballpoint, with a shape tool and with the eraser selected.
+      If a pen tap does nothing, stylus events do not reach the board view or the window
+      callback while the whole board is excluded from raw drawing (see MEMORY "dismiss mode").
+- [ ] After the dismiss lift the pen draws at once; the next stroke is not clipped at its start.
 - [ ] Pen strokes over the open panel and over the panel indicator draw nothing.
 - [ ] Rotate with panel and a popup open: both stay inside the screen, one GC flash, pen draws
       right after, nothing draws under the panel.

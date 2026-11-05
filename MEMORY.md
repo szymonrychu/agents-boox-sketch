@@ -2,6 +2,27 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-05 Dismiss mode: a touch on the board closes the strip, popup and panel (T-46 P0)
+
+- Reported bug: with raw drawing on, a pen tap on the board inked at once (the firmware draws before
+  the app sees anything) and the overlays went away only 600 ms later; a finger tap might not reach the
+  view at all. Decision (user, Q18): dismiss and consume. While the strip, a popup or the panel is open
+  the board is in dismiss mode: the whole board rect is one more exclude in the same `ChromeHolds` change
+  that shows the overlay (`BoardView` adds it in `startInput`, keyed on `dismissMode`), so the firmware
+  draws nothing and `TouchStrokeInput.allowed` starts no stroke (shape tools and the eraser included).
+- Any pen or finger DOWN on the board in dismiss mode calls the same `dismissAll` path as a tap and the
+  gesture is swallowed up to its lift (`BoardSurfaceView.onGesture`, the view consumes it). The board
+  stays excluded for the whole swallowed gesture (a `swallowing` state in `BoardView`), then the excludes
+  drop to the indicator rects only. So the one GC flash and the hold/release pair are the usual ones.
+- The DOWN also comes from the window callback (`StrokeInput.onWindowTouch`, wired in `OnyxWithFallback`
+  next to `FingerSwipeTracker`), because the window sees events before any view and while raw drawing
+  owns the pen; a down inside the overlay rects (strip, popup, panel, tab bar) is ignored there. Both
+  sources feed one idempotent state machine, so a down seen twice dismisses once.
+- Hold release can land before the lift (the overlays reported hidden), with the board still excluded;
+  the lift then only narrows the exclude to the indicators, with no hold (nothing visible changes).
+- Two `BoardChromeWiringTest` tests asserted the exact exclude list `[dock, bar]` of an open strip; they
+  now expect the board rect too, because that list is no longer accurate by design.
+
 ## 2026-11-04 Fountain redraw keeps the live width (boox-fountain, fix/fountain-width)
 
 - Device report on v0.12.1, verbatim: "fountain gets thiner after redraw, but besides that it's all
