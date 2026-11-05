@@ -76,6 +76,9 @@ Then:
       moving the pen slider: its width is the same fixed one every time.
 - [ ] Colour popup: six colours in a 3x2 grid, the selected one framed with a white centre mark; the colour
       icon on the strip shows the current colour.
+- [ ] Board grid: light grey 1 px square grid over the whole page. Hold a ruler to the screen: 10 squares
+      measure 50 mm (5 mm pitch, both directions). Pen latency and flicker are unchanged against the build
+      without the grid; a sent sketch shows no grid in its translated spec or in past drawings.
 - [ ] Open and close a popup: one GC flash, no popup residue left on the board, the pen draws right after.
 - [ ] Pen strokes started over the strip or over an open popup draw nothing and the popup keeps working.
 - [ ] Hide chevron: the strip collapses to a small "Show tools" tab on the left edge; tap it to bring the

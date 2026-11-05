@@ -231,6 +231,9 @@ class BoardSurfaceView(
     SurfaceHolder.Callback,
     CommittedInkSurface {
     private val renderer: StrokeRenderer = renderer ?: CanvasStrokeRenderer(devicePenRenderer(::screenOrigin))
+    private val grid =
+        resources.displayMetrics.let { BoardGrid(BoardGrid.pitchPx(it.xdpi), BoardGrid.pitchPx(it.ydpi)) }
+    private val pageRect = RectF()
     private var strokes: List<Stroke> = emptyList()
     private var page: PageCanvas = PageCanvas(1, 1, 1f)
     private var shownIndex: Int? = null
@@ -423,6 +426,9 @@ class BoardSurfaceView(
     ) {
         canvas.drawColor(Color.WHITE)
         val g = geometry()
+        // The grid is view-only (never exported); it sits under the document background and the ink.
+        pageRect.set(g.dx, g.dy, g.dx + page.w * g.scale, g.dy + page.h * g.scale)
+        grid.draw(canvas, pageRect, within)
         background?.let {
             val m =
                 Matrix().apply {

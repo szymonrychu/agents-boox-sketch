@@ -154,6 +154,10 @@ Lessons that outlive a session. Newest first.
   width change) plus `enable` already re-apply the brush. `LiveInkWidthTest` checks live equals redrawn
   for every pen at three view scales. The factors in `BrushMapping` must follow `CanvasStrokeRenderer.style`.
 
+## 2026-11-04 Board grid (feat/board-grid)
+
+- The board shows a lightgrey (0xFFD3D3D3) 1 px square grid, 5 mm pitch from the display xdpi/ydpi (`BoardGrid.pitchPx`), anchored at the page corner, across the whole page. Why: a notebook feel. It is painted in `BoardSurfaceView.paint` right after the white fill (so under the document background and the ink), in the same pass and the same dirty-rect clip as everything else: only lines inside the clip are drawn, through one reused FloatArray, so there is no new surface frame, no raw drawing toggle and no per-frame allocation. The grid is view-only: `PngExporter`, `PageRasterExporter` and `StrokesCodec` never see it (pinned by `GridNotExportedTest`), and thumbnails of past drawings reuse the export path. `BoardPreviewCanvas` draws it too, so screenshot goldens show it.
+
 ## 2026-11-04 Pen ink latency after #40 (boox-latency)
 
 - While raw drawing is live (`StrokeInput.rawLive`: Onyx raw drawing open and enabled, no fallback)
