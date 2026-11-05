@@ -175,9 +175,25 @@ Lessons that outlive a session. Newest first.
   width change) plus `enable` already re-apply the brush. `LiveInkWidthTest` checks live equals redrawn
   for every pen at three view scales. The factors in `BrushMapping` must follow `CanvasStrokeRenderer.style`.
 
-## 2026-11-04 Board grid (feat/board-grid)
+## 2026-11-05 Notebook page grid in page pixels (T-46 P1; replaces the 2026-11-04 5 mm view-pixel grid)
 
-- The board shows a lightgrey (0xFFD3D3D3) 1 px square grid, 5 mm pitch from the display xdpi/ydpi (`BoardGrid.pitchPx`), anchored at the page corner, across the whole page. Why: a notebook feel. It is painted in `BoardSurfaceView.paint` right after the white fill (so under the document background and the ink), in the same pass and the same dirty-rect clip as everything else: only lines inside the clip are drawn, through one reused FloatArray, so there is no new surface frame, no raw drawing toggle and no per-frame allocation. The grid is view-only: `PngExporter`, `PageRasterExporter` and `StrokesCodec` never see it (pinned by `GridNotExportedTest`), and thumbnails of past drawings reuse the export path. `BoardPreviewCanvas` draws it too, so screenshot goldens show it.
+- Every page is a notebook page (user, Q2: no page kinds). The grid is no longer 5 mm from the display
+  dpi anchored at the view corner: that drifted from the strokes in landscape, where the page is scaled
+  0.75x. Rows, bands and margin are defined in page-canvas pixels (`NotebookGeometry`, `:core:model`,
+  pure Kotlin) and `BoardGrid` draws them through the frame's `BoardGeometry` (scale, dx, dy), the same
+  mapping the ink uses, so they stay locked to strokes in both orientations.
+- Numbers (user, Q3 and Q4): cell 53 px (6 mm in portrait), row pitch 106 px (12 mm), top margin one row,
+  16 rows (70 px foot), row line closes its row (annotation band above, text band below, for the later
+  text layer), right margin 30 percent (x from 983). Row lines 1 px `0xFFD3D3D3` over the text column
+  only (x 53..983), no verticals there; one 1 px vertical at the margin; sparse dots `0xFFBDBDBD`, 2 page
+  px (never below 2 view px), at cell intersections; a dot that a row line would cover is skipped.
+- Same paint discipline as the first version: painted in `BoardSurfaceView.paint` right after the white
+  fill (under the document background and the ink), one pass, only primitives inside the dirty clip,
+  two reused float buffers, no new surface frame and no raw drawing toggle. 1 px lines sit on the view
+  pixel row `floor(y) + 0.5` so a non-anti-aliased line covers exactly one row.
+- View-only: `PngExporter`, `PageRasterExporter` and `StrokesCodec` never see it (pinned by
+  `GridNotExportedTest`, now also checking the dot colour). `BoardPreviewCanvas` does not draw it, so
+  the screenshot goldens are unchanged.
 
 ## 2026-11-04 Pen ink latency after #40 (boox-latency)
 

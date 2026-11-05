@@ -32,7 +32,8 @@ class GridNotExportedTest {
         // Top-right fifth of the image lies far from the diagonal: a grid would put lines there.
         for (y in 0 until bmp.height / 5) {
             for (x in bmp.width * 4 / 5 until bmp.width) {
-                assertThat(bmp.getPixel(x, y) and 0xFFFFFF).isNotEqualTo(BoardGrid.COLOR and 0xFFFFFF)
+                assertThat(bmp.getPixel(x, y) and 0xFFFFFF).isNotEqualTo(BoardGrid.LINE_COLOR and 0xFFFFFF)
+                assertThat(bmp.getPixel(x, y) and 0xFFFFFF).isNotEqualTo(BoardGrid.DOT_COLOR and 0xFFFFFF)
                 assertThat(bmp.getPixel(x, y) and 0xFFFFFF).isEqualTo(0xFFFFFF)
             }
         }

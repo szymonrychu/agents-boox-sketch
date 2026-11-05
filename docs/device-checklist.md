@@ -76,9 +76,18 @@ Then:
       moving the pen slider: its width is the same fixed one every time.
 - [ ] Colour popup: six colours in a 3x2 grid, the selected one framed with a white centre mark; the colour
       icon on the strip shows the current colour.
-- [ ] Board grid: light grey 1 px square grid over the whole page. Hold a ruler to the screen: 10 squares
-      measure 50 mm (5 mm pitch, both directions). Pen latency and flicker are unchanged against the build
-      without the grid; a sent sketch shows no grid in its translated spec or in past drawings.
+- [ ] Notebook grid, portrait: a light grey 1 px row line every 12 mm over the text column (starting
+      one row below the top edge, 16 rows), sparse 2 px dots every 6 mm in both directions, and one
+      thin vertical line at 30 percent of the page width from the right edge with dots only to its
+      right. Hold a ruler to the screen: 10 rows measure 120 mm. Rows and dots are readable but
+      not louder than ink.
+- [ ] Notebook grid, landscape: the page is centred and smaller (rows about 9 mm), the same rows and
+      margin line, nothing drawn on the blank sides. A stroke written on a row line stays on that line
+      after rotating back and forth (grid and ink never drift apart).
+- [ ] Grid ghosting: write 50 strokes over rows and margin in each orientation, then clear the page:
+      no grid residue, no darker dots or lines where strokes were erased. Pen latency and flicker are
+      unchanged against the build without the grid. A sent sketch shows no grid in its translated
+      spec or in past drawings.
 - [ ] Open and close a popup: one GC flash, no popup residue left on the board, the pen draws right after.
 - [ ] Pen strokes started over the strip or over an open popup draw nothing and the popup keeps working.
 - [ ] Hide chevron: the strip collapses to a small "Show tools" tab on the left edge; tap it to bring the
