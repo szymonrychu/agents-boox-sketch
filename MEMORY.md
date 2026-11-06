@@ -973,3 +973,4 @@ corner, InkDiag ink right edge Int.MIN_VALUE). Evidence: `.scratchpad/boox-ink-b
 On the device. Checks: fresh launch with the dock up, pen-tap the board to dismiss, then 5 lines per tool in
 black and in blue; all must be right live. If stroke 2..N are still red and ballpoint-like, the next step is
 the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`), see sdk-research.md (c).
+- Follow-up: the hold is a no-op right after an open, so the firmware pen can stay live under a swallowed gesture; the board drops Committed and Erase events while `swallowing` unless a stroke was live at the swallowing down (`swallowedLive`).

@@ -13,8 +13,11 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
+import io.github.szymonrychu.booxsketch.model.Point
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.testing.FreezingInput
 import io.github.szymonrychu.booxsketch.ui.AppShell
@@ -24,6 +27,7 @@ import io.github.szymonrychu.booxsketch.ui.TabRegistry
 import io.github.szymonrychu.booxsketch.ui.TabSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -180,6 +184,42 @@ class BoardDismissModeTest {
         // The reopen with the new rects runs under the hold; the lift releases it last.
         assertThat(input.log.lastIndexOf(lastStart(input))).isLessThan(input.log.lastIndexOf("release"))
         assertThat(input.log.count { it == "release" } - input.log.count { it == "hold" }).isEqualTo(1)
+    }
+
+    private fun strokes() =
+        vm.notebook.value.pages[vm.notebook.value.current]
+            .strokes
+
+    private fun emitCommitted(events: MutableSharedFlow<StrokeEvent>) {
+        val stroke = Stroke("s1", Tool.BALLPOINT, 4f, listOf(Point(X, Y, 0.5f, 0L), Point(X + 40f, Y + 40f, 0.5f, 10L)))
+        compose.runOnUiThread { events.tryEmit(StrokeEvent.Committed(stroke)) }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun a_stroke_the_firmware_commits_during_a_swallowed_gesture_is_dropped() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        show(FreezingInput(events))
+
+        down(MotionEvent.TOOL_TYPE_STYLUS)
+        emitCommitted(events)
+        up(MotionEvent.TOOL_TYPE_STYLUS)
+
+        assertThat(strokes()).isEmpty()
+    }
+
+    @Test
+    fun a_stroke_that_began_before_the_swallow_still_commits() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        val input = FreezingInput(events)
+        show(input)
+
+        input.strokeInProgress = true
+        down(MotionEvent.TOOL_TYPE_FINGER)
+        emitCommitted(events)
+        up(MotionEvent.TOOL_TYPE_FINGER)
+
+        assertThat(strokes()).hasSize(1)
     }
 
     @Test

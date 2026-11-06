@@ -291,6 +291,12 @@ class BoardSurfaceView(
     internal var swallowing = false
         private set
 
+    /** True when a stroke was already live at the swallowing down: its commit and erase events still pass. */
+    private var swallowedLive = false
+
+    /** True while a swallowed gesture owns the pen: stroke events then belong to it and are dropped. */
+    internal val dropsStrokes get() = swallowing && !swallowedLive
+
     private val tap = TapDetector(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
 
     private val main = Handler(Looper.getMainLooper())
@@ -524,6 +530,7 @@ class BoardSurfaceView(
 
     private fun startSwallow() {
         swallowing = true
+        swallowedLive = strokeInProgress()
         onSwallow(true)
         onDismiss()
     }
@@ -638,7 +645,8 @@ fun BoardView(
     LaunchedEffect(input) {
         input.events.collect { ev ->
             if (ev is StrokeEvent.Cancelled) return@collect shapeCancelCb()
-            val v = surface[0] ?: return@collect
+            // The firmware pen can stay live under a swallowed gesture (a hold right after an open is a no-op): no stroke.
+            val v = surface[0]?.takeUnless { it.dropsStrokes } ?: return@collect
             val g = v.geometry()
             when (ev) {
                 is StrokeEvent.Committed -> strokeCb(v.committed(ev.stroke))
