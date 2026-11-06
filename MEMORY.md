@@ -816,3 +816,28 @@ Lessons that outlive a session. Newest first.
   `(js: <first console error>)`, from `CaptureNotes` fed by `shouldInterceptRequest`, `onReceivedError` and a
   `WebChromeClient.onConsoleMessage`; all of it is also logged under `BooxMermaid`. The host timer fires 500 ms before the
   renderer's own wait so the hint is not lost to the race.
+
+## 2026-11-06 Grid contrast, vanishing grid lines and red ballpoint live ink (boox-grid-ink-fixes)
+
+Device report on v0.14.0: (1) grid lines and dots too faint but usable, (2) the live stroke is red and
+ballpoint-like until the redraw, which is right, (3) grid lines vanish after some redraws and come back
+later, dots stay. Root-cause analysis: `.scratchpad/boox-grid-ink-fixes/root-cause.md` in the workbench.
+
+### Grid (issues 1 and 3)
+
+- Confirmed: lines were 1 px non-AA at 0xD3 (17 percent ink), dots 0xBD; neither is one of the 16 e-ink
+  grey levels (multiples of 0x11).
+- Hypothesis (strong, not device-measured) for issue 3: the idle `syncCommitted` frame is posted while raw
+  drawing is live, so the panel shows it with the fast handwriting waveform, which dithers greys. Under a
+  4x4 ordered dither a 1 px 0xD3 row gets zero black pixels when its y mod 4 is 0 or 2, while 3x3 px dots
+  always keep some: "lines vanish, dots stay"; the next GC/GU frame brings the lines back. A binary
+  threshold mode is ruled out by the report itself (0xBD dots would vanish too).
+- Fix: lines 0x999999 (level 9) 2 px wide on an integer y (rows y-1 and y), margin line likewise; dots
+  0x777777 (level 7). Every Bayer row has a threshold that keeps 0x99, so every line keeps pixels in every
+  4 px span. `BoardGridDitherTest` renders the real grid with native graphics and dithers it. Rejected
+  alternative: 1 px lines at 0x77 (survives a binary cut too, but reads harder); the device check decides.
+- Clip edge: `BoardGrid.draw` widens the page range by the line width each side, so a dirty rect starting
+  or ending on a line's pixel row redraws that line (float error used to drop it, and the white fill then
+  erased it inside the rect).
+- Tests changed: `BoardGridTest.colours_and_widths` and `row_lines_run_over_the_text_column_only_at_every_row_pitch`
+  pinned the old colours, 1 px width and half-pixel centre, which the fix replaces on purpose.

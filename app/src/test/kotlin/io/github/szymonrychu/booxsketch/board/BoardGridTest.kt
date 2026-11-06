@@ -16,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.roundToInt
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
 
 /** Records the grid primitives: lines as (x1, y1, x2, y2), dots as (x, y), and the paints used. */
@@ -62,18 +63,18 @@ class BoardGridTest {
         within: RectF? = null,
     ) = GridRecorder().also { BoardGrid().draw(it, g, page, within) }
 
-    /** The view pixel row a 1 px line at page y [y] covers. */
-    private fun pixelRow(
+    /** The integer view y a 2 px line at page y [y] is centred on: it covers the pixel rows just above and below. */
+    private fun lineY(
         g: BoardGeometry,
         y: Int,
-    ) = floor(g.dy + y * g.scale)
+    ) = (g.dy + y * g.scale).roundToInt().toFloat()
 
     @Test
     fun row_lines_run_over_the_text_column_only_at_every_row_pitch() {
         val c = draw(portrait)
         assertThat(c.horizontal).hasSize(16)
         val ys = c.horizontal.map { it[1] }
-        assertThat(ys).containsExactlyElementsIn((0 until 16).map { pixelRow(portrait, geo.rowLineY(it)) + 0.5f }).inOrder()
+        assertThat(ys).containsExactlyElementsIn((0 until 16).map { lineY(portrait, geo.rowLineY(it)) }).inOrder()
         c.horizontal.forEach {
             assertThat(it[0]).isWithin(1f).of(portrait.dx + geo.textLeft * portrait.scale)
             assertThat(it[2]).isWithin(1f).of(portrait.dx + geo.marginX * portrait.scale)
@@ -120,10 +121,10 @@ class BoardGridTest {
     @Test
     fun colours_and_widths() {
         val c = draw(portrait)
-        assertThat(c.linePaint!!.color).isEqualTo(0xFFD3D3D3.toInt())
-        assertThat(c.linePaint!!.strokeWidth).isEqualTo(1f)
+        assertThat(c.linePaint!!.color).isEqualTo(0xFF999999.toInt())
+        assertThat(c.linePaint!!.strokeWidth).isEqualTo(2f)
         assertThat(c.linePaint!!.isAntiAlias).isFalse()
-        assertThat(c.dotPaint!!.color).isEqualTo(0xFFBDBDBD.toInt())
+        assertThat(c.dotPaint!!.color).isEqualTo(0xFF777777.toInt())
         assertThat(c.dotPaint!!.isAntiAlias).isFalse()
         assertThat(c.dotPaint!!.strokeCap).isEqualTo(Paint.Cap.SQUARE)
         // 2 page px, scaled with the page, never below 2 view px.
@@ -212,6 +213,47 @@ class BoardGridTest {
         val v = c.vertical.single()
         assertThat(v[1]).isAtLeast(500f)
         assertThat(v[3]).isAtMost(700f)
+    }
+
+    @Test
+    fun grid_colours_are_neutral_greys_on_the_16_level_eink_palette_and_dark_enough() {
+        for (c in listOf(BoardGrid.LINE_COLOR, BoardGrid.DOT_COLOR)) {
+            val v = c and 0xFF
+            assertThat(v % 0x11).isEqualTo(0)
+            assertThat((c shr 8) and 0xFF).isEqualTo(v)
+            assertThat((c shr 16) and 0xFF).isEqualTo(v)
+        }
+        assertThat(BoardGrid.LINE_COLOR and 0xFF).isAtMost(0x99)
+        assertThat(BoardGrid.DOT_COLOR and 0xFF).isAtMost(0x77)
+    }
+
+    @Test
+    fun row_and_margin_lines_cover_two_whole_pixel_rows() {
+        for (g in listOf(portrait, landscape)) {
+            val c = draw(g)
+            assertThat(c.linePaint!!.strokeWidth).isEqualTo(2f)
+            c.horizontal.forEach { assertThat(it[1]).isEqualTo(floor(it[1])) }
+            c.vertical.forEach { assertThat(it[0]).isEqualTo(floor(it[0])) }
+        }
+    }
+
+    @Test
+    fun a_dirty_rect_edge_on_a_line_pixel_row_still_draws_that_line() {
+        for (g in listOf(portrait, landscape)) {
+            for (k in 0 until geo.rowCount) {
+                val y = lineY(g, geo.rowLineY(k))
+                // The line covers view rows y - 1 and y; a dirty rect starting or ending on either must redraw it.
+                for (clip in listOf(
+                    RectF(g.dx + 100f, y - 1f, g.dx + 400f, y + 30f),
+                    RectF(g.dx + 100f, y, g.dx + 400f, y + 30f),
+                    RectF(g.dx + 100f, y - 30f, g.dx + 400f, y),
+                    RectF(g.dx + 100f, y - 30f, g.dx + 400f, y + 1f),
+                )) {
+                    val c = draw(g, clip)
+                    assertThat(c.horizontal.map { it[1] }).contains(y)
+                }
+            }
+        }
     }
 
     private fun strokeAtViewY(y: Float) = Stroke("s", Tool.BALLPOINT, 2f, listOf(Point(landscape.dx + 10f, y, 1f, 0)))
