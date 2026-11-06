@@ -4,13 +4,12 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
-import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
 import io.github.szymonrychu.booxsketch.model.Canvas as PageCanvas
 
 /**
- * The notebook page behind the ink: light grey row lines over the text column, one vertical line at
+ * The notebook page behind the ink: grey row lines over the text column, one vertical line at
  * the right margin and sparse dots at the cell intersections ([NotebookGeometry]). Everything is
  * defined in page-canvas pixels and mapped through the [BoardGeometry] of the frame, like the ink, so
  * it stays locked to the strokes in portrait and landscape. It is a view-only background: the
@@ -21,7 +20,7 @@ class BoardGrid {
     private val linePaint =
         Paint().apply {
             color = LINE_COLOR
-            strokeWidth = 1f
+            strokeWidth = LINE_PX
             style = Paint.Style.STROKE
             isAntiAlias = false
         }
@@ -51,11 +50,13 @@ class BoardGrid {
         area.set(g.dx, g.dy, g.dx + page.w * g.scale, g.dy + page.h * g.scale)
         if (within != null && !area.intersect(within)) return
         if (area.isEmpty || g.scale <= 0f) return
-        // The visible part in page pixels.
-        val left = (area.left - g.dx) / g.scale
-        val right = (area.right - g.dx) / g.scale
-        val top = (area.top - g.dy) / g.scale
-        val bottom = (area.bottom - g.dy) / g.scale
+        // The visible part in page pixels, widened by the line width: a line centred just outside the clip
+        // still covers a pixel row inside it, and float error must not drop a line on the clip edge. The
+        // canvas clip trims the rest.
+        val left = (area.left - LINE_PX - g.dx) / g.scale
+        val right = (area.right + LINE_PX - g.dx) / g.scale
+        val top = (area.top - LINE_PX - g.dy) / g.scale
+        val bottom = (area.bottom + LINE_PX - g.dy) / g.scale
         val lines = fillLines(g, left, right, top, bottom)
         val dots = fillDots(g, left, right, top, bottom)
         if (lines > 0) canvas.drawLines(lineBuf, 0, lines, linePaint)
@@ -83,7 +84,7 @@ class BoardGrid {
         var i = 0
         if (rowCount > 0) {
             for (k in rows) {
-                val y = pixelCentre(g.dy + geometry.rowLineY(k) * g.scale)
+                val y = pixelEdge(g.dy + geometry.rowLineY(k) * g.scale)
                 lineBuf[i++] = spanLeft
                 lineBuf[i++] = y
                 lineBuf[i++] = spanRight
@@ -91,7 +92,7 @@ class BoardGrid {
             }
         }
         if (marginVisible) {
-            val x = pixelCentre(g.dx + geometry.marginX * g.scale)
+            val x = pixelEdge(g.dx + geometry.marginX * g.scale)
             lineBuf[i++] = x
             lineBuf[i++] = area.top
             lineBuf[i++] = x
@@ -123,15 +124,22 @@ class BoardGrid {
         return i
     }
 
-    /** The middle of the view pixel row (or column) that [v] falls in, so a 1 px non-anti-aliased line covers exactly one. */
-    private fun pixelCentre(v: Float): Float = floor(v) + 0.5f
+    /** The pixel edge nearest [v], so a 2 px non-anti-aliased line covers exactly the two pixel rows (or columns) around it. */
+    private fun pixelEdge(v: Float): Float = v.roundToInt().toFloat()
 
     companion object {
-        /** Light grey: reads lightly on e-ink but stays visible. */
-        const val LINE_COLOR = 0xFFD3D3D3.toInt()
+        /**
+         * Grey level 9 of the 16 e-ink levels (40 percent ink), drawn [LINE_PX] wide: an exact level is not
+         * dithered in a grey frame, and two pixel rows keep pixels in every column under the ordered dither
+         * of the fast handwriting waveform (lines at 0xD3, 1 px, vanished there and read faint elsewhere).
+         */
+        const val LINE_COLOR = 0xFF999999.toInt()
 
-        /** A little darker than the lines: a dot is small. */
-        const val DOT_COLOR = 0xFFBDBDBD.toInt()
+        /** Grey level 7 (53 percent ink): a dot is small, and below the 0x80 cut of a binary fast mode. */
+        const val DOT_COLOR = 0xFF777777.toInt()
+
+        /** Row and margin line width in view pixels. */
+        const val LINE_PX = 2f
 
         /** Dot side in page pixels. */
         const val DOT_PX = 2

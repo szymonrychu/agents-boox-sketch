@@ -24,6 +24,18 @@ For each swatch (black, red, blue, green, orange, purple):
 
 Then:
 
+- [ ] Live ink follows the selection (v0.14.0 report: live stroke red and ballpoint-like until the redraw).
+      Diagnostics shows "Firmware brush API: ok (<device class>)". With `adb logcat -s InkDiag` running,
+      select black fountain, open and dismiss a toolbox, then draw: the live stroke is black fountain, and
+      the log shows `raw open`, then `setBrush style=<n> width=<w> color=#FF000000`, and `brush re-applied
+      on the first pen-down after an open` on the first stroke.
+- [ ] If the live ink is still wrong, decide the cause (note the result in MEMORY.md):
+      (a) Diagnostics says "missing": the firmware calls never land (H1). Confirm in BOOX Notes: pick a
+      blue fountain there, write, come back, draw with black ballpoint: blue fountain live ink is H1.
+      (b) Draw once each in black, blue and green ballpoint: all red or magenta live means the firmware
+      reads the colour int differently from ARGB (H2).
+      (c) The colour follows the selection but the style stays ballpoint: an asynchronous reset after the
+      open (H3); send the InkDiag log around a toolbox dismiss.
 - [ ] Switch tools (fountain, brush, marker) with a colour selected: the colour is kept.
 - [ ] Eraser, undo and redo work on coloured strokes.
 - [ ] Tap the eraser in the strip: Diagnostics shows "Raw drawing enabled: no"; drag the pen tip
@@ -76,9 +88,9 @@ Then:
       moving the pen slider: its width is the same fixed one every time.
 - [ ] Colour popup: six colours in a 3x2 grid, the selected one framed with a white centre mark; the colour
       icon on the strip shows the current colour.
-- [ ] Notebook grid, portrait: a light grey 1 px row line every 12 mm over the text column (starting
-      one row below the top edge, 16 rows), sparse 2 px dots every 6 mm in both directions, and one
-      thin vertical line at 30 percent of the page width from the right edge with dots only to its
+- [ ] Notebook grid, portrait: a mid grey 2 px row line every 12 mm over the text column (starting
+      one row below the top edge, 16 rows), sparse 2 px darker grey dots every 6 mm in both directions,
+      and one 2 px vertical line at 30 percent of the page width from the right edge with dots only to its
       right. Hold a ruler to the screen: 10 rows measure 120 mm. Rows and dots are readable but
       not louder than ink.
 - [ ] Notebook grid, landscape: the page is centred and smaller (rows about 9 mm), the same rows and
@@ -88,6 +100,14 @@ Then:
       no grid residue, no darker dots or lines where strokes were erased. Pen latency and flicker are
       unchanged against the build without the grid. A sent sketch shows no grid in its translated
       spec or in past drawings.
+- [ ] Grid contrast (v0.14.0 report: too faint): lines (grey 0x99, 2 px) and dots (grey 0x77) are clearly
+      visible at arm's length in both orientations, without reading heavier than a ballpoint stroke. If the
+      lines look too heavy, note it: the alternative is 1 px lines at 0x77.
+- [ ] Grid lines survive the idle sync (v0.14.0 report: lines vanished after a redraw, dots stayed): write a
+      few words across 3 rows, lift and wait 1 s. Every row line under and around the words is still drawn,
+      as a solid or finely dotted line, never missing. Repeat in landscape and on 5 different rows. If a line
+      is missing, take `adb exec-out screencap -p` at that moment: a line present in the screenshot but not
+      on the glass is the waveform, not the app; a page switch must bring it back.
 - [ ] Open and close a popup: one GC flash, no popup residue left on the board, the pen draws right after.
 - [ ] Pen strokes started over the strip or over an open popup draw nothing and the popup keeps working.
 - [ ] Hide chevron: the strip collapses to a small "Show tools" tab on the left edge; tap it to bring the

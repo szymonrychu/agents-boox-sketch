@@ -816,3 +816,61 @@ Lessons that outlive a session. Newest first.
   `(js: <first console error>)`, from `CaptureNotes` fed by `shouldInterceptRequest`, `onReceivedError` and a
   `WebChromeClient.onConsoleMessage`; all of it is also logged under `BooxMermaid`. The host timer fires 500 ms before the
   renderer's own wait so the hint is not lost to the race.
+
+## 2026-11-06 Grid contrast, vanishing grid lines and red ballpoint live ink (boox-grid-ink-fixes)
+
+Device report on v0.14.0: (1) grid lines and dots too faint but usable, (2) the live stroke is red and
+ballpoint-like until the redraw, which is right, (3) grid lines vanish after some redraws and come back
+later, dots stay. Root-cause analysis: `.scratchpad/boox-grid-ink-fixes/root-cause.md` in the workbench.
+
+### Grid (issues 1 and 3)
+
+- Confirmed: lines were 1 px non-AA at 0xD3 (17 percent ink), dots 0xBD; neither is one of the 16 e-ink
+  grey levels (multiples of 0x11).
+- Hypothesis (strong, not device-measured) for issue 3: the idle `syncCommitted` frame is posted while raw
+  drawing is live, so the panel shows it with the fast handwriting waveform, which dithers greys. Under a
+  4x4 ordered dither a 1 px 0xD3 row gets zero black pixels when its y mod 4 is 0 or 2, while 3x3 px dots
+  always keep some: "lines vanish, dots stay"; the next GC/GU frame brings the lines back. A binary
+  threshold mode is ruled out by the report itself (0xBD dots would vanish too).
+- Fix: lines 0x999999 (level 9) 2 px wide on an integer y (rows y-1 and y), margin line likewise; dots
+  0x777777 (level 7). Every Bayer row has a threshold that keeps 0x99, so every line keeps pixels in every
+  4 px span. `BoardGridDitherTest` renders the real grid with native graphics and dithers it. Rejected
+  alternative: 1 px lines at 0x77 (survives a binary cut too, but reads harder); the device check decides.
+- Clip edge: `BoardGrid.draw` widens the page range by the line width each side, so a dirty rect starting
+  or ending on a line's pixel row redraws that line (float error used to drop it, and the white fill then
+  erased it inside the rect).
+- Tests changed: `BoardGridTest.colours_and_widths` and `row_lines_run_over_the_text_column_only_at_every_row_pitch`
+  pinned the old colours, 1 px width and half-pixel centre, which the fix replaces on purpose.
+
+### Live ink red and ballpoint-like (issue 2)
+
+- Root cause NOT confirmed. Bounded SDK check (javap of onyxsdk-pen 1.5.8, onyxsdk-device 1.3.6,
+  onyxsdk-baselite 1.1.2) of the calls added since charcoal last looked right live (2026-11-04 boox-ink-match
+  entry): `ResManager.init` (#53) only stores the app context; `Epd.handwritingMode`/`resetUpdateMode` (#51)
+  call `ViewUpdateHelper.setViewDefaultUpdateMode/resetViewUpdateMode`, a view refresh mode with no stroke
+  fields, and run only on the touch-fallback path; `Device.getStrokeParameters` (#51) is a getter. None of them
+  touches the firmware stroke style or colour on the Java side. Not checkable without the device: native side
+  effects of the offline SDK pens, which really run only since #53 (before that every SDK pen threw).
+- Confirmed from bytecode: `openRawDrawing` (and `closeRawDrawing`) reset the firmware style to 0 (pencil,
+  the ballpoint look) via `SFTouchRender.resetStrokeStyle`, colour and width are kept; `setRawDrawingEnabled(false)`
+  right after an open is a no-op (cached flag), so the firmware pen stayed in START; the vendor demo calls
+  `forceSetRawDrawingEnabled(false)` there. #57 added two re-opens per toolbox use, which makes the style reset
+  frequent. Style and colour reach the firmware only through `SDMDevice`-style static `Method` fields called
+  with `ReflectUtil.invokeMethodSafely`, which swallows errors.
+- Hypotheses: H1 the style/colour calls do not land (null fields), the live ink uses the firmware's global
+  pen (red from another app) and our open's style 0; H2 the firmware reads the colour int other than ARGB
+  (black 0xFF000000 read as red); H3 an asynchronous reset after an open leaves style 0 (explains ballpoint,
+  not red).
+- Fix (covers H3 and the demo divergence, harmless for H1/H2): the brush is applied after every open
+  (first start too, where it used to precede the open), an open that stays disabled is force-disabled, and
+  the first pen-down after an open re-applies the brush once (`brushDirty`). Evidence: InkDiag lines
+  `raw open`, `raw enable`, `raw force-disabled after open`, `setBrush style= width= color=#AARRGGBB tool=`
+  and the first-pen-down re-apply; Diagnostics "Firmware brush API: ok / missing (<device class>: <methods>)"
+  reads the device class's `sMethodSetStrokeStyle/Color` static fields by reflection (`FirmwareBrushApi`).
+- Device test that decides: checklist "Live ink in each colour". "missing" or the BOOX Notes blue-fountain
+  carry-over is H1 (fix: make the firmware calls land, check the hidden-API exemption runs before the first
+  `Device.currentDevice()`); all colours red/magenta is H2 (convert ARGB in `TouchHelperRawDrawing.setBrush`
+  only); right colour with ballpoint style is H3 (send the InkDiag log around a dismiss).
+- Tests changed: `OnyxRawSessionTest.changed_rects_are_applied_and_raw_drawing_is_reopened_as_in_the_vendor_demo`
+  and `first_start_sets_rects_brush_opens_...` (renamed `first_start_sets_rects_opens_applies_the_brush_...`)
+  pinned the brush before the open, which is the order this fix changes.

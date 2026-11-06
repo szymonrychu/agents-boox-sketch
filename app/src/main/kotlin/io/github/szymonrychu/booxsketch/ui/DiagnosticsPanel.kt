@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputStatus
 import io.github.szymonrychu.booxsketch.ink.ShapeDragCounts
+import io.github.szymonrychu.booxsketch.onyx.FirmwareBrushApi
 import io.github.szymonrychu.booxsketch.onyx.InkDiag
 
 /** The Diagnostics panel tab, fed by the process [selector]. */
@@ -26,7 +27,15 @@ fun DiagnosticsTab(selector: InputSelector) {
     val shapeDrags by selector.shapeDrags.collectAsState()
     val penFallbacks by InkDiag.fallbacks.collectAsState()
     val penOffReason by InkDiag.penOffReason.collectAsState()
-    DiagnosticsPanel(status, selector::rawEnabled, shapeDrags = shapeDrags, penFallbacks = penFallbacks, penOffReason = penOffReason)
+    val firmwareBrush = remember { FirmwareBrushApi.status() }
+    DiagnosticsPanel(
+        status,
+        selector::rawEnabled,
+        shapeDrags = shapeDrags,
+        penFallbacks = penFallbacks,
+        penOffReason = penOffReason,
+        firmwareBrush = firmwareBrush,
+    )
 }
 
 /**
@@ -36,7 +45,9 @@ fun DiagnosticsTab(selector: InputSelector) {
  * window count grows means the raw layer claims the drag and only the window feed draws shapes.
  * [penFallbacks] counts committed strokes the SDK pens did not redraw (the app renderer drew them);
  * each one is logged under the InkDiag tag with its cause. [penOffReason] is why the SDK pens turned
- * themselves off ("SDK pens off: <exception class>: <message>"), shown only then.
+ * themselves off ("SDK pens off: <exception class>: <message>"), shown only then. [firmwareBrush] says
+ * whether the SDK found the firmware's stroke style and colour methods ([FirmwareBrushApi]); "missing"
+ * means the live ink cannot follow the selected tool and colour.
  */
 @Composable
 fun DiagnosticsPanel(
@@ -46,6 +57,7 @@ fun DiagnosticsPanel(
     shapeDrags: ShapeDragCounts = ShapeDragCounts(),
     penFallbacks: Int = 0,
     penOffReason: String? = null,
+    firmwareBrush: String? = null,
 ) {
     var tick by remember { mutableIntStateOf(0) }
     val raw = remember(tick, status) { rawEnabled() }
@@ -56,6 +68,7 @@ fun DiagnosticsPanel(
         Text("Shape drag events: window ${shapeDrags.window}, view ${shapeDrags.view}", color = Color.Black)
         Text("Pen redraw fallbacks: $penFallbacks", color = Color.Black)
         if (penOffReason != null) Text(penOffReason, color = Color.Black)
+        if (firmwareBrush != null) Text("Firmware brush API: $firmwareBrush", color = Color.Black)
         TextButton(onClick = { tick++ }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
             Text("Refresh", color = Color.Black)
         }
