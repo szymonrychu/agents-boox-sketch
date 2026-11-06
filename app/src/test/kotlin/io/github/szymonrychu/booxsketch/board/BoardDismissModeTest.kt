@@ -5,12 +5,19 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.ink.StrokeEvent
+import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
+import io.github.szymonrychu.booxsketch.model.Point
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.testing.FreezingInput
 import io.github.szymonrychu.booxsketch.ui.AppShell
@@ -20,6 +27,7 @@ import io.github.szymonrychu.booxsketch.ui.TabRegistry
 import io.github.szymonrychu.booxsketch.ui.TabSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -40,7 +48,11 @@ class BoardDismissModeTest {
     private var host: View? = null
     private lateinit var vm: BoardViewModel
 
-    private fun show(input: io.github.szymonrychu.booxsketch.ink.StrokeInput) {
+    private var shown by mutableStateOf(true)
+    private var current by mutableStateOf<StrokeInput?>(null)
+
+    private fun show(input: StrokeInput) {
+        current = input
         val registry = TabRegistry()
         registry.register(TabSpec(BOARD_TAB_ID, "Drawings", 10) { })
         registry.register(TabSpec("spec", "Spec", 20) { })
@@ -49,7 +61,7 @@ class BoardDismissModeTest {
             host = LocalView.current
             AppShell(
                 tabs = registry,
-                board = { chrome -> BoardScreen(vm, input, chrome = chrome) },
+                board = { chrome -> if (shown) current?.let { BoardScreen(vm, it, chrome = chrome) } },
                 state = state,
                 insets = WindowInsets(0, 0, 0, 0),
             )
@@ -115,13 +127,22 @@ class BoardDismissModeTest {
 
     private fun lastStart(input: FreezingInput) = input.log.last { it.startsWith("start:") }
 
+    /** Holds not yet released. */
+    private fun outstanding(input: FreezingInput) = input.log.count { it == "hold" } - input.log.count { it == "release" }
+
+    private fun starts(input: FreezingInput) = input.log.filter { it.startsWith("start:") }
+
     @Test
-    fun open_strip_excludes_the_whole_board_from_raw_drawing() {
+    fun open_strip_holds_raw_drawing_without_excluding_the_board() {
         val input = FreezingInput()
         show(input)
 
         assertThat(state.chromeVisible).isTrue()
-        assertThat(lastStart(input)).contains(boardRect().toString())
+        assertThat(starts(input)).isNotEmpty()
+        // An exclude equal to the limit leaves the firmware an empty drawable region: never sent.
+        assertThat(input.limits.distinct()).containsExactly(boardRect())
+        assertThat(starts(input).none { it.contains(boardRect().toString()) }).isTrue()
+        assertThat(outstanding(input)).isEqualTo(1)
     }
 
     @Test
@@ -146,24 +167,135 @@ class BoardDismissModeTest {
     }
 
     @Test
-    fun excludes_keep_the_board_until_the_lift_then_drop_to_the_indicator_only() {
+    fun a_swallowed_gesture_keeps_raw_drawing_held_and_not_reopened_until_the_lift() {
         val input = FreezingInput()
         show(input)
         input.log.clear()
 
         down(MotionEvent.TOOL_TYPE_STYLUS)
         drag(MotionEvent.TOOL_TYPE_STYLUS)
-        assertThat(input.log.filter { it.startsWith("start:") }.all { it.contains(boardRect().toString()) }).isTrue()
-        // One hold for the overlays, plus at most the refresher's own for the full refresh.
-        assertThat(input.log.count { it == "hold" }).isAtMost(2)
+        // The strip is gone, but the pen is still on the board: raw drawing stays off and is not reopened under it.
+        assertThat(state.chromeVisible).isFalse()
+        assertThat(starts(input)).isEmpty()
+        assertThat(input.log.count { it == "hold" }).isAtMost(input.log.count { it == "release" } + 1)
 
         up(MotionEvent.TOOL_TYPE_STYLUS)
-        val want = "start:${listOf(rectOf(TAG_INDICATOR))}"
-        assertThat(lastStart(input)).isEqualTo(want)
-        // Raw drawing is released with the board still excluded; the lift only narrows it to the indicator.
-        assertThat(input.log.filter { it.startsWith("start:") }).doesNotContain("start:[]")
-        assertThat(input.log.toString()).contains("release")
-        assertThat(input.log.count { it == "hold" }).isEqualTo(input.log.count { it == "release" })
+        assertThat(lastStart(input)).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        // The reopen with the new rects runs under the hold; the lift releases it last.
+        assertThat(input.log.lastIndexOf(lastStart(input))).isLessThan(input.log.lastIndexOf("release"))
+        assertThat(input.log.count { it == "release" } - input.log.count { it == "hold" }).isEqualTo(1)
+    }
+
+    private fun strokes() =
+        vm.notebook.value.pages[vm.notebook.value.current]
+            .strokes
+
+    private fun emitCommitted(events: MutableSharedFlow<StrokeEvent>) {
+        val stroke = Stroke("s1", Tool.BALLPOINT, 4f, listOf(Point(X, Y, 0.5f, 0L), Point(X + 40f, Y + 40f, 0.5f, 10L)))
+        compose.runOnUiThread { events.tryEmit(StrokeEvent.Committed(stroke)) }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun a_stroke_the_firmware_commits_during_a_swallowed_gesture_is_dropped() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        show(FreezingInput(events))
+
+        down(MotionEvent.TOOL_TYPE_STYLUS)
+        emitCommitted(events)
+        up(MotionEvent.TOOL_TYPE_STYLUS)
+
+        assertThat(strokes()).isEmpty()
+    }
+
+    @Test
+    fun a_stroke_committed_after_the_lift_ended_the_swallow_is_dropped_once() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        show(FreezingInput(events))
+
+        down(MotionEvent.TOOL_TYPE_STYLUS)
+        up(MotionEvent.TOOL_TYPE_STYLUS)
+        emitCommitted(events)
+        assertThat(strokes()).isEmpty()
+
+        // The down point was consumed: the same stroke again (a real one) commits.
+        emitCommitted(events)
+        assertThat(strokes()).hasSize(1)
+    }
+
+    @Test
+    fun a_stroke_that_began_before_the_swallow_still_commits() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        val input = FreezingInput(events)
+        show(input)
+
+        input.strokeInProgress = true
+        down(MotionEvent.TOOL_TYPE_FINGER)
+        emitCommitted(events)
+        up(MotionEvent.TOOL_TYPE_FINGER)
+
+        assertThat(strokes()).hasSize(1)
+    }
+
+    @Test
+    fun holds_are_balanced_after_dismiss_and_lift() {
+        val input = FreezingInput()
+        show(input)
+
+        down(MotionEvent.TOOL_TYPE_FINGER)
+        up(MotionEvent.TOOL_TYPE_FINGER)
+
+        assertThat(outstanding(input)).isEqualTo(0)
+    }
+
+    @Test
+    fun the_hold_is_released_when_the_board_leaves_composition() {
+        val input = FreezingInput()
+        show(input)
+        assertThat(outstanding(input)).isEqualTo(1)
+
+        compose.runOnUiThread { shown = false }
+        compose.waitForIdle()
+
+        assertThat(outstanding(input)).isEqualTo(0)
+    }
+
+    @Test
+    fun the_hold_moves_with_the_input() {
+        val first = FreezingInput()
+        show(first)
+        val second = FreezingInput()
+
+        compose.runOnUiThread { current = second }
+        compose.waitForIdle()
+
+        assertThat(outstanding(first)).isEqualTo(0)
+        assertThat(second.log).contains("hold")
+
+        down(MotionEvent.TOOL_TYPE_FINGER)
+        up(MotionEvent.TOOL_TYPE_FINGER)
+        compose.runOnUiThread { host!!.rootView.requestLayout() }
+        compose.waitForIdle()
+        assertThat(outstanding(first)).isEqualTo(0)
+        assertThat(outstanding(second)).isEqualTo(0)
+    }
+
+    @Test
+    fun a_surface_destroyed_mid_gesture_ends_the_swallow_and_releases_its_hold() {
+        val input = FreezingInput()
+        show(input)
+        down(MotionEvent.TOOL_TYPE_STYLUS)
+
+        val v = surface()
+        compose.runOnUiThread { v.surfaceDestroyed(v.holder) }
+        compose.waitForIdle()
+        assertThat(outstanding(input)).isEqualTo(0)
+
+        input.log.clear()
+        compose.runOnUiThread { v.surfaceCreated(v.holder) }
+        compose.waitForIdle()
+        assertThat(lastStart(input)).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        assertThat(outstanding(input)).isEqualTo(0)
     }
 
     @Test

@@ -901,3 +901,76 @@ later, dots stay. Root-cause analysis: `.scratchpad/boox-grid-ink-fixes/root-cau
   asserts strokes 2..5 keep the selected brush. `the_first_pen_down_after_an_open_reapplies_the_brush_once`
   asserted that a second pen-down does NOT re-apply, which pinned the bug; it is now
   `the_first_pen_down_after_an_open_reapplies_the_brush` without that assertion.
+
+## 2026-11-06 Live ink regression since v0.14.0: dismiss hold, v0.13.2 brush, ink bounds (fix/ink-regression-since-0.14)
+
+Device facts: v0.13.2 live ink was right for every tool and colour. v0.14.0 (#57) made it red and
+ballpoint-like until a redraw; #58 and #59 made it worse (brush/charcoal/charcoal_v2/marker strokes after the
+first only appear after a full redraw, ballpoint lines trace from the pen-down point to the upper-right
+corner, InkDiag ink right edge Int.MIN_VALUE). Evidence: `.scratchpad/boox-ink-brush-regression/`
+(bisect-research.md, sdk-research.md, bounds-research.md) in the workbench.
+
+### Root causes
+
+1. #57 (dismiss mode) sent the firmware a state it never saw before: an exclude rect equal to the limit rect
+   (`boardExcluded`, empty drawable region) whenever the dock or panel was up, which is the default at launch,
+   and it restarted raw drawing (setLimitRect + openRawDrawing) on every dismissMode/swallow flip, one of them
+   while the pen was still on the board. `OnyxStrokeInput`/`RawDrawing` were byte-identical in v0.13.2 and
+   v0.14.0, so this is the only firmware-facing delta. Why exactly red is not visible in the SDK (inferred).
+2. #59 wrote the brush from stroke callbacks. `onBeginRawDrawing` comes from the reader thread and was posted
+   to main, so the write always landed after the system renderer had started the stroke: a mid-stroke style
+   change fits the lost NEO-pen strokes and the corner trace. The vendor demo never sets the brush per stroke.
+3. `inkBounds` seeded a RectF with inverted extremes and used `union(x, y)`, whose `else if` never moves
+   right/bottom for a stroke drawn right to left or upwards, or a dot: right/bottom stayed -Float.MAX, so
+   `defer` dropped the stroke from `pendingDirty`, `paint` filtered it out and `CachedPenRenderer` declined it.
+   Present since #41; tests only used strokes whose first point was the minimum.
+
+### What changed
+
+- Dismiss mode keeps raw drawing off through the existing hold path, the one v0.13.2 ran for every overlay:
+  `HoldWhile(input, dismissMode || swallowing)` in `BoardView` (one `holdUi`, released exactly once when both
+  end, the input changes or the board leaves composition). The board rect is never an exclude and flips no
+  longer restart the input. `startInput` does nothing during a swallowed gesture; the lift starts the input
+  with the current rects (still under the hold, released right after), so no open runs under the pen. A
+  surface destroyed mid-gesture ends the swallow, so its hold cannot leak. Tap-to-dismiss and the grid are
+  unchanged. Trade-off: while the dock is up the screen is not frozen (the board takes no ink then anyway).
+- `OnyxStrokeInput`/`RawDrawing`: back to v0.13.2 semantics. Reverted: the brush writes at pen-down, pen-up,
+  raw erase end and pen idle (#59); the brush right after every open (#58; redundant, the enable that always
+  follows applies it, and v0.13.2 applied it before the first open); `forceOff`/`RawDrawing.forceDisable`
+  (#58; vendor demo behaviour that v0.13.2 never ran and that was never verified on the device; the plain
+  disable after an open is a no-op in the SDK, which v0.13.2 tolerated). Kept: InkDiag `raw open`,
+  `raw enable`, `setBrush ...` lines (without `at=`), `FirmwareBrushApi` and its Diagnostics line.
+- `inkBounds` uses min/max over the outline points.
+
+### Tests changed and why
+
+- `BoardDismissModeTest.open_strip_excludes_the_whole_board_from_raw_drawing` and
+  `excludes_keep_the_board_until_the_lift_then_drop_to_the_indicator_only` pinned the whole-board exclude and
+  the restarts under the pen; replaced by `open_strip_holds_raw_drawing_without_excluding_the_board` and
+  `a_swallowed_gesture_keeps_raw_drawing_held_and_not_reopened_until_the_lift`. New: hold balance after dismiss,
+  on disposal, on input change and on a surface destroyed mid-gesture.
+- `BoardChromeWiringTest`: `hide_updates_exclude_while_held` and `show_applies_toolbar_rect_before_release`
+  expected the board rect in the excludes (now: never), and the latter expected raw drawing on with the strip
+  open (now: held by dismiss mode). The hold-balance assertions (`releases() == holds()`, `enabledAt`, the gap
+  replay) counted from a cleared log and assumed no hold outstanding while an overlay is open; they now count
+  the hold outstanding at the clear (`FreezingInput.heldAtClear`) and expect exactly the dismiss mode hold
+  while the strip or panel stays open (`dismissHold()`, `overlaysSettledAt()`).
+- `OnyxBrushAfterOpenTest`: removed `the_first_pen_down_after_an_open_reapplies_the_brush`,
+  `every_stroke_carries_the_selected_brush_when_the_firmware_resets_it_after_each_stroke` and
+  `the_brush_is_repaired_at_pen_up_and_after_the_idle_sync_before_the_next_stroke` (they pinned the #59
+  per-stroke writes and a per-stroke firmware reset that was never observed); the first-start and held-reopen
+  cases asserted the brush and a paused pen right after the open (#58 order and force-disable) and now assert
+  the brush once raw drawing is enabled; `lift_after_dismiss_reopens_with_the_brush` modelled the whole-board
+  exclude and is now `reopen_for_new_rects_while_live_draws_with_the_selected_brush` (a plain rect change). New: `no_brush_write_at_any_stroke_boundary`.
+- `OnyxRawSessionTest`: the reopen and first-start call orders are back to their v0.13.2 form (no brush right
+  after the open).
+- New bounds tests: `InkBoundsTest` (right to left, bottom to top, dot, start at the rightmost and lowest point,
+  every tool), `CachedPenRendererTest.a_right_to_left_stroke_is_rendered_by_the_pen_not_declined`,
+  `DeferredStrokeSyncTest` (syncCommitted draws such strokes). All failed on the old code under Robolectric.
+
+### Not verified
+
+On the device. Checks: fresh launch with the dock up, pen-tap the board to dismiss, then 5 lines per tool in
+black and in blue; all must be right live. If stroke 2..N are still red and ballpoint-like, the next step is
+the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`), see sdk-research.md (c).
+- Follow-up: the hold is a no-op right after an open, so the firmware pen can stay live under a swallowed gesture, and the SDK delivers the raw stroke at or after pen-up, often after the lift ended the swallow. The board drops Committed and Erase events while `swallowing` (unless a stroke was live at the swallowing down, `swallowedLive`), and afterwards those whose first point lies within touch slop of the swallowed down point (`swallowedAt`, view pixels); a Committed consumes it, the next unswallowed down clears it. No timeouts.

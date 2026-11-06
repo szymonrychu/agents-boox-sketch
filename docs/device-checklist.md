@@ -129,7 +129,7 @@ Then:
       the lift, no stroke is added: undo does not remove anything). A finger tap and a finger
       drag do the same. Try it with ballpoint, with a shape tool and with the eraser selected.
       If a pen tap does nothing, stylus events do not reach the board view or the window
-      callback while the whole board is excluded from raw drawing (see MEMORY "dismiss mode").
+      callback while raw drawing is held off in dismiss mode (see MEMORY "dismiss mode").
 - [ ] After the dismiss lift the pen draws at once; the next stroke is not clipped at its start.
 - [ ] Pen strokes over the open panel and over the panel indicator draw nothing.
 - [ ] Rotate with panel and a popup open: both stay inside the screen, one GC flash, pen draws

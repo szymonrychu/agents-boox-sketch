@@ -130,6 +130,27 @@ class CachedPenRendererTest {
     }
 
     @Test
+    fun a_right_to_left_stroke_is_rendered_by_the_pen_not_declined() {
+        // Drawn right to left and upwards: its bounds once kept right and bottom at -Float.MAX, so the pen was declined.
+        val back =
+            Stroke(
+                "b",
+                Tool.BRUSH,
+                4f,
+                listOf(Point(150f, 150f, 0.5f, 0), Point(100f, 120f, 0.5f, 8), Point(40f, 60f, 0.5f, 16)),
+                PenColor.RED,
+            )
+        val pen = DotPen()
+        val r = CachedPenRenderer(pen)
+        val (bmp, c) = board()
+        assertThat(r.draw(c, back, 1f, 0f, 0f)).isTrue()
+        assertThat(r.rendered).isEqualTo(1)
+        for ((x, y) in listOf(150 to 150, 100 to 120, 40 to 60)) {
+            assertThat(bmp.getPixel(x, y)).isEqualTo(PenColor.RED.argb)
+        }
+    }
+
+    @Test
     fun a_full_cache_evicts_and_renders_again() {
         val pen = DotPen()
         val r = CachedPenRenderer(pen, maxBytes = 1)

@@ -139,6 +139,12 @@ class BoardChromeWiringTest {
 
     private fun releases() = input.log.count { it == "release" }
 
+    /** Holds not yet released, counting the ones outstanding when the log was cleared (the dismiss mode hold). */
+    private fun outstanding() = input.heldAtClear + holds() - releases()
+
+    /** Every overlay hold is released once settled; only dismiss mode (strip or panel open) keeps one hold. */
+    private fun dismissHold() = if (state.chromeVisible || state.panelVisible) 1 else 0
+
     private fun surface(): BoardSurfaceView? {
         fun find(v: View): BoardSurfaceView? =
             if (v is BoardSurfaceView) {
@@ -163,7 +169,7 @@ class BoardChromeWiringTest {
 
     /** Log index at which the last outstanding hold is released (raw drawing back on); -1 if never. */
     private fun enabledAt(): Int {
-        var held = 0
+        var held = input.heldAtClear
         var at = -1
         input.log.forEachIndexed { i, e ->
             if (e == "hold") held++
@@ -175,9 +181,26 @@ class BoardChromeWiringTest {
         return at
     }
 
+    /**
+     * Log index at which the overlay holds are released down to the dismiss mode hold, the only one left while
+     * the strip or the panel stays open; -1 if never.
+     */
+    private fun overlaysSettledAt(): Int {
+        var held = input.heldAtClear
+        var at = -1
+        input.log.forEachIndexed { i, e ->
+            if (e == "hold") held++
+            if (e == "release") {
+                held--
+                if (held == dismissHold()) at = i
+            }
+        }
+        return at
+    }
+
     /** Indices of `start:[]` calls made while no hold was outstanding, i.e. raw drawing on with no exclude. */
     private fun emptyStartsWhileEnabled(): List<Int> {
-        var held = 0
+        var held = input.heldAtClear
         return input.log
             .withIndex()
             .filter { (_, e) ->
@@ -319,9 +342,10 @@ class BoardChromeWiringTest {
         createSurface()
         val dock = rectOf(TAG_DOCK)
         val bar = rectOf(TAG_TAB_BAR)
-        // The open strip puts the whole board in the excludes too (dismiss mode).
-        val open = "start:${listOf(dock, bar, boardRect())}"
+        // The open strip holds raw drawing off (dismiss mode); the board itself is never an exclude.
+        val open = "start:${listOf(dock, bar)}"
         assertThat(lastStart()).isEqualTo(open)
+        assertThat(input.log.none { it.contains(boardRect().toString()) }).isTrue()
         input.log.clear()
 
         compose.onNodeWithTag(TAG_HIDE).performClick()
@@ -347,7 +371,7 @@ class BoardChromeWiringTest {
 
         // Replay the log: whenever no hold is outstanding (raw drawing is on), the board must be
         // started with the indicator excluded; an empty exclude list there is a gap.
-        var held = 0
+        var held = input.heldAtClear
         var started = "start:${listOf(dock)}"
         var gapFree = true
         for (entry in input.log) {
@@ -385,11 +409,12 @@ class BoardChromeWiringTest {
         compose.onNodeWithTag(TAG_INDICATOR).performClick()
         compose.waitForIdle()
 
-        // The open strip puts the whole board in the excludes too (dismiss mode).
-        val want = "start:${listOf(dock, bar, boardRect())}"
+        // The board itself is never an exclude: the open strip keeps raw drawing held off instead (dismiss mode).
+        val want = "start:${listOf(dock, bar)}"
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(input.log).contains(want)
-        assertThat(enabledAt()).isGreaterThan(input.log.indexOf(want))
+        assertThat(input.log.lastIndexOf("release")).isGreaterThan(input.log.indexOf(want))
+        assertThat(outstanding()).isEqualTo(1)
     }
 
     @Test
@@ -449,14 +474,15 @@ class BoardChromeWiringTest {
         input.log.clear()
         compose.onNodeWithTag("fake_hide").performClick()
         compose.waitForIdle()
+        // The hide hold waits for the indicator rect; the dismiss mode hold of the open strip is released.
         assertThat(holds()).isEqualTo(1)
-        assertThat(releases()).isEqualTo(0)
+        assertThat(outstanding()).isEqualTo(1)
 
         compose.runOnUiThread { Snapshot.withMutableSnapshot { state.select("spec") } }
         compose.waitForIdle()
 
         assertThat(input.log).contains("stop")
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -467,8 +493,9 @@ class BoardChromeWiringTest {
         input.log.clear()
         compose.onNodeWithTag("fake_hide").performClick()
         compose.waitForIdle()
+        // The hide hold waits for the indicator rect; the dismiss mode hold of the open strip is released.
         assertThat(holds()).isEqualTo(1)
-        assertThat(releases()).isEqualTo(0)
+        assertThat(outstanding()).isEqualTo(1)
 
         lifecycle(Lifecycle.Event.ON_PAUSE)
         compose.runOnUiThread { measured.value = true }
@@ -479,7 +506,7 @@ class BoardChromeWiringTest {
 
         // The compose frame clock keeps running while paused, so the release may land before the resume;
         // the input's own pause flag keeps raw drawing off until then (OnyxLiveInkTest).
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
         assertThat(input.log).contains("start:${listOf(Rect(0, 0, 48, 48))}")
     }
 
@@ -513,9 +540,9 @@ class BoardChromeWiringTest {
         assertThat(input.log.first()).isEqualTo("hold")
         val started = lastStartWith(panel)
         assertThat(started).isAtLeast(0)
-        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(overlaysSettledAt()).isGreaterThan(started)
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -543,7 +570,7 @@ class BoardChromeWiringTest {
         assertThat(started).isAtLeast(0)
         assertThat(enabledAt()).isGreaterThan(started)
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -573,7 +600,7 @@ class BoardChromeWiringTest {
         compose.waitForIdle()
         assertThat(state.panelVisible).isFalse()
         assertThat(input.log.first()).isEqualTo("hold")
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     private fun fingerTap() {
@@ -624,7 +651,7 @@ class BoardChromeWiringTest {
         assertThat(emptyStartsWhileEnabled()).isEmpty()
         // One board hold for both overlays, plus at most the refresher's own hold for the full refresh.
         assertThat(holds()).isAtMost(2)
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -659,7 +686,7 @@ class BoardChromeWiringTest {
         assertThat(after).isNotEqualTo(before)
         assertThat(lastStart()).contains(after.toString())
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -836,9 +863,9 @@ class BoardChromeWiringTest {
         val started = lastStartWith(popup)
         assertThat(started).isAtLeast(0)
         assertThat(input.log[started]).contains(strip.toString())
-        assertThat(enabledAt()).isGreaterThan(started)
+        assertThat(overlaysSettledAt()).isGreaterThan(started)
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -849,7 +876,7 @@ class BoardChromeWiringTest {
         compose.onNodeWithTag(stripTag("send")).performClick()
         drawFrames()
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -864,8 +891,8 @@ class BoardChromeWiringTest {
         // The window is narrower than the send popup, so the start carries it clipped: match on its top-left corner.
         val started = input.log.indexOfLast { it.startsWith("start:") && it.contains("Rect(${popup.left}, ${popup.top} -") }
         assertThat(started).isAtLeast(0)
-        assertThat(enabledAt()).isGreaterThan(started)
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(overlaysSettledAt()).isGreaterThan(started)
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -883,7 +910,7 @@ class BoardChromeWiringTest {
         assertThat(lastStart()).doesNotContain(popup.toString())
         assertThat(lastStart()).contains(rectOf(TAG_DOCK).toString())
         assertThat(holds()).isAtMost(2)
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -903,7 +930,7 @@ class BoardChromeWiringTest {
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(emptyStartsWhileEnabled()).isEmpty()
         assertThat(holds()).isAtMost(2)
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
         assertThat(lastStart()).contains(rectOf(TAG_INDICATOR).toString())
         assertThat(lastStart()).contains(rectOf(TAG_PANEL_INDICATOR).toString())
     }
@@ -924,7 +951,7 @@ class BoardChromeWiringTest {
         compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
         compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
     @Test
@@ -970,6 +997,6 @@ class BoardChromeWiringTest {
 
         compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(releases()).isEqualTo(holds())
+        assertThat(outstanding()).isEqualTo(dismissHold())
     }
 }

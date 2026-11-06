@@ -18,14 +18,9 @@ interface RawDrawing {
     fun setEnabled(enabled: Boolean)
 
     /**
-     * Raw drawing really off. The SDK's `setRawDrawingEnabled(false)` is a no-op right after an open
-     * (its cached flag is already off while the firmware pen is in START), so after an open that must
-     * stay disabled the vendor demo calls `forceSetRawDrawingEnabled(false)`. Without such a cache it
-     * is [setEnabled] false.
+     * Live ink style, width and ARGB [color]. An open resets the firmware style, so callers apply the brush on
+     * the enable that follows it; never while a stroke is in progress.
      */
-    fun forceDisable() = setEnabled(false)
-
-    /** Live ink style, width and ARGB [color]; an open and every stroke reset the firmware brush, so callers re-apply it after each. */
     fun setBrush(
         style: Int,
         width: Float,
@@ -55,10 +50,6 @@ class TouchHelperRawDrawing(
 
     override fun setEnabled(enabled: Boolean) {
         helper.setRawDrawingEnabled(enabled)
-    }
-
-    override fun forceDisable() {
-        helper.forceSetRawDrawingEnabled(false)
     }
 
     override fun setBrush(
