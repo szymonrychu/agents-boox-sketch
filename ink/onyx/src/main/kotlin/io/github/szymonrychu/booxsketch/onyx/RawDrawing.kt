@@ -25,7 +25,7 @@ interface RawDrawing {
      */
     fun forceDisable() = setEnabled(false)
 
-    /** Live ink style, width and ARGB [color]; an open resets the firmware style, so callers re-apply it after one. */
+    /** Live ink style, width and ARGB [color]; an open and every stroke reset the firmware brush, so callers re-apply it after each. */
     fun setBrush(
         style: Int,
         width: Float,

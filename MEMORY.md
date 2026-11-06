@@ -874,3 +874,30 @@ later, dots stay. Root-cause analysis: `.scratchpad/boox-grid-ink-fixes/root-cau
 - Tests changed: `OnyxRawSessionTest.changed_rects_are_applied_and_raw_drawing_is_reopened_as_in_the_vendor_demo`
   and `first_start_sets_rects_brush_opens_...` (renamed `first_start_sets_rects_opens_applies_the_brush_...`)
   pinned the brush before the open, which is the order this fix changes.
+
+## 2026-11-06 Live ink brush re-applied at every stroke boundary (fix/ink-style-every-stroke)
+
+- Device report on v0.14.1: after a redraw (toolbox open and close) the first line has the selected tool and
+  colour, every later line is red and ballpoint-like again until the next redraw. The lines/dots grid fix was
+  confirmed and is untouched.
+- Root cause: the v0.14.1 repair was one-shot. `OnyxStrokeInput` re-applied the brush only after an open and on
+  the first pen-down after it (`brushDirty`, cleared by that pen-down), on the assumption that only an open resets
+  the firmware brush. The device also resets style and colour after every stroke, so stroke 2..N ran on the
+  firmware default until the next open re-applied it.
+- Where the per-stroke reset comes from is not in the SDK bytecode (javap of onyxsdk-pen 1.5.8, -device 1.3.6):
+  the only Java callers of `EpdController.setStrokeStyle/setStrokeColor` are our `TouchHelper.setStroke*` calls
+  (via `SFTouchRender`/`EpdPenManager`) and `SFTouchRender.resetStrokeStyle` on open/close; `RawInputReader` sends
+  nothing per stroke; `setRawDrawingEnabled` only adds `resetPenDefaultRawDrawing` (brush/eraser raw-drawing
+  flags); libneopen_jni (offline pens) is pure geometry. So the reset is native or firmware side (the reader's
+  `PenManager::resetStrokeWidth` symbol, or the idle frame posted while scribbling), invisible to the app.
+- Fix: since the reset cannot be observed, the brush is treated as volatile and re-applied at every point it can
+  be lost while raw drawing is live: open, enable (as before), and every stroke boundary, pen-down, pen-up, end
+  of a raw erase and the pen idle sync (after `syncCommitted` posted its frame). Nothing is applied while raw
+  drawing is off (eraser, shape tool, hold, pause). Why every boundary and not only pen-down: pen-down runs
+  after the reader thread posts to main, so the first points may already be drawn; pen-up and idle put the
+  brush back before the next stroke, pen-down covers a reset that lands in between. The cost is three
+  firmware calls per boundary. InkDiag `setBrush ...` lines carry `at=<boundary>`.
+- Tests: `OnyxBrushAfterOpenTest` fakes a firmware that resets style, width and colour after each stroke and
+  asserts strokes 2..5 keep the selected brush. `the_first_pen_down_after_an_open_reapplies_the_brush_once`
+  asserted that a second pen-down does NOT re-apply, which pinned the bug; it is now
+  `the_first_pen_down_after_an_open_reapplies_the_brush` without that assertion.
