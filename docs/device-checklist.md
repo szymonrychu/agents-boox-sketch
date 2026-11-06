@@ -24,6 +24,18 @@ For each swatch (black, red, blue, green, orange, purple):
 
 Then:
 
+- [ ] Live ink follows the selection (v0.14.0 report: live stroke red and ballpoint-like until the redraw).
+      Diagnostics shows "Firmware brush API: ok (<device class>)". With `adb logcat -s InkDiag` running,
+      select black fountain, open and dismiss a toolbox, then draw: the live stroke is black fountain, and
+      the log shows `raw open`, then `setBrush style=<n> width=<w> color=#FF000000`, and `brush re-applied
+      on the first pen-down after an open` on the first stroke.
+- [ ] If the live ink is still wrong, decide the cause (note the result in MEMORY.md):
+      (a) Diagnostics says "missing": the firmware calls never land (H1). Confirm in BOOX Notes: pick a
+      blue fountain there, write, come back, draw with black ballpoint: blue fountain live ink is H1.
+      (b) Draw once each in black, blue and green ballpoint: all red or magenta live means the firmware
+      reads the colour int differently from ARGB (H2).
+      (c) The colour follows the selection but the style stays ballpoint: an asynchronous reset after the
+      open (H3); send the InkDiag log around a toolbox dismiss.
 - [ ] Switch tools (fountain, brush, marker) with a colour selected: the colour is kept.
 - [ ] Eraser, undo and redo work on coloured strokes.
 - [ ] Tap the eraser in the strip: Diagnostics shows "Raw drawing enabled: no"; drag the pen tip

@@ -58,6 +58,13 @@ object Epd {
         return params?.takeIf { it.isNotEmpty() }
     }
 
+    /** The SDK's device object (`Device.currentDevice()`), or null when it cannot be created. */
+    fun device(): Any? {
+        var d: Any? = null
+        safely { d = Device.currentDevice() }
+        return d
+    }
+
     @Suppress("TooGenericExceptionCaught")
     private inline fun safely(block: () -> Unit) {
         try {

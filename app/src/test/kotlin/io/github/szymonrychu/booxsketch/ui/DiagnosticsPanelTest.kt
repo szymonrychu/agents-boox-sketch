@@ -72,4 +72,16 @@ class DiagnosticsPanelTest {
         reason = "SDK pens off: java.lang.UnsatisfiedLinkError: no neopen_jni"
         compose.onNodeWithText("SDK pens off: java.lang.UnsatisfiedLinkError: no neopen_jni").assertIsDisplayed()
     }
+
+    @Test
+    fun the_firmware_brush_api_status_is_shown() {
+        compose.setContent {
+            DiagnosticsPanel(
+                InputStatus(InputPath.ONYX_RAW, null),
+                rawEnabled = { true },
+                firmwareBrush = "missing (SDMDevice: setStrokeColor)",
+            )
+        }
+        compose.onNodeWithText("Firmware brush API: missing (SDMDevice: setStrokeColor)").assertIsDisplayed()
+    }
 }

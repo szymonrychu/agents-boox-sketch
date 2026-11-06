@@ -20,13 +20,8 @@ import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
+import java.util.Locale
 import java.util.UUID
-
-/** Opens raw drawing; the pen idle timeout is set after every open, as the SDK may reset it. */
-private fun RawDrawing.openIdleTimed() {
-    open()
-    setPenUpRefreshTimeMs(OnyxStrokeInput.PEN_IDLE_MS)
-}
 
 /**
  * Pen input through the Onyx raw drawing SDK: the SDK renders ink immediately while the pen is
@@ -46,7 +41,13 @@ private fun RawDrawing.openIdleTimed() {
  * events, and raw ink must not draw freehand on top. The eraser ([setEraser]) keeps raw drawing off
  * the same way: the pen tip then erases through plain touch events. The selected colour is part of
  * the raw brush.
+ *
+ * Every open resets the firmware stroke style to 0 (the SDK's `resetStrokeStyle`, a ballpoint look), so
+ * the brush is applied after every open and once more on the first pen-down after it, in case the
+ * firmware resets it again asynchronously. An open that must stay disabled is force-disabled, as in the
+ * vendor demo. Opens, enables and brushes are logged under [InkDiag].
  */
+@Suppress("TooManyFunctions") // every StrokeInput member plus the raw session steps (open, enable, disable, brush)
 class OnyxStrokeInput(
     @Suppress("unused") private val context: Context,
     private val newId: () -> String = { UUID.randomUUID().toString() },
@@ -91,6 +92,10 @@ class OnyxStrokeInput(
     @Volatile
     private var eraser = false
 
+    /** Set by every open, cleared by the first pen-down after it, which applies the brush again. */
+    @Volatile
+    private var brushDirty = false
+
     private val callback =
         object : RawInputCallback() {
             override fun onBeginRawDrawing(
@@ -99,6 +104,7 @@ class OnyxStrokeInput(
             ) {
                 penDown = true
                 activity()
+                if (brushDirty) onMain { reapplyBrushAfterOpen() }
             }
 
             override fun onEndRawDrawing(
@@ -145,9 +151,7 @@ class OnyxStrokeInput(
 
             /** The pen went idle: the SDK re-arms this after every pen-up and cancels it on a new press. */
             override fun onPenUpRefresh(refreshRect: RectF) {
-                val sync = Runnable { if (!penDown) syncHost() }
-                val main = Looper.getMainLooper()
-                if (Looper.myLooper() == main) sync.run() else Handler(main).post(sync)
+                onMain { if (!penDown) syncHost() }
             }
 
             override fun onRawErasingTouchPointListReceived(list: TouchPointList) {
@@ -159,6 +163,20 @@ class OnyxStrokeInput(
 
     private fun activity() {
         onRawActivity?.invoke()
+    }
+
+    /** Runs [block] on the main thread: now when already there, else posted (SDK callbacks come from its reader thread). */
+    private inline fun onMain(crossinline block: () -> Unit) {
+        val main = Looper.getMainLooper()
+        if (Looper.myLooper() == main) block() else Handler(main).post { block() }
+    }
+
+    private fun reapplyBrushAfterOpen() {
+        if (!brushDirty) return
+        brushDirty = false
+        val d = drawing ?: return
+        InkDiag.info("brush re-applied on the first pen-down after an open")
+        applyBrush(d)
     }
 
     /** Lets the host surface draw the committed ink the overlay still holds; call before the overlay goes. */
@@ -188,8 +206,8 @@ class OnyxStrokeInput(
             // As in the vendor demo, new rects take effect through setLimitRect followed by openRawDrawing.
             syncHost()
             applyRects(current, limit, exclude)
-            current.openIdleTimed()
-            if (active()) enable(current) else disable(current)
+            open(current)
+            if (active()) enable(current) else forceOff(current)
             return
         }
         current?.let { close(it) }
@@ -198,8 +216,7 @@ class OnyxStrokeInput(
         drawing = d
         host = view
         applyRects(d, limit, exclude)
-        applyBrush(d)
-        d.openIdleTimed()
+        open(d)
         // A new session (first start, or after the surface was re-created) must not freeze the
         // panel before the window has drawn: enable only after the next frame, then full refresh.
         // An outstanding hold (the UiRefresher's first-frame gate) already does the same. Only the
@@ -217,7 +234,26 @@ class OnyxStrokeInput(
                 },
             )
         }
-        d.setEnabled(active())
+        if (active()) enable(d) else forceOff(d)
+    }
+
+    /**
+     * Opens raw drawing and applies the brush the open just reset. The pen idle timeout is set after
+     * every open, as the SDK may reset it.
+     */
+    private fun open(d: RawDrawing) {
+        d.open()
+        d.setPenUpRefreshTimeMs(PEN_IDLE_MS)
+        InkDiag.info("raw open")
+        applyBrush(d)
+        brushDirty = true
+    }
+
+    /** Right after an open the SDK's plain disable is a no-op and the firmware pen stays live; this really pauses it. */
+    private fun forceOff(d: RawDrawing) {
+        penDown = false
+        d.forceDisable()
+        InkDiag.info("raw force-disabled after open")
     }
 
     /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool, no eraser. */
@@ -238,7 +274,11 @@ class OnyxStrokeInput(
     }
 
     private fun applyBrush(d: RawDrawing) {
-        d.setBrush(BrushMapping.style(tool), BrushMapping.width(tool, width), color.argb)
+        val style = BrushMapping.style(tool)
+        val w = BrushMapping.width(tool, width)
+        val argb = color.argb
+        d.setBrush(style, w, argb)
+        InkDiag.info("setBrush style=$style width=$w color=#${"%08X".format(Locale.ROOT, argb)} tool=$tool")
     }
 
     override fun setTool(
@@ -325,6 +365,7 @@ class OnyxStrokeInput(
 
     private fun enable(d: RawDrawing) {
         d.setEnabled(true)
+        InkDiag.info("raw enable")
         applyBrush(d)
     }
 
