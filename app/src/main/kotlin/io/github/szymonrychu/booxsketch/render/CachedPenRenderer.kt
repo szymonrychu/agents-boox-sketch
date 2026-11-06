@@ -43,12 +43,17 @@ fun inkBounds(
     dx: Float,
     dy: Float,
 ): RectF? {
-    if (stroke.points.isEmpty()) return null
+    // Plain min/max: RectF.union(x, y) from an inverted seed never moves right/bottom for a stroke drawn
+    // right to left or upwards, or for a dot, which left them at -Float.MAX_VALUE.
+    val pts = shapeOutline(stroke).flatten()
+    if (pts.isEmpty()) return null
     val pad = stroke.width * scale * inkWidthFactor(stroke.tool) / 2f + AA_PAD
-    val r = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
-    for (p in shapeOutline(stroke).flatten()) r.union(p.x * scale + dx, p.y * scale + dy)
-    r.inset(-pad, -pad)
-    return r
+    return RectF(
+        pts.minOf { it.x } * scale + dx - pad,
+        pts.minOf { it.y } * scale + dy - pad,
+        pts.maxOf { it.x } * scale + dx + pad,
+        pts.maxOf { it.y } * scale + dy + pad,
+    )
 }
 
 /**

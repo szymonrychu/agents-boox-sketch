@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.board
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
@@ -58,5 +59,53 @@ class InkBoundsTest {
             assertThat(b.right).isAtLeast(120f + 4f * 4f)
         }
         assertThat(g.inkBounds(shape(Tool.FOUNTAIN, 100f, 100f, 120f, 100f))!!.top).isGreaterThan(100f - 4f * 4f)
+    }
+
+    /** Every edge holds the outline's extreme point plus the [pad] and the rect is not empty. */
+    private fun assertBounds(
+        tool: Tool,
+        xy: FloatArray,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+    ) {
+        val b = g.inkBounds(shape(tool, *xy))!!
+        val what = "$tool ${xy.toList()}: $b"
+        assertWithMessage(what).that(b.isEmpty).isFalse()
+        assertWithMessage(what).that(b.left).isAtMost(left - 2f)
+        assertWithMessage(what).that(b.top).isAtMost(top - 2f)
+        assertWithMessage(what).that(b.right).isAtLeast(right + 2f)
+        assertWithMessage(what).that(b.bottom).isAtLeast(bottom + 2f)
+    }
+
+    @Test
+    fun a_right_to_left_stroke_is_bounded_on_every_side() {
+        // The device InkDiag lines had right = Int.MIN_VALUE for exactly these down-left diagonals.
+        for (tool in Tool.entries) {
+            assertBounds(tool, floatArrayOf(180f, 20f, 120f, 90f, 40f, 170f), 40f, 20f, 180f, 170f)
+        }
+    }
+
+    @Test
+    fun a_bottom_to_top_stroke_is_bounded_on_every_side() {
+        for (tool in Tool.entries) {
+            assertBounds(tool, floatArrayOf(40f, 170f, 120f, 90f, 180f, 20f), 40f, 20f, 180f, 170f)
+        }
+    }
+
+    @Test
+    fun a_dot_has_a_non_empty_bound_around_its_point() {
+        for (tool in Tool.entries.filterNot { it.isShape }) {
+            assertBounds(tool, floatArrayOf(100f, 100f), 100f, 100f, 100f, 100f)
+            assertThat(g.inkBounds(shape(tool, 100f, 100f))!!.contains(100f, 100f)).isTrue()
+        }
+    }
+
+    @Test
+    fun a_stroke_starting_at_its_rightmost_and_lowest_point_keeps_that_point() {
+        for (tool in Tool.entries.filterNot { it.isShape }) {
+            assertBounds(tool, floatArrayOf(190f, 150f, 150f, 20f, 180f, 60f), 150f, 20f, 190f, 150f)
+        }
     }
 }

@@ -42,12 +42,12 @@ import java.util.UUID
  * the same way: the pen tip then erases through plain touch events. The selected colour is part of
  * the raw brush.
  *
- * The firmware forgets the live brush: every open resets the stroke style to 0 (the SDK's
- * `resetStrokeStyle`, a ballpoint look), and the device also resets style and colour after every stroke
- * (v0.14.1 report: only the first line after a redraw was right). So the brush is applied after every
- * open and enable and again at every stroke boundary while raw drawing is live: pen-down, pen-up, the end
- * of a raw erase and the pen idle sync. An open that must stay disabled is force-disabled, as in the
- * vendor demo. Opens, enables and brushes are logged under [InkDiag].
+ * The brush (style, width, colour) is applied only while no stroke is in progress: before the first open,
+ * on every enable (every open resets the firmware stroke style to 0, the SDK's `resetStrokeStyle`, and raw
+ * drawing is always enabled again before any ink), and on a tool or colour change. Never from a stroke
+ * callback: those run after the firmware has started the stroke, and a brush write then corrupts its live
+ * ink (v0.14.2). These are the v0.13.2 semantics, the version proven on the device. Opens, enables and
+ * brushes are logged under [InkDiag].
  */
 @Suppress("TooManyFunctions") // every StrokeInput member plus the raw session steps (open, enable, disable, brush)
 class OnyxStrokeInput(
@@ -102,7 +102,6 @@ class OnyxStrokeInput(
             ) {
                 penDown = true
                 activity()
-                onMain { reapplyBrush("pen-down") }
             }
 
             override fun onEndRawDrawing(
@@ -111,7 +110,6 @@ class OnyxStrokeInput(
             ) {
                 penDown = false
                 activity()
-                onMain { reapplyBrush("pen-up") }
             }
 
             override fun onRawDrawingTouchPointMoveReceived(point: TouchPoint) = activity()
@@ -144,19 +142,15 @@ class OnyxStrokeInput(
             ) {
                 penDown = false
                 activity()
-                onMain { reapplyBrush("erase end") }
             }
 
             override fun onRawErasingTouchPointMoveReceived(point: TouchPoint) = activity()
 
             /** The pen went idle: the SDK re-arms this after every pen-up and cancels it on a new press. */
             override fun onPenUpRefresh(refreshRect: RectF) {
-                onMain {
-                    if (!penDown) {
-                        syncHost()
-                        reapplyBrush("pen idle")
-                    }
-                }
+                val sync = Runnable { if (!penDown) syncHost() }
+                val main = Looper.getMainLooper()
+                if (Looper.myLooper() == main) sync.run() else Handler(main).post(sync)
             }
 
             override fun onRawErasingTouchPointListReceived(list: TouchPointList) {
@@ -168,18 +162,6 @@ class OnyxStrokeInput(
 
     private fun activity() {
         onRawActivity?.invoke()
-    }
-
-    /** Runs [block] on the main thread: now when already there, else posted (SDK callbacks come from its reader thread). */
-    private inline fun onMain(crossinline block: () -> Unit) {
-        val main = Looper.getMainLooper()
-        if (Looper.myLooper() == main) block() else Handler(main).post { block() }
-    }
-
-    /** A stroke boundary, where the firmware may have reset the live brush: applied again while raw drawing is live. */
-    private fun reapplyBrush(at: String) {
-        val d = drawing ?: return
-        if (active()) applyBrush(d, at)
     }
 
     /** Lets the host surface draw the committed ink the overlay still holds; call before the overlay goes. */
@@ -210,7 +192,7 @@ class OnyxStrokeInput(
             syncHost()
             applyRects(current, limit, exclude)
             open(current)
-            if (active()) enable(current) else forceOff(current)
+            if (active()) enable(current) else disable(current)
             return
         }
         current?.let { close(it) }
@@ -219,6 +201,7 @@ class OnyxStrokeInput(
         drawing = d
         host = view
         applyRects(d, limit, exclude)
+        applyBrush(d)
         open(d)
         // A new session (first start, or after the surface was re-created) must not freeze the
         // panel before the window has drawn: enable only after the next frame, then full refresh.
@@ -237,25 +220,17 @@ class OnyxStrokeInput(
                 },
             )
         }
-        if (active()) enable(d) else forceOff(d)
+        d.setEnabled(active())
     }
 
     /**
-     * Opens raw drawing and applies the brush the open just reset. The pen idle timeout is set after
-     * every open, as the SDK may reset it.
+     * Opens raw drawing; the pen idle timeout is set after every open, as the SDK may reset it. The open
+     * resets the firmware stroke style, which the enable that always follows before any ink applies again.
      */
     private fun open(d: RawDrawing) {
         d.open()
         d.setPenUpRefreshTimeMs(PEN_IDLE_MS)
         InkDiag.info("raw open")
-        applyBrush(d)
-    }
-
-    /** Right after an open the SDK's plain disable is a no-op and the firmware pen stays live; this really pauses it. */
-    private fun forceOff(d: RawDrawing) {
-        penDown = false
-        d.forceDisable()
-        InkDiag.info("raw force-disabled after open")
     }
 
     /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool, no eraser. */
@@ -275,15 +250,12 @@ class OnyxStrokeInput(
         d.setLimitRect(limit, exclude.ifEmpty { listOf(Rect(NO_EXCLUDE)) })
     }
 
-    private fun applyBrush(
-        d: RawDrawing,
-        at: String? = null,
-    ) {
+    private fun applyBrush(d: RawDrawing) {
         val style = BrushMapping.style(tool)
         val w = BrushMapping.width(tool, width)
         val argb = color.argb
         d.setBrush(style, w, argb)
-        InkDiag.info("setBrush style=$style width=$w color=#${"%08X".format(Locale.ROOT, argb)} tool=$tool${at?.let { " at=$it" } ?: ""}")
+        InkDiag.info("setBrush style=$style width=$w color=#${"%08X".format(Locale.ROOT, argb)} tool=$tool")
     }
 
     override fun setTool(

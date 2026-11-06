@@ -192,7 +192,7 @@ internal fun BoardScreenWith(
             background = background,
             // A finger tap on the board dismisses every overlay in one burst.
             onBoardTap = { control.dismissAll(ui) },
-            // Strip, popup or panel open: the board is excluded from raw drawing and a pen or finger down on it dismisses them.
+            // Strip, popup or panel open: raw drawing is held off and a pen or finger down on the board dismisses them.
             dismissMode = control.anyVisible,
             onDismiss = { control.dismissAll(ui) },
         )
