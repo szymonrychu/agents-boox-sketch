@@ -209,6 +209,21 @@ class BoardDismissModeTest {
     }
 
     @Test
+    fun a_stroke_committed_after_the_lift_ended_the_swallow_is_dropped_once() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        show(FreezingInput(events))
+
+        down(MotionEvent.TOOL_TYPE_STYLUS)
+        up(MotionEvent.TOOL_TYPE_STYLUS)
+        emitCommitted(events)
+        assertThat(strokes()).isEmpty()
+
+        // The down point was consumed: the same stroke again (a real one) commits.
+        emitCommitted(events)
+        assertThat(strokes()).hasSize(1)
+    }
+
+    @Test
     fun a_stroke_that_began_before_the_swallow_still_commits() {
         val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
         val input = FreezingInput(events)

@@ -42,6 +42,7 @@ import io.github.szymonrychu.booxsketch.onyx.InkDiag
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.StrokeRenderer
 import io.github.szymonrychu.booxsketch.render.devicePenRenderer
+import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
 import android.graphics.Canvas as AndroidCanvas
@@ -294,10 +295,34 @@ class BoardSurfaceView(
     /** True when a stroke was already live at the swallowing down: its commit and erase events still pass. */
     private var swallowedLive = false
 
-    /** True while a swallowed gesture owns the pen: stroke events then belong to it and are dropped. */
-    internal val dropsStrokes get() = swallowing && !swallowedLive
+    /**
+     * Down point (view pixels) of the last swallowed gesture, kept past its lift: the SDK delivers the raw stroke
+     * at or after pen-up, so its commit can arrive once the swallow has ended. Cleared by the next unswallowed down.
+     */
+    private var swallowedAt: PointF? = null
 
-    private val tap = TapDetector(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private val tap = TapDetector(slop)
+
+    /** True when [ev] belongs to a swallowed gesture; a commit consumes the remembered down point. */
+    internal fun dropsEvent(ev: StrokeEvent): Boolean =
+        when (ev) {
+            is StrokeEvent.Committed -> ev.stroke.points.isNotEmpty() && dropsStroke(ev.stroke.points[0].x, ev.stroke.points[0].y, true)
+            is StrokeEvent.Erase -> dropsStroke(ev.x, ev.y, false)
+            StrokeEvent.Cancelled -> false
+        }
+
+    private fun dropsStroke(
+        x: Float,
+        y: Float,
+        commit: Boolean,
+    ): Boolean {
+        if (swallowing) return !swallowedLive
+        val at = swallowedAt ?: return false
+        val hit = hypot(x - at.x, y - at.y) <= slop
+        if (hit && commit) swallowedAt = null
+        return hit
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private val fullRefresh =
@@ -495,7 +520,7 @@ class BoardSurfaceView(
 
     // Before super: the inputs replace the view's touch listener (shape drags, touch fallback) and may consume the event.
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (onGesture(event.actionMasked)) return true
+        if (onGesture(event.actionMasked, event.x, event.y)) return true
         if (tap.onEvent(event, strokeInProgress())) onTap()
         return super.dispatchTouchEvent(event)
     }
@@ -506,13 +531,13 @@ class BoardSurfaceView(
      * view itself never gets the events.
      */
     fun onWindowTouch(event: MotionEvent) {
+        val loc = IntArray(2).also { getLocationInWindow(it) }
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            val loc = IntArray(2).also { getLocationInWindow(it) }
             val x = (event.x - loc[0]).toInt()
             val y = (event.y - loc[1]).toInt()
             if (x !in 0 until width || y !in 0 until height || overlayRects.any { it.contains(x, y) }) return
         }
-        onGesture(event.actionMasked)
+        onGesture(event.actionMasked, event.x - loc[0], event.y - loc[1])
     }
 
     /**
@@ -520,17 +545,33 @@ class BoardSurfaceView(
      * event). A down in [dismissMode] calls [onDismiss] and starts swallowing; the gesture ends at its up or cancel.
      * True while the event belongs to a swallowed gesture, so the caller consumes it: no ink, no stroke.
      */
-    private fun onGesture(action: Int): Boolean {
+    private fun onGesture(
+        action: Int,
+        x: Float,
+        y: Float,
+    ): Boolean {
         when (action) {
-            MotionEvent.ACTION_DOWN -> if (dismissMode && !swallowing) startSwallow()
+            MotionEvent.ACTION_DOWN -> if (!swallowing) startGesture(x, y)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (swallowing) return endSwallow()
         }
         return swallowing
     }
 
-    private fun startSwallow() {
+    private fun startGesture(
+        x: Float,
+        y: Float,
+    ) {
+        swallowedAt = null
+        if (dismissMode) startSwallow(x, y)
+    }
+
+    private fun startSwallow(
+        x: Float,
+        y: Float,
+    ) {
         swallowing = true
         swallowedLive = strokeInProgress()
+        swallowedAt = if (swallowedLive) null else PointF(x, y)
         onSwallow(true)
         onDismiss()
     }
@@ -646,7 +687,7 @@ fun BoardView(
         input.events.collect { ev ->
             if (ev is StrokeEvent.Cancelled) return@collect shapeCancelCb()
             // The firmware pen can stay live under a swallowed gesture (a hold right after an open is a no-op): no stroke.
-            val v = surface[0]?.takeUnless { it.dropsStrokes } ?: return@collect
+            val v = surface[0]?.takeUnless { it.dropsEvent(ev) } ?: return@collect
             val g = v.geometry()
             when (ev) {
                 is StrokeEvent.Committed -> strokeCb(v.committed(ev.stroke))
