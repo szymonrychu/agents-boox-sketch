@@ -134,13 +134,13 @@ class BoardViewModel(
 
     private fun Stroke.withShapeWidth() = if (width == SHAPE_WIDTH) this else copy(width = SHAPE_WIDTH)
 
-    /** Erases the strokes of the current page hit by a circle at (x, y), in canvas pixels; undoable. */
+    /** Erases the visible strokes (not consumed ones or applied region frames) hit by a circle at (x, y), in canvas px; undoable. */
     fun onErase(
         x: Float,
         y: Float,
         radius: Float,
     ) = update { n ->
-        val ids = hitStrokes(n.pages[n.current].strokes, x, y, radius)
+        val ids = hitStrokes(n.pages[n.current].visibleStrokes, x, y, radius)
         if (ids.isEmpty()) n else undoStack.apply(n, Command.EraseStrokes(ids))
     }
 

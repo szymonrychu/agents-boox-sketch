@@ -1,6 +1,9 @@
 package io.github.szymonrychu.booxsketch.board
 
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.Notebook
+import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
@@ -453,5 +456,29 @@ class BoardViewModelTest {
             advanceUntilIdle()
             assertThat(File(tmp.root, "notebook-A.json").exists()).isFalse()
             assertThat(v.notebook.value.conversationLocalId).isNull()
+        }
+
+    @Test
+    fun eraser_leaves_applied_region_frames_and_consumed_strokes() =
+        runTest {
+            val canvas = Canvas(1404, 1872, 300f)
+            val frame =
+                Stroke("r", Tool.IMAGE_REGION, 3f, listOf(Point(100f, 400f, 1f, 0L), Point(700f, 900f, 1f, 1L)))
+            val gone = stroke("gone", 100f, 1200f)
+            val ink = stroke("ink", 200f, 600f)
+            val page = Page(listOf(frame, gone, ink), false, consumed = setOf("gone"), appliedRegions = mapOf("r" to "reg-1"))
+            NotebookStore(File(tmp.root, "notebook.json")).save(Notebook(canvas, listOf(page), 0))
+            val v = vm()
+            // Along the frame's left edge and over the consumed stroke: neither is a visible stroke, so neither is hit.
+            v.onErase(100f, 650f, 5f)
+            v.onErase(110f, 1200f, 5f)
+            assertThat(v.strokes().map { it.id }).containsExactly("r", "gone", "ink")
+            assertThat(
+                v.notebook.value.pages[0]
+                    .appliedRegions,
+            ).containsExactly("r", "reg-1")
+            // Visible ink inside the region is still erasable.
+            v.onErase(210f, 600f, 5f)
+            assertThat(v.strokes().map { it.id }).containsExactly("r", "gone")
         }
 }
