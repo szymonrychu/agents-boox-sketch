@@ -15,6 +15,8 @@ data class Page(
     val consumed: Set<String> = emptySet(),
     val pendingSegments: List<PendingSegment> = emptyList(),
     val pendingOps: List<PendingOp> = emptyList(),
+    /** Ids of strokes of ops the connector rejected: kept as plain ink, never classified again, no strike preview. */
+    val rejectedStrokes: Set<String> = emptySet(),
 ) {
     /** The strokes that are drawn and exported: [strokes] minus [consumed]. */
     val visibleStrokes: List<Stroke> get() = if (consumed.isEmpty()) strokes else strokes.filter { it.id !in consumed }
@@ -59,9 +61,21 @@ data class Notebook(
 
     fun select(i: Int): Notebook = if (i in pages.indices) copy(current = i) else this
 
-    /** Appends [pending] segments (per page index) to their pages; pages that no longer exist are skipped. */
-    fun addPending(pending: Map<Int, List<PendingSegment>>): Notebook =
-        copy(pages = pages.mapIndexed { i, p -> pending[i]?.let { p.copy(pendingSegments = p.pendingSegments + it) } ?: p })
+    /** Appends [pending] segments and [ops] (per page index) to their pages; pages that no longer exist are skipped. */
+    fun addPending(
+        pending: Map<Int, List<PendingSegment>>,
+        ops: Map<Int, List<PendingOp>> = emptyMap(),
+    ): Notebook =
+        copy(
+            pages =
+                pages.mapIndexed { i, p ->
+                    if (i !in pending && i !in ops) {
+                        p
+                    } else {
+                        p.copy(pendingSegments = p.pendingSegments + pending[i].orEmpty(), pendingOps = p.pendingOps + ops[i].orEmpty())
+                    }
+                },
+        )
 
     /**
      * Drops the pending segments and ops of the upload [clientId] (it failed): their strokes stay visible ink and the

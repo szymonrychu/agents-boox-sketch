@@ -14,6 +14,7 @@ import io.github.szymonrychu.booxsketch.board.BoardViewModel
 import io.github.szymonrychu.booxsketch.board.NotebookFiles
 import io.github.szymonrychu.booxsketch.board.NotebookStore
 import io.github.szymonrychu.booxsketch.board.NotebookSync
+import io.github.szymonrychu.booxsketch.board.StrikePreviewSync
 import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
@@ -39,6 +40,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
@@ -289,17 +291,30 @@ class AppContainer(
     }
 
     /** Places returned spec versions on the board (Task 4.6). */
-    val notebookSync: NotebookSync by lazy { NotebookSync(database.specDao(), boardViewModel, boardViewModel.textHolds) }
+    val notebookSync: NotebookSync by lazy {
+        NotebookSync(
+            database.specDao(),
+            boardViewModel,
+            boardViewModel.textHolds,
+            feedback = database.feedbackDao(),
+            threads = database.threadDao(),
+        )
+    }
+
+    /** Shows the grey strike preview over struck words at pen idle (Task 5.3). */
+    private val strikePreview: StrikePreviewSync by lazy { StrikePreviewSync(boardViewModel, boardViewModel.textHolds) }
 
     /**
      * While the app is paired and in the foreground: applies the spec versions of the board's conversation as they are
-     * stored, and polls the conversations while the board waits for a version (pending segments), since nothing else
+     * stored, and polls the conversations while the board waits for a version (pending segments or ops), since nothing else
      * fetches specs when the Documents tab is closed. The poll backs off from 5 s to 1 min and stops after about half
-     * an hour ([pendingPollDelay]); a new upload starts it again. A deleted or pruned conversation leaves the board.
+     * an hour ([pendingPollDelay]) and releases what is still pending as plain ink; a new upload starts it again. A
+     * deleted or pruned conversation leaves the board.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun runNotebookSync() =
         coroutineScope {
+            launch { strikePreview.run() }
             // The board shows the selected conversation's notebook; the first one adopts an unbound board.
             launch { conversations.selected.collect { id -> id?.let { boardViewModel.bindConversation(it) } } }
             launch {
@@ -324,14 +339,11 @@ class AppContainer(
             }
             launch {
                 boardViewModel.notebook
-                    .map { n -> n.pages.flatMap { p -> p.pendingSegments.map { it.clientId } }.toSet() }
+                    .map { n -> n.pages.flatMap { p -> p.pendingSegments.map { it.clientId } + p.pendingOps.map { it.clientId } }.toSet() }
                     .distinctUntilChanged()
                     .collectLatest { waiting ->
-                        var attempt = 0
-                        while (waiting.isNotEmpty()) {
-                            delay(pendingPollDelay(attempt++) ?: break)
-                            conversations.refresh()
-                        }
+                        // A translation that never answers must not leave the strokes pending forever.
+                        if (waiting.isNotEmpty()) pollPending(conversations::refresh) { boardViewModel.releasePending(null) }
                     }
             }
         }
@@ -347,8 +359,10 @@ class AppContainer(
                     override suspend fun markSent(sent: Map<Int, Page>) =
                         withContext(Dispatchers.Main.immediate) { boardViewModel.markSentIfUnchanged(sent) }
 
-                    override suspend fun addPending(pending: Map<Int, List<PendingSegment>>) =
-                        withContext(Dispatchers.Main.immediate) { boardViewModel.addPending(pending) }
+                    override suspend fun addPending(
+                        pending: Map<Int, List<PendingSegment>>,
+                        ops: Map<Int, List<PendingOp>>,
+                    ) = withContext(Dispatchers.Main.immediate) { boardViewModel.addPending(pending, ops) }
                 },
             export = PngExporter(CanvasStrokeRenderer())::export,
             limits = configCache::current,
@@ -357,6 +371,7 @@ class AppContainer(
             annotations = annotationStore,
             // The export shows what the user saw: text and visible ink, without the pending ticks.
             boardPage = { page -> boardViewModel.textLayers.layer.render(page.copy(pendingSegments = emptyList()), null) },
+            measure = boardViewModel.textLayers.layer.measure,
         )
     }
 
@@ -501,6 +516,19 @@ class AppContainer(
         private const val PENDING_POLL_FIRST_MS = 5_000L
         private const val PENDING_POLL_MAX_MS = 60_000L
         private const val PENDING_POLL_ATTEMPTS = 33
+
+        /** Refreshes on the [pendingPollDelay] schedule, then calls [giveUp] once: nothing answered, the wait is over. */
+        internal suspend fun pollPending(
+            refresh: suspend () -> Unit,
+            giveUp: () -> Unit,
+        ) {
+            var attempt = 0
+            while (true) {
+                delay(pendingPollDelay(attempt++) ?: break)
+                refresh()
+            }
+            giveUp()
+        }
 
         /**
          * The wait before refresh number [attempt] (0-based) while the board waits for a spec version: 5 s doubling up

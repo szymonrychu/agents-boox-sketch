@@ -19,8 +19,13 @@ import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.EditOp
+import io.github.szymonrychu.booxsketch.model.notebook.OpKind
+import io.github.szymonrychu.booxsketch.model.notebook.OpTarget
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
+import io.github.szymonrychu.booxsketch.model.notebook.StrikePreview
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -165,4 +170,23 @@ class BoardScreenshotTest {
     @Test
     @Config(qualifiers = "w900dp-h480dp-xhdpi")
     fun notebook_page_with_text_landscape() = captureNotebookPage("notebook_page_with_text_landscape")
+
+    /** A strike sent as a pending delete op: the struck words carry the grey preview until the version arrives. */
+    @Test
+    fun pending_strike_overlay() {
+        val g = NotebookGeometry(1404, 1872)
+        val base = notebookPage()
+        val y = g.textBandTop(1) + 30f
+        val strike = Stroke("s", Tool.BALLPOINT, 4f, (0..12).map { Point(250f + it * 25f, y + (it % 2) * 3f, 0.5f, it * 10L) })
+        val op = EditOp("op-1", OpKind.DELETE, OpTarget("L2", 13, 22, "and bread"), strokeIds = listOf("s"))
+        val page = base.copy(strokes = base.strokes + strike, pendingOps = listOf(PendingOp("c", op)))
+        val cache = TextLayerCache(TextLayer(g))
+        val layer = cache.bitmapFor(page, StrikePreview.rects(page, g, cache.layer.measure))
+        compose.setContent {
+            MaterialTheme {
+                BoardPreviewCanvas(Canvas(1404, 1872, 300f), page, Modifier.fillMaxSize(), textLayer = layer)
+            }
+        }
+        compose.onRoot().captureRoboImage("src/test/screenshots/pending_strike_overlay.png")
+    }
 }

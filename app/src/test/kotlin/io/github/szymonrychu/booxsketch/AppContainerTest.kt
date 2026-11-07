@@ -171,4 +171,15 @@ class AppContainerTest {
         assertThat(delays.sum()).isAtMost(31 * 60_000L)
         assertThat(delays.sum()).isAtLeast(29 * 60_000L)
     }
+
+    @Test
+    fun pending_poll_gives_up_once_after_the_schedule() =
+        kotlinx.coroutines.test.runTest {
+            var refreshes = 0
+            var givenUp = 0
+            AppContainer.pollPending({ refreshes++ }, { givenUp++ })
+            assertThat(refreshes).isGreaterThan(10)
+            assertThat(givenUp).isEqualTo(1)
+            assertThat(testScheduler.currentTime).isAtMost(31 * 60_000L)
+        }
 }

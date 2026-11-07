@@ -6,14 +6,17 @@ import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.PenColor
+import io.github.szymonrychu.booxsketch.model.RectF
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.hitStrokes
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.Placement
 import io.github.szymonrychu.booxsketch.model.notebook.RunPlacer
 import io.github.szymonrychu.booxsketch.model.notebook.SpecLayoutModel
+import io.github.szymonrychu.booxsketch.model.notebook.StrikePreview
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.snapShape
 import kotlinx.coroutines.CoroutineDispatcher
@@ -28,6 +31,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
+
+/** The strike preview rects (page px) shown on page [page]. */
+data class StrikeOverlay(
+    val page: Int,
+    val rects: List<RectF>,
+)
 
 /** Board state: the notebook, pen settings and per-page undo. Autosaves 500 ms after the last change. */
 @Suppress("TooManyFunctions") // one small intent method per board action (tools, colours, pages, undo, send)
@@ -81,6 +90,32 @@ class BoardViewModel(
 
     /** When a new text layer may reach the board: one hold at pen idle. */
     val textHolds: TextLayerHolds by lazy { TextLayerHolds() }
+
+    private val _strikeOverlay = MutableStateFlow(StrikeOverlay(0, emptyList()))
+
+    /**
+     * The strike preview the board shows (spec 3.5): grey rects over struck words of one page. Set only at pen idle,
+     * together with the text layer swap that draws it ([StrikePreviewSync], [NotebookSync]); never saved.
+     */
+    val strikeOverlay: StateFlow<StrikeOverlay> = _strikeOverlay.asStateFlow()
+
+    /** The overlay rects shown on [n]'s selected page. */
+    fun overlayFor(n: Notebook): List<RectF> =
+        _strikeOverlay.value
+            .takeIf { it.page == n.current }
+            ?.rects
+            .orEmpty()
+
+    /** The strike preview rects [n]'s selected page calls for now (recomputed from the page). */
+    fun strikeRects(n: Notebook): List<RectF> =
+        StrikePreview.rects(n.pages[n.current], NotebookGeometry(n.canvas.w, n.canvas.h), textLayers.layer.measure)
+
+    fun setStrikeOverlay(
+        page: Int,
+        rects: List<RectF>,
+    ) {
+        _strikeOverlay.value = StrikeOverlay(page, rects)
+    }
 
     private val _saveError = MutableStateFlow<String?>(null)
 
@@ -166,8 +201,27 @@ class BoardViewModel(
     fun markSentIfUnchanged(sent: Map<Int, Page>) =
         update { n -> n.markSent(sent.filter { (i, page) -> n.pages.getOrNull(i) == page }.keys) }
 
-    /** Records the segments of an upload: they wait for a spec version (grey tick on their rows). */
-    fun addPending(pending: Map<Int, List<PendingSegment>>) = update { it.addPending(pending) }
+    /** Records the segments and edit ops of an upload: they wait for a spec version (grey tick on segment rows). */
+    fun addPending(
+        pending: Map<Int, List<PendingSegment>>,
+        ops: Map<Int, List<PendingOp>> = emptyMap(),
+    ) = update { it.addPending(pending, ops) }
+
+    /** Releases the pending segments and ops of [uploads] (all when null) based on a version below [version] (any when null). */
+    fun releasePending(
+        version: Int?,
+        uploads: Set<String>? = null,
+    ): Placement {
+        var placement: Placement? = null
+        update { n -> RunPlacer.releasePending(n, version, geometry(), uploads).also { placement = it }.notebook }
+        return checkNotNull(placement)
+    }
+
+    /** What [releasePending] would do to the shown notebook, without changing it. */
+    fun previewRelease(
+        version: Int?,
+        uploads: Set<String>? = null,
+    ): Placement = RunPlacer.releasePending(_notebook.value, version, geometry(), uploads)
 
     /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
     fun dropPending(clientId: String) = update { it.dropPending(clientId) }
@@ -201,7 +255,8 @@ class BoardViewModel(
         markdown: String,
         layout: SpecLayoutModel,
         measure: TextMeasure,
-    ): Placement = RunPlacer.apply(_notebook.value, version, markdown, layout, measure, geometry(), undo = null)
+        answeredUploads: Set<String>? = null,
+    ): Placement = RunPlacer.apply(_notebook.value, version, markdown, layout, measure, geometry(), undo = null, answeredUploads)
 
     /** Places spec [version] on the notebook; each row shift of the selected page is one undoable step. */
     fun applyVersion(
@@ -209,9 +264,12 @@ class BoardViewModel(
         markdown: String,
         layout: SpecLayoutModel,
         measure: TextMeasure,
+        answeredUploads: Set<String>? = null,
     ): Placement {
         var placement: Placement? = null
-        update { n -> RunPlacer.apply(n, version, markdown, layout, measure, geometry(), undoStack).also { placement = it }.notebook }
+        update { n ->
+            RunPlacer.apply(n, version, markdown, layout, measure, geometry(), undoStack, answeredUploads).also { placement = it }.notebook
+        }
         return checkNotNull(placement)
     }
 
@@ -251,6 +309,7 @@ class BoardViewModel(
         store = target
         undoStack = UndoStack()
         _preview.value = null
+        _strikeOverlay.value = StrikeOverlay(0, emptyList())
         _notebook.value = next.copy(conversationLocalId = localId)
         _canUndo.value = false
         _canRedo.value = false
@@ -290,6 +349,7 @@ class BoardViewModel(
         saveJob?.cancel()
         files?.let { store = it.store(null) }
         undoStack = UndoStack()
+        _strikeOverlay.value = StrikeOverlay(0, emptyList())
         _notebook.value = Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
         _canUndo.value = false
         _canRedo.value = false
