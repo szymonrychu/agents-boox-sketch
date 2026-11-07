@@ -279,7 +279,9 @@ class AppContainer(
             onNeedsPairing = pairingRepository::rejectToken,
             schedule = outboxScheduler::later,
             annotations = annotationStore,
-            onFailed = { item -> withContext(Dispatchers.Main.immediate) { boardViewModel.dropPending(item.clientId) } },
+            onFailed = { item ->
+                withContext(Dispatchers.Main.immediate) { boardViewModel.dropFailedUpload(item.clientId, item.conversationLocalId) }
+            },
             // A newer version exists: fetch it, so the board re-renders before the user sends again.
             onStaleBase = { conversations.refresh() },
             onAccepted = { item -> if (item.kind == OutboxKind.REVERT) conversations.refresh() },
@@ -292,7 +294,7 @@ class AppContainer(
     /**
      * While the app is paired and in the foreground: applies the spec versions of the board's conversation as they are
      * stored, and polls the conversations while the board waits for a version (pending segments), since nothing else
-     * fetches specs when the Documents tab is closed.
+     * fetches specs when the Documents tab is closed. A deleted or pruned conversation leaves the board.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun runNotebookSync() =
@@ -300,17 +302,24 @@ class AppContainer(
             // The board shows the selected conversation's notebook; the first one adopts an unbound board.
             launch { conversations.selected.collect { id -> id?.let { boardViewModel.bindConversation(it) } } }
             launch {
+                combine(boardViewModel.notebook.map { it.conversationLocalId }, database.conversationDao().observeAll()) { bound, all ->
+                    bound?.takeIf { id -> all.none { it.localId == id } }
+                }.distinctUntilChanged()
+                    .collect { gone -> gone?.let { boardViewModel.conversationGone(it) } }
+            }
+            launch {
                 combine(boardViewModel.notebook.map { it.conversationLocalId }, conversations.selected) { bound, selected ->
                     bound
                         ?: selected
                 }.distinctUntilChanged()
                     .flatMapLatest { localId ->
                         database.conversationDao().observeAll().map { all ->
-                            all.firstOrNull { it.localId == localId }?.serverId
+                            all.firstOrNull { it.localId == localId }?.serverId?.let { it to localId }
                         }
                     }.distinctUntilChanged()
-                    .flatMapLatest { serverId -> serverId?.let { id -> database.specDao().observeVersions(id).map { id } } ?: emptyFlow() }
-                    .collect { serverId -> notebookSync.catchUp(serverId) }
+                    .flatMapLatest { ids ->
+                        ids?.let { (serverId, _) -> database.specDao().observeVersions(serverId).map { ids } } ?: emptyFlow()
+                    }.collect { (serverId, localId) -> notebookSync.catchUp(serverId, checkNotNull(localId)) }
             }
             launch {
                 boardViewModel.notebook

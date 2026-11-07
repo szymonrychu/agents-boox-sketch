@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -39,6 +41,9 @@ class BoardViewModel(
 ) {
     private var undoStack = UndoStack()
     private var saveJob: Job? = null
+
+    /** Serialises [bindConversation], [dropFailedUpload] and [conversationGone]: each reads and writes notebook files. */
+    private val bindLock = Mutex()
 
     private val _notebook = MutableStateFlow(store.load() ?: Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0))
     val notebook: StateFlow<Notebook> = _notebook.asStateFlow()
@@ -167,6 +172,29 @@ class BoardViewModel(
     /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
     fun dropPending(clientId: String) = update { it.dropPending(clientId) }
 
+    /**
+     * The upload [clientId] of conversation [conversationLocalId] failed: [dropPending] on the shown notebook when it
+     * holds the upload or belongs to that conversation, else on that conversation's saved notebook, so its ticks
+     * clear and its ink is re-sent when the user goes back to it.
+     */
+    suspend fun dropFailedUpload(
+        clientId: String,
+        conversationLocalId: String,
+    ) = bindLock.withLock {
+        val shown = _notebook.value
+        val holds =
+            shown.pages.any { p ->
+                p.pendingSegments.any { it.clientId == clientId } || p.pendingOps.any { it.clientId == clientId }
+            }
+        if (holds || shown.conversationLocalId == conversationLocalId) return@withLock dropPending(clientId)
+        val saved = files?.store(conversationLocalId) ?: return@withLock
+        try {
+            withContext(ioDispatcher) { saved.load()?.let { n -> n.dropPending(clientId).takeIf { it != n }?.let(saved::save) } }
+        } catch (e: IOException) {
+            _saveError.value = e.message ?: e.javaClass.simpleName
+        }
+    }
+
     /** Spec [version] placed on the current notebook, without changing it (no undo entries). */
     fun placeVersion(
         version: Int,
@@ -195,16 +223,31 @@ class BoardViewModel(
      * yet bound to any conversation is adopted by the first one instead (what was drawn before belongs to it). The
      * undo history starts empty.
      */
-    suspend fun bindConversation(localId: String) {
-        val shelf = checkNotNull(files) { "no notebook files" }
+    suspend fun bindConversation(localId: String) =
+        bindLock.withLock {
+            val shelf = checkNotNull(files) { "no notebook files" }
+            if (_notebook.value.conversationLocalId == localId) return@withLock
+            val target = shelf.store(localId)
+            val loaded = withContext(ioDispatcher) { target.load() }
+            // Changes made while this suspends (a stroke, a send marking its pages and pending segments) belong to the
+            // shown notebook: save until no change landed during the save, then swap with no suspension in between.
+            saveJob?.cancel()
+            do {
+                val saved = _notebook.value
+                persist()
+            } while (_notebook.value !== saved)
+            swapTo(shelf, target, loaded, localId)
+        }
+
+    private suspend fun swapTo(
+        shelf: NotebookFiles,
+        target: NotebookStore,
+        loaded: Notebook?,
+        localId: String,
+    ) {
         val now = _notebook.value
-        if (now.conversationLocalId == localId) return
-        flush()
-        val target = shelf.store(localId)
-        val next =
-            withContext(ioDispatcher) { target.load() }
-                ?: if (now.conversationLocalId == null) now else Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
-        val adopted = now.conversationLocalId == null && next === now
+        val adopted = loaded == null && now.conversationLocalId == null
+        val next = loaded ?: if (adopted) now else Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
         store = target
         undoStack = UndoStack()
         _preview.value = null
@@ -214,6 +257,16 @@ class BoardViewModel(
         persist()
         if (adopted) withContext(ioDispatcher) { shelf.store(null).delete() }
     }
+
+    /**
+     * Conversation [localId] was deleted or pruned (its notebook file is gone): when the board shows it, the board
+     * drops it without saving (a save would recreate the file) and shows an empty unbound notebook, which the next
+     * selected conversation adopts.
+     */
+    suspend fun conversationGone(localId: String) =
+        bindLock.withLock {
+            if (_notebook.value.conversationLocalId == localId) reset()
+        }
 
     /** Writes the notebook now, cancelling a pending debounced save. */
     suspend fun flush() {

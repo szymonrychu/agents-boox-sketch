@@ -84,10 +84,11 @@ class NotebookSyncTest {
     private val layout =
         """{"lines":[{"line_id":"L1","source_line":1,"origin":{"segments":["p0-r4-0"]}}],"ops":[],"base_version":null}"""
 
-    private fun TestScope.board(): BoardViewModel {
+    private fun TestScope.board(bound: String? = null): BoardViewModel {
         val store = NotebookStore(File(tmp.root, "n.json"))
         val pending = listOf(PendingSegment("c1", "p0-r4-0", 4, 100f, 300f, listOf("a", "b")))
-        store.save(Notebook(canvas, listOf(Page(listOf(stroke("a", 4), stroke("b", 4)), false, pendingSegments = pending)), 0))
+        val page = Page(listOf(stroke("a", 4), stroke("b", 4)), false, pendingSegments = pending)
+        store.save(Notebook(canvas, listOf(page), 0, conversationLocalId = bound))
         return BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
     }
 
@@ -104,7 +105,7 @@ class NotebookSyncTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
             advanceTimeBy(1_000)
-            sync.onVersion("srv", 1)
+            sync.onVersion("srv", "local", 1)
             val page = vm.notebook.value.pages[0]
             assertThat(page.text.single().display).isEqualTo("buy milk")
             assertThat(page.consumed).containsExactly("a", "b")
@@ -116,7 +117,7 @@ class NotebookSyncTest {
             // The cached layer is the swapped one: the next board frame finds it and does not redraw.
             assertThat(vm.textLayers.bitmapFor(page)).isSameInstanceAs(surface.swaps.single().first)
             // A version already applied is not applied again.
-            sync.onVersion("srv", 1)
+            sync.onVersion("srv", "local", 1)
             assertThat(surface.swaps).hasSize(1)
             assertThat(input.held).isEqualTo(0)
         }
@@ -131,7 +132,7 @@ class NotebookSyncTest {
             val surface = RecordingSurface(input).also { holds.surface = it }
             val dispatcher = StandardTestDispatcher(testScheduler)
             val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
-            val job = launch { sync.onVersion("srv", 1) }
+            val job = launch { sync.onVersion("srv", "local", 1) }
             advanceTimeBy(5_000)
             runCurrent()
             assertThat(surface.swaps).isEmpty()
@@ -171,7 +172,7 @@ class NotebookSyncTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
             advanceTimeBy(1_000)
-            val job = launch { sync.onVersion("srv", 1) }
+            val job = launch { sync.onVersion("srv", "local", 1) }
             runCurrent()
             vm.onStroke(stroke("late", 8))
             holds.onPenActivity()
@@ -192,7 +193,7 @@ class NotebookSyncTest {
             val holds = TextLayerHolds(clock = { testScheduler.currentTime })
             val dispatcher = StandardTestDispatcher(testScheduler)
             val before = vm.notebook.value
-            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", 1)
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "local", 1)
             assertThat(vm.notebook.value).isEqualTo(before)
         }
 
@@ -211,5 +212,19 @@ class NotebookSyncTest {
             // The marks stay for a re-send: the page counts as changed again.
             assertThat(page.changedSinceSend).isTrue()
             assertThat(vm.textLayers.bitmapFor(page)).isNull()
+        }
+
+    @Test
+    fun version_of_another_conversation_is_not_placed() =
+        runTest {
+            storeVersion()
+            val vm = board(bound = "B")
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            val before = vm.notebook.value
+            // The versions were read for conversation A, but the board switched to B before the placement.
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "A", 1)
+            assertThat(vm.notebook.value).isEqualTo(before)
         }
 }

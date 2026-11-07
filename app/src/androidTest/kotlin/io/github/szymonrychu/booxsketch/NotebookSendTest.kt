@@ -148,7 +148,7 @@ class NotebookSendTest {
             assertThat(uploads.single()).contains("layout.0.json")
 
             assertThat(repo.refresh()).isNull()
-            NotebookSync(db.specDao(), vm, TextLayerHolds()).catchUp("srv-1")
+            NotebookSync(db.specDao(), vm, TextLayerHolds()).catchUp("srv-1", repo.current().localId)
 
             val page = vm.notebook.value.pages[0]
             val run = page.text.single()
