@@ -67,11 +67,10 @@ class TextLayer(
             if (run.wrapRows <= 1) {
                 listOf(run.display.indices)
             } else {
-                val parts = RunPlacer.wrap(run.display, run.scale, geometry.marginX - run.x0, measure)
-                // The placement may have wrapped in a narrower column (a second run on the row): the last row takes the rest.
-                if (parts.size <=
-                    run.wrapRows
-                ) {
+                // The column the placement wrapped in (a neighbour on the row may have narrowed it), so the rows match.
+                val column = if (run.column > 0f) run.column else geometry.marginX - run.x0
+                val parts = RunPlacer.wrap(run.display, run.scale, column, measure)
+                if (parts.size <= run.wrapRows) {
                     parts
                 } else {
                     parts.take(run.wrapRows - 1) + listOf(parts[run.wrapRows - 1].first until run.display.length)

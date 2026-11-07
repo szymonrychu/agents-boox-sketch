@@ -8,6 +8,7 @@ import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.RunPlacer
 import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import org.junit.Test
@@ -109,6 +110,18 @@ class TextLayerTest {
         val ink = checkNotNull(box(layer.render(page(r), null), inked))
         assertThat(ink.bottom).isGreaterThan(g.rowLineY(3).toFloat())
         assertThat(ink.bottom).isAtMost(g.rowLineY(4).toFloat())
+    }
+
+    @Test
+    fun wrapped_run_stays_in_its_placed_column() {
+        val text = "word ".repeat(14).trim()
+        val column = 400f
+        val rows = RunPlacer.wrap(text, 0.85f, column, layer.measure).size
+        val r = run(text).copy(scale = 0.85f, wrapRows = rows, column = column)
+        val ink = checkNotNull(box(layer.render(page(r), null), inked))
+        // The placement wrapped in 400 px (a neighbour on the row): the layer wraps at the same offsets.
+        assertThat(ink.right).isAtMost(53f + column + 2f)
+        assertThat(ink.bottom).isAtMost(g.rowLineY(3 + rows - 1).toFloat())
     }
 
     @Test
