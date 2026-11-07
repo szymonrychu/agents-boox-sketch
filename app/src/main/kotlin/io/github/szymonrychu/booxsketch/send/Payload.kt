@@ -71,6 +71,24 @@ object Payload {
         n: Int,
     ) = File(dir, "layout.$n.json")
 
+    /** The crop of image region [k] of page part [n] (`region.<n>.<k>.png`). */
+    fun region(
+        dir: File,
+        n: Int,
+        k: Int,
+    ) = File(dir, "region.$n.$k.png")
+
+    /** Every region part of a payload by its part name, in name order. */
+    fun regions(dir: File): Map<String, ByteArray> =
+        dir
+            .listFiles()
+            .orEmpty()
+            .filter { REGION_PART.matches(it.name) }
+            .sortedBy { it.name }
+            .associate { it.name to it.readBytes() }
+
+    private val REGION_PART = Regex("""region\.\d+\.\d+\.png""")
+
     @Suppress("LongParameterList")
     fun writePages(
         dir: File,

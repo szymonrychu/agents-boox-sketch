@@ -170,4 +170,59 @@ class TextLayerTest {
         println("TextLayer full page render: $ms ms (Robolectric)")
         assertThat(ms).isLessThan(200L)
     }
+
+    private fun regionPage(applied: Boolean) =
+        Page(
+            listOf(
+                io.github.szymonrychu.booxsketch.model.Stroke(
+                    "r",
+                    io.github.szymonrychu.booxsketch.model.Tool.IMAGE_REGION,
+                    3f,
+                    listOf(
+                        io.github.szymonrychu.booxsketch.model
+                            .Point(200f, 400f, 1f, 0L),
+                        io.github.szymonrychu.booxsketch.model
+                            .Point(800f, 900f, 1f, 1L),
+                    ),
+                ),
+            ),
+            false,
+            appliedRegions = if (applied) mapOf("r" to "reg-1") else emptyMap(),
+        )
+
+    @Test
+    fun applied_region_gets_a_thin_solid_frame_and_an_image_label() {
+        val b = layer.render(regionPage(applied = true), null)
+        val frame = checkNotNull(box(b, inked))
+        assertThat(frame.left).isWithin(2f).of(200f)
+        assertThat(frame.top).isWithin(2f).of(400f)
+        assertThat(frame.right).isWithin(2f).of(800f)
+        assertThat(frame.bottom).isWithin(2f).of(900f)
+        // Solid: every pixel along the top edge is inked.
+        assertThat((210 until 790).all { inked(b.getPixel(it, 400)) }).isTrue()
+        // The label sits inside the top left corner.
+        assertThat((205 until 300).any { x -> (405 until 430).any { y -> inked(b.getPixel(x, y)) } }).isTrue()
+        assertThat(b.getPixel(500, 650)).isEqualTo(Color.TRANSPARENT)
+    }
+
+    @Test
+    fun export_layer_has_no_applied_region_frame() {
+        val page = regionPage(applied = true)
+        assertThat(box(layer.render(page, null), inked)).isNotNull()
+        assertThat(box(layer.renderForExport(page)) { Color.alpha(it) > 0 }).isNull()
+    }
+
+    @Test
+    fun pending_region_is_not_on_the_text_layer() {
+        assertThat(box(layer.render(regionPage(applied = false), null)) { Color.alpha(it) > 0 }).isNull()
+    }
+
+    @Test
+    fun cache_renders_again_when_a_region_is_applied() {
+        val cache = TextLayerCache(layer)
+        assertThat(cache.bitmapFor(regionPage(applied = false))).isNull()
+        val applied = cache.bitmapFor(regionPage(applied = true))
+        assertThat(applied).isNotNull()
+        assertThat(cache.bitmapFor(regionPage(applied = true))).isSameInstanceAs(applied)
+    }
 }

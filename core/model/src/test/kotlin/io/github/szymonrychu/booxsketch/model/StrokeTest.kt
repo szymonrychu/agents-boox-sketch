@@ -24,7 +24,8 @@ class StrokeTest {
     fun shape_tools_are_shapes_and_pens_are_not() {
         assertThat(Tool.RECTANGLE.wire).isEqualTo("rectangle")
         assertThat(Tool.ARROW.wire).isEqualTo("arrow")
-        assertThat(Tool.entries.filter { it.isShape }).containsExactly(Tool.RECTANGLE, Tool.ARROW)
+        assertThat(Tool.IMAGE_REGION.wire).isEqualTo("image_region")
+        assertThat(Tool.entries.filter { it.isShape }).containsExactly(Tool.RECTANGLE, Tool.ARROW, Tool.IMAGE_REGION)
         assertThat(Tool.entries.filterNot { it.isShape }).hasSize(6)
     }
 

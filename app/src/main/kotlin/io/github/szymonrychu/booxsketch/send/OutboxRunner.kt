@@ -175,10 +175,11 @@ class OutboxRunner(
                                 n.map { Payload.png(dir, it).readBytes() },
                                 n.map { Payload.strokes(dir, it).takeIf(File::isFile)?.readBytes() },
                                 n.map { Payload.layout(dir, it).takeIf(File::isFile)?.readBytes() },
+                                Payload.regions(dir),
                             )
                         }
                     // 202 and a 200 replay of the same client_id both count as accepted.
-                    val result = c.uploadSketch(parts.meta, parts.pngs, parts.strokes, parts.layouts)
+                    val result = c.uploadSketch(parts.meta, parts.pngs, parts.strokes, parts.layouts, parts.regions)
                     // Stored before the next item is resolved, so a later send in this new conversation reuses it.
                     // One transaction: a refresh that saw the new server conversation first left a twin row, drop it.
                     db.withTransaction {
@@ -250,6 +251,7 @@ class OutboxRunner(
         val pngs: List<ByteArray>,
         val strokes: List<ByteArray?>,
         val layouts: List<ByteArray?>,
+        val regions: Map<String, ByteArray>,
     )
 
     private suspend fun connector(): ConnectorClient = client() ?: throw ApiError.Unauthorized

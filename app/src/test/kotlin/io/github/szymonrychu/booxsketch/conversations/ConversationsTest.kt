@@ -22,6 +22,7 @@ import io.github.szymonrychu.booxsketch.data.OutboxEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
 import io.github.szymonrychu.booxsketch.data.ThreadItemEntity
 import io.github.szymonrychu.booxsketch.data.ThreadKind
+import io.github.szymonrychu.booxsketch.documents.SpecImageCache
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -160,6 +161,30 @@ class ConversationsTest {
             assertThat(db.feedbackDao().all("srv-2")).hasSize(1)
             assertThat(db.outboxDao().forConversation("l2")).hasSize(1)
             assertThat(keptDir.exists()).isTrue()
+        }
+
+    @Test
+    fun delete_removes_the_spec_images_of_the_conversation() =
+        runBlocking<Unit> {
+            seed("l1", "srv-1")
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val root = File(tmp.root, "spec-images")
+            File(root, "srv-1").mkdirs()
+            File(root, "srv-1/r1.png").writeBytes(byteArrayOf(1))
+            File(root, "srv-2").mkdirs()
+            File(root, "srv-2/r2.png").writeBytes(byteArrayOf(2))
+            val withImages =
+                ConversationRepository(
+                    db,
+                    { ConnectorClient(server.url("/").toString(), { "test-token" }, OkHttpClient()) },
+                    context.getSharedPreferences("conversations-images", Context.MODE_PRIVATE).also { it.edit().clear().commit() },
+                    outboxRoot,
+                    onUnauthorized = {},
+                    specImages = SpecImageCache(root) { null },
+                )
+            assertThat(withImages.delete("l1")).isNull()
+            assertThat(File(root, "srv-1").exists()).isFalse()
+            assertThat(File(root, "srv-2/r2.png").exists()).isTrue()
         }
 
     @Test

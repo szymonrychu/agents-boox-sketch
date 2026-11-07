@@ -165,6 +165,19 @@ class OnyxShapeRoutingTest {
         }
 
     @Test
+    fun image_region_routed_as_shape() =
+        runTest {
+            start(this)
+            input.setTool(Tool.IMAGE_REGION, 4f)
+            assertThat((onyx as RawActivitySource).rawActive).isFalse()
+            drag(20f to 20f, 60f to 50f)
+            assertThat(input.inProgress.value!!.tool).isEqualTo(Tool.IMAGE_REGION)
+            view.dispatchTouchEvent(ev(MotionEvent.ACTION_UP, 60f, 50f))
+            val committed = input.events.first() as StrokeEvent.Committed
+            assertThat(committed.stroke.tool).isEqualTo(Tool.IMAGE_REGION)
+        }
+
+    @Test
     fun shape_tool_reaches_the_raw_input_so_it_turns_raw_drawing_off() =
         runTest {
             start(this)

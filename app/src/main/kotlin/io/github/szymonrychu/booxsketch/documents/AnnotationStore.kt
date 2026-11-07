@@ -39,12 +39,15 @@ class AnnotationStore(
         version: Int,
         pages: List<RenderedPage>,
         layout: DocumentLayout,
+        imagesMissing: Boolean = false,
     ): FrozenDocument {
         frozen(conversationLocalId, version)?.let { return it }
         val dir = dir(conversationLocalId, version).apply { mkdirs() }
         File(dir, LAYOUT_FILE).delete()
         val failed = File(dir, DIAGRAM_FAILED_FILE)
         if (pages.any { it.diagramFailed }) failed.writeText("diagram") else failed.delete()
+        val missing = File(dir, IMAGES_MISSING_FILE)
+        if (imagesMissing) missing.writeText("images") else missing.delete()
         val entries =
             pages.mapIndexed { i, page ->
                 val name = "page.$i.png"
@@ -74,30 +77,33 @@ class AnnotationStore(
     }
 
     /**
-     * True when the freeze holds a diagram that fell back to code text and no stroke was drawn and nothing was sent on it yet, so the
-     * freeze can still be replaced by a better one (no ink can move). A failed render is never final.
+     * True when the freeze holds a diagram that fell back to code text or was made while a referenced image was missing,
+     * and no stroke was drawn and nothing was sent on it yet, so the freeze can still be replaced by a better one (no ink
+     * can move). A failed render or a missing image is never final.
      */
     @Synchronized
-    fun needsDiagramRetry(
+    fun needsRetry(
         conversationLocalId: String,
         version: Int,
     ): Boolean {
         val dir = dir(conversationLocalId, version)
-        if (!File(dir, DIAGRAM_FAILED_FILE).isFile || File(dir, SENT_FILE).isFile) return false
+        val provisional = File(dir, DIAGRAM_FAILED_FILE).isFile || File(dir, IMAGES_MISSING_FILE).isFile
+        if (!provisional || File(dir, SENT_FILE).isFile) return false
         // Showing a version saves an empty notebook, so the file's presence says nothing: only a stroke does.
         return notebookStore(conversationLocalId, version).load()?.pages?.none { it.strokes.isNotEmpty() } ?: true
     }
 
-    /** Drops a freeze that [needsDiagramRetry] so the next [freeze] writes a new one. */
+    /** Drops a freeze that [needsRetry] so the next [freeze] writes a new one. */
     @Synchronized
     fun discardForRetry(
         conversationLocalId: String,
         version: Int,
     ) {
-        if (!needsDiagramRetry(conversationLocalId, version)) return
+        if (!needsRetry(conversationLocalId, version)) return
         val dir = dir(conversationLocalId, version)
         File(dir, LAYOUT_FILE).delete()
         File(dir, DIAGRAM_FAILED_FILE).delete()
+        File(dir, IMAGES_MISSING_FILE).delete()
     }
 
     /** The ink of one document version: one notebook file per (conversation, version). */
@@ -165,6 +171,7 @@ class AnnotationStore(
         const val NOTEBOOK_FILE = "notebook.json"
         const val SENT_FILE = "sent"
         const val DIAGRAM_FAILED_FILE = "diagram-failed"
+        const val IMAGES_MISSING_FILE = "images-missing"
         const val PNG_QUALITY = 100
     }
 }

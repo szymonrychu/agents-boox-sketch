@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.render
 
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
@@ -108,9 +109,17 @@ class CanvasStrokeRenderer(
         dy: Float,
     ) {
         style(s, s.points.first(), scale)
-        if (s.tool == Tool.RECTANGLE) {
+        if (s.tool.isBox) {
             val r = rectOf(s)
+            if (s.tool == Tool.IMAGE_REGION) {
+                // A pending image region (spec 3.6): dashed dark grey whatever the pen colour; butt caps keep the gaps.
+                paint.color = REGION_GREY
+                paint.strokeCap = Paint.Cap.BUTT
+                paint.pathEffect = DashPathEffect(floatArrayOf(DASH * scale, DASH * scale), 0f)
+            }
             canvas.drawRect(r.l * scale + dx, r.t * scale + dy, r.r * scale + dx, r.b * scale + dy, paint)
+            paint.pathEffect = null
+            paint.strokeCap = Paint.Cap.ROUND
             return
         }
         paint.strokeCap = Paint.Cap.ROUND // arrow shaft and head lines end in round caps
@@ -134,7 +143,7 @@ class CanvasStrokeRenderer(
                 Tool.FOUNTAIN -> s.width * (0.35f + 0.65f * pressure) to 255
                 Tool.BRUSH -> s.width * (0.2f + 0.8f * pressure) to 255
                 Tool.BALLPOINT -> s.width * (BALLPOINT_MIN + (1f - BALLPOINT_MIN) * pressure) to 255
-                Tool.RECTANGLE, Tool.ARROW -> s.width to 255
+                Tool.RECTANGLE, Tool.ARROW, Tool.IMAGE_REGION -> s.width to 255
                 Tool.CHARCOAL -> s.width to (110 + 100 * pressure).toInt()
                 Tool.CHARCOAL_V2 -> s.width * 1.2f to (80 + 90 * pressure).toInt()
                 Tool.MARKER -> s.width * 3f to 90
@@ -150,5 +159,9 @@ class CanvasStrokeRenderer(
          * native layer, so its curve is not in the SDK bytecode; this is a modest ramp (0.6x to 1x).
          */
         const val BALLPOINT_MIN = 0.6f
+
+        /** The frame of a pending image region: dark grey, dashes and gaps of [DASH] page px. */
+        const val REGION_GREY = 0xFF555555.toInt()
+        const val DASH = 12f
     }
 }

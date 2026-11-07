@@ -18,6 +18,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.PngExporter
@@ -125,8 +126,10 @@ class NotebookSendTest {
 
                     override suspend fun markSent(sent: Map<Int, Page>) = withContext(Dispatchers.Main) { vm.markSentIfUnchanged(sent) }
 
-                    override suspend fun addPending(pending: Map<Int, List<PendingSegment>>) =
-                        withContext(Dispatchers.Main) { vm.addPending(pending) }
+                    override suspend fun addPending(
+                        pending: Map<Int, List<PendingSegment>>,
+                        ops: Map<Int, List<PendingOp>>,
+                    ) = withContext(Dispatchers.Main) { vm.addPending(pending, ops) }
                 }
             val send =
                 SendUseCase(
