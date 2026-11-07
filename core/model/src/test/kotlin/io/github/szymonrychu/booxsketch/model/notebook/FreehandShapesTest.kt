@@ -52,6 +52,10 @@ class FreehandShapesTest {
             "loop_wobbly_oval",
             "loop_big_round",
             "loop_small_ninety_px",
+            "loop_lead_in_overshoot",
+            "loop_long_lead_in",
+            "loop_overshoot_outside",
+            "loop_one_point_eight_cell",
         )
     private val arrows =
         listOf(
@@ -64,6 +68,17 @@ class FreehandShapesTest {
         )
     private val negatives =
         listOf("neg_letter_o", "neg_letter_d", "neg_digit_zero", "neg_underline", "neg_bracket", "neg_long_word")
+    private val letterNegatives =
+        listOf(
+            "neg_letter_c",
+            "neg_letter_u",
+            "neg_letter_q",
+            "neg_letter_e",
+            "neg_digit_eight",
+            "neg_check_mark",
+            "neg_line_end_flick",
+            "neg_ring_one_point_four_cell",
+        )
 
     @Test
     fun traced_loops_recognised() {
@@ -192,5 +207,46 @@ class FreehandShapesTest {
         val strokes = fixture("arrow_two_strokes_v")
         assertThat(FreehandShapes.arrow(strokes, 9)).isNull()
         assertThat(FreehandShapes.arrow(listOf(strokes[0].copy(tool = Tool.ARROW)) + strokes.drop(1), 0)).isNull()
+    }
+
+    @Test
+    fun c_u_q_e_eight_check_and_small_ring_are_not_loops() {
+        for (name in letterNegatives) {
+            for (stroke in fixture(name)) {
+                assertWithMessage(name).that(FreehandShapes.loop(stroke)).isNull()
+            }
+        }
+    }
+
+    @Test
+    fun c_u_q_e_eight_check_flick_and_small_ring_are_not_arrows() {
+        for (name in letterNegatives) {
+            val strokes = fixture(name)
+            for (i in strokes.indices) assertWithMessage(name).that(FreehandShapes.arrow(strokes, i)).isNull()
+        }
+    }
+
+    @Test
+    fun double_headed_arrow_consumes_both_heads() {
+        val strokes = fixture("arrow_double_headed")
+        val arrow = FreehandShapes.arrow(strokes, 0)
+        assertThat(arrow).isNotNull()
+        assertThat(arrow!!.strokeIds).containsExactly("arrow_double_headed-0", "arrow_double_headed-1", "arrow_double_headed-2")
+    }
+
+    @Test
+    fun loop_one_point_eight_cells_is_the_smallest_accepted() {
+        val loop = FreehandShapes.loop(fixture("loop_one_point_eight_cell").single())
+        assertThat(loop).isNotNull()
+        assertThat(loop!!.bounds.r - loop.bounds.l).isAtLeast(1.7f * NotebookGeometry.CELL)
+    }
+
+    @Test
+    fun loop_with_lead_in_or_overshoot_has_a_polygon_inside_the_circle() {
+        for (name in listOf("loop_lead_in_overshoot", "loop_long_lead_in")) {
+            val loop = FreehandShapes.loop(fixture(name).single())
+            assertWithMessage(name).that(loop).isNotNull()
+            assertThat(loop!!.bounds.l).isAtLeast(800f - 1.5f * NotebookGeometry.CELL - 4f)
+        }
     }
 }

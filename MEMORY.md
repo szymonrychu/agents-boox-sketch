@@ -995,3 +995,14 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   may carry the head (shaft drawn tip first).
 - Fixtures in `core/model/src/test/resources/freehand/` are generated point lists with a seeded jitter
   (6 loops, 6 arrows, 6 negatives), not device traces; the device checklist counts real misses.
+
+## 2026-11-07 Freehand recognition review fixes (T-46 P5b)
+
+- Loop closure gap is now min(1 cell, 0.35 x the stroke's larger bounds side), so a 1.5-2 cell "C" or "U"
+  (gap 0.8-0.99 cell) is no longer a loop. The end may also close on a point in the first half of the path
+  (a lead-in or an overshoot past the start is cut off), and the path-ratio test uses the cut polygon's own
+  length, not the whole stroke.
+- Hook arm minimum is max(0.25 cell, 5 percent of the stroke's larger bounds side) instead of 8 px, so a
+  pen-lift flick at the end of a straight line is not an arrow. V-head arms keep the 8 px floor.
+- A double-headed arrow (shaft plus a V head at each end) consumes both heads in `strokeIds`; `tip` is the
+  first head found (shaft end drawn last first). Not supported: a head drawn before its shaft.

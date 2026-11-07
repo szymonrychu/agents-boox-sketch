@@ -48,6 +48,9 @@ object FreehandShapes {
     private const val HOOK_MIN_TURN_DEG = 100.0
     private const val HOOK_MAX_TURN_DEG = 170.0
     private const val MIN_ARM = 8f
+    private const val MIN_HOOK_ARM = 0.25f * CELL
+    private const val MIN_HOOK_ARM_FRACTION = 0.05f
+    private const val MAX_CLOSE_GAP_FRACTION = 0.35f
 
     private const val MAX_HEAD_STROKE = 0.6f * CELL
     private const val HEAD_TOUCH = 0.3f * CELL
@@ -57,19 +60,15 @@ object FreehandShapes {
     fun loop(stroke: Stroke): Loop? {
         if (stroke.tool.isShape || stroke.points.size < MIN_LOOP_POINTS) return null
         val pts = stroke.points.map { Vec(it.x, it.y) }
-        val length = pathLength(pts)
-        val polygon = closedCandidates(pts).firstOrNull { isLoopShaped(it, length) } ?: return null
+        val polygon = closedCandidates(pts).firstOrNull { isLoopShaped(it) } ?: return null
         return Loop(stroke.id, polygon, boundsOf(polygon))
     }
 
-    private fun isLoopShaped(
-        polygon: List<Vec>,
-        pathLength: Float,
-    ): Boolean {
+    private fun isLoopShaped(polygon: List<Vec>): Boolean {
         val bounds = boundsOf(polygon)
         val w = bounds.r - bounds.l
         val h = bounds.b - bounds.t
-        return w >= CELL && h >= CELL && area(polygon) >= MIN_LOOP_AREA && pathLength <= MAX_LOOP_PATH_RATIO * 2f * (w + h)
+        return w >= CELL && h >= CELL && area(polygon) >= MIN_LOOP_AREA && pathLength(polygon) <= MAX_LOOP_PATH_RATIO * 2f * (w + h)
     }
 
     /** The arrow whose shaft is `strokes[startIndex]`, with its head taken from the strokes that follow. */
@@ -85,7 +84,7 @@ object FreehandShapes {
 
     /**
      * Outlines a stroke may close on: the part after a self-crossing in its last 15 percent, then the whole path
-     * when the end lies within a cell of the start.
+     * when the end lies within a cell (and within 35 percent of the stroke's larger bounds side) of the start.
      */
     private fun closedCandidates(pts: List<Vec>): Sequence<List<Vec>> =
         sequence {
@@ -96,12 +95,17 @@ object FreehandShapes {
                     yield(listOf(x) + pts.subList(j + 1, i) + x)
                 }
             }
-            if (dist(pts.first(), pts.last()) < CELL) yield(pts)
+            val bounds = boundsOf(pts)
+            val closeGap = minOf(CELL, MAX_CLOSE_GAP_FRACTION * max(bounds.r - bounds.l, bounds.b - bounds.t))
+            // The end returns to a point in the first half of the path (a lead-in or overshoot is cut off).
+            val closeIndex = (0..pts.size / 2).firstOrNull { dist(pts[it], pts.last()) < closeGap }
+            if (closeIndex != null) yield(pts.subList(closeIndex, pts.size))
         }
 
     // --- arrows ---
 
-    /** Shaft and head in one stroke: the last 20 percent of the path turns back 100-170 degrees at the tip. */
+    /** Shaft and head in one stroke: the last 20 percent of the path turns back 100-170 degrees at the tip, with an
+     * arm of at least a quarter cell or 5 percent of the stroke's larger bounds side. */
     private fun hookArrow(stroke: Stroke): FreehandArrow? {
         val pts = stroke.points.map { Vec(it.x, it.y) }
         val total = pathLength(pts)
@@ -115,8 +119,9 @@ object FreehandShapes {
         val shaftDir = Vec(tip.x - pts[0].x, tip.y - pts[0].y)
         val headDir = Vec(head.x - tip.x, head.y - tip.y)
         val turn = angleDeg(shaftDir, headDir)
+        val bounds = boundsOf(pts)
         val ok =
-            dist(tip, head) >= MIN_ARM &&
+            dist(tip, head) >= max(MIN_HOOK_ARM, MIN_HOOK_ARM_FRACTION * max(bounds.r - bounds.l, bounds.b - bounds.t)) &&
                 turn in HOOK_MIN_TURN_DEG..HOOK_MAX_TURN_DEG &&
                 isStraightShaft(shaft)
         return if (ok) FreehandArrow(listOf(stroke.id), pts[0], tip) else null
@@ -130,27 +135,31 @@ object FreehandShapes {
         val shaftStroke = strokes[startIndex]
         val shaft = shaftStroke.points.map { Vec(it.x, it.y) }
         if (!isStraightShaft(shaft)) return null
+        val rest = strokes.drop(startIndex + 1)
+        val ends = listOf(shaft.last() to shaft.first(), shaft.first() to shaft.last())
         for (count in 1..MAX_HEAD_STROKES) {
-            val heads = strokes.drop(startIndex + 1).take(count)
-            val arrow = headedBy(shaftStroke, shaft, heads, count)
-            if (arrow != null) return arrow
+            for ((tip, tail) in ends) {
+                val heads = headAt(rest.take(count), count, tip, tail) ?: continue
+                // A double-headed arrow: a second head at the other end is consumed too.
+                val second = (1..MAX_HEAD_STROKES).firstNotNullOfOrNull { c -> headAt(rest.drop(count).take(c), c, tail, tip) }
+                return FreehandArrow(listOf(shaftStroke.id) + (heads + second.orEmpty()).map { it.id }, tail, tip)
+            }
         }
         return null
     }
 
-    private fun headedBy(
-        shaftStroke: Stroke,
-        shaft: List<Vec>,
+    /** [heads] when they form a V head of [count] strokes with its vertex at [tip], opening towards [tail]. */
+    private fun headAt(
         heads: List<Stroke>,
         count: Int,
-    ): FreehandArrow? {
+        tip: Vec,
+        tail: Vec,
+    ): List<Stroke>? {
         val headPts = heads.map { s -> s.points.map { Vec(it.x, it.y) } }
         // A one-stroke chevron holds both arms, so it may be twice as long as one arm stroke.
         val limit = MAX_HEAD_STROKE * (3 - count)
         val usable = heads.size == count && heads.none { it.tool.isShape } && headPts.none { it.size < 2 || pathLength(it) >= limit }
-        val ends = listOf(shaft.last() to shaft.first(), shaft.first() to shaft.last())
-        val (tip, tail) = ends.firstOrNull { usable && isVHead(headPts, it.first, it.second) } ?: return null
-        return FreehandArrow(listOf(shaftStroke.id) + heads.map { it.id }, tail, tip)
+        return heads.takeIf { usable && isVHead(headPts, tip, tail) }
     }
 
     private fun isStraightShaft(pts: List<Vec>): Boolean {
