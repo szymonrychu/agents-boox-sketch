@@ -38,7 +38,7 @@ Lessons that outlive a session. Newest first.
 - Share bundle: `cache/share/spec-v<N>.zip` through FileProvider `<applicationId>.share` (`res/xml/file_paths.xml`),
   `spec-v<N>.md` unchanged, `images/<id>.png`, `MISSING.txt` for images not available. A new bundle deletes the earlier
   files of the dir (spec content must not linger; one share is live at a time, so no per-conversation names).
-- Test fixture changed: `SpecImageCacheTest` png fixture got the full 8-byte PNG signature (the cache now checks it).
+- Test fixtures changed: `SpecImageCacheTest` and `DocumentsFlowTest` png bodies got the full 8-byte PNG signature (the cache now checks it).
 - Test changed: `StrokeTest.shape_tools_are_shapes_and_pens_are_not` expected exactly rectangle and arrow as shapes;
   the image region is a third shape. Golden `board_tool_icons.png` re-recorded for the new glyph; new goldens
   `region_frame_pending`, `region_frame_applied`, `document_with_inline_image`.

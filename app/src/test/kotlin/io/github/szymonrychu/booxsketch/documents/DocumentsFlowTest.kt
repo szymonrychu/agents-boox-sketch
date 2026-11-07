@@ -91,7 +91,7 @@ class DocumentsFlowTest {
                             MockResponse()
                                 .setResponseCode(200)
                                 .setHeader("Content-Type", "image/png")
-                                .setBody(okio.Buffer().write(byteArrayOf(-119, 80, 78, 71)))
+                                .setBody(okio.Buffer().write(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10, 0)))
                         }
 
                         path.endsWith("/sketches") -> {
