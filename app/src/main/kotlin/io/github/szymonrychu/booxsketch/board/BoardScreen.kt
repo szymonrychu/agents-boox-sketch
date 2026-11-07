@@ -186,7 +186,7 @@ internal fun BoardScreenWith(
     val shownPage = notebook.pages[notebook.current]
     // Rendered on the main thread only when the page's text or pending rows changed (page switch, send); a new
     // spec version is pre-rendered off the main thread by NotebookSync, so this finds it cached.
-    val textLayer = remember(shownPage.text, shownPage.pendingSegments) { vm.textLayers.bitmapFor(shownPage) }
+    val textLayer = remember(shownPage.text, shownPage.pendingSegments, shownPage.appliedRegions) { vm.textLayers.bitmapFor(shownPage) }
     val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(

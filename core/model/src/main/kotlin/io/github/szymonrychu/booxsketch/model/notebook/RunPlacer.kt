@@ -3,6 +3,7 @@ package io.github.szymonrychu.booxsketch.model.notebook
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.centreY
 import io.github.szymonrychu.booxsketch.model.shiftStrokes
@@ -128,7 +129,10 @@ object RunPlacer {
     private val HEADING = Regex("^\\s*#{1,6}\\s")
     private val FENCE = Regex("^\\s*(```|~~~)")
 
-    /** False for fence lines and the lines between them, table rows and blank lines. */
+    /** A line that is only an image reference: on the board the image region itself stands for it. */
+    private val IMAGE_LINE = Regex("^\\s*!\\[[^\\]]*]\\([^)]*\\)\\s*$")
+
+    /** False for fence lines and the lines between them, table rows, image-only lines and blank lines. */
     private fun placeableLines(source: List<String>): List<Boolean> {
         var fenced = false
         return source.map { line ->
@@ -143,7 +147,7 @@ object RunPlacer {
                 }
 
                 else -> {
-                    line.isNotBlank() && !line.trimStart().startsWith("|")
+                    line.isNotBlank() && !line.trimStart().startsWith("|") && !IMAGE_LINE.matches(line)
                 }
             }
         }
@@ -220,7 +224,10 @@ object RunPlacer {
             }
         }
 
-        /** Reported ops leave the pending list; an applied op's strokes are consumed, a rejected op keeps its ink. */
+        /**
+         * Reported ops leave the pending list; a rejected op keeps its ink. An applied op's strokes are consumed, except
+         * an image op's: its ink is the picture and stays, its region stroke becomes an applied region (spec 3.6).
+         */
         fun applyOps(ops: List<OpStatusModel>) {
             if (ops.isEmpty()) return
             val byId = ops.associateBy { it.id }
@@ -228,8 +235,22 @@ object RunPlacer {
                 val p = page(i)
                 val done = p.pendingOps.filter { it.op.id in byId }
                 if (done.isEmpty()) continue
-                val used = done.filter { byId.getValue(it.op.id).applied }.flatMap { it.op.strokeIds }
-                setPage(i, p.copy(pendingOps = p.pendingOps - done.toSet(), consumed = p.consumed + used))
+                val applied = done.filter { byId.getValue(it.op.id).applied }
+                val (images, edits) = applied.partition { it.op.kind == OpKind.IMAGE }
+                val regionIds =
+                    p.strokes
+                        .filter { it.tool == Tool.IMAGE_REGION }
+                        .map { it.id }
+                        .toSet()
+                val regions = images.flatMap { it.op.strokeIds }.filter { it in regionIds }
+                setPage(
+                    i,
+                    p.copy(
+                        pendingOps = p.pendingOps - done.toSet(),
+                        consumed = p.consumed + edits.flatMap { it.op.strokeIds },
+                        appliedRegions = p.appliedRegions + regions,
+                    ),
+                )
                 markDirty(i, 0 until g.rowCount)
             }
         }
@@ -482,6 +503,7 @@ object RunPlacer {
                         strokes = p.strokes.filter { it.id !in ids },
                         pendingSegments = p.pendingSegments - segments.toSet(),
                         consumed = p.consumed - ids,
+                        appliedRegions = p.appliedRegions - ids,
                     ),
                 )
                 val earlier = overflowOf[i]
@@ -505,6 +527,7 @@ object RunPlacer {
                         strokes = t.strokes + shiftStrokes(strokes, Float.NEGATIVE_INFINITY, dy),
                         pendingSegments = t.pendingSegments + segments.map { it.copy(row = it.row - cut) },
                         consumed = t.consumed + p.consumed.intersect(ids),
+                        appliedRegions = t.appliedRegions + p.appliedRegions.intersect(ids),
                         changedSinceSend = t.changedSinceSend || strokes.any { it.id !in p.consumed },
                     ),
                 )

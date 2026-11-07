@@ -15,9 +15,21 @@ data class Page(
     val consumed: Set<String> = emptySet(),
     val pendingSegments: List<PendingSegment> = emptyList(),
     val pendingOps: List<PendingOp> = emptyList(),
+    /**
+     * Ids of image region strokes a spec version placed as an image (spec 3.6): drawn by the text layer as a thin solid
+     * frame with an "image" label instead of the dashed pending frame, and no longer exported as ink. The ink inside
+     * stays visible ink.
+     */
+    val appliedRegions: Set<String> = emptySet(),
 ) {
-    /** The strokes that are drawn and exported: [strokes] minus [consumed]. */
-    val visibleStrokes: List<Stroke> get() = if (consumed.isEmpty()) strokes else strokes.filter { it.id !in consumed }
+    /** The strokes that are drawn and exported: [strokes] minus [consumed] and the [appliedRegions] frames. */
+    val visibleStrokes: List<Stroke>
+        get() =
+            if (consumed.isEmpty() && appliedRegions.isEmpty()) {
+                strokes
+            } else {
+                strokes.filter { it.id !in consumed && it.id !in appliedRegions }
+            }
 }
 
 /** Immutable notebook: every operation returns a new instance. */
