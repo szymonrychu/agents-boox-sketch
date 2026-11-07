@@ -50,20 +50,29 @@ Lessons that outlive a session. Newest first.
   client constant (`SendUseCase.MAX_REGIONS_PER_PAGE`, the connector default) until `/config` exposes it.
 - Why no op without a stored spec version: the connector requires `base_version` for any op (422), and a first send
   has none. Then the region and its ink go as plain drawing ink (still not segmented) and the frame stays dashed;
-  it is sent as an op on a later Send once a version exists and the page changed.
+  it is sent as an op on a later Send once a version exists: an unsent region then counts as a page change
+  (`selectPagesForSend(regionsSendable)`), and the 4-region cap is only enforced when ops will be built.
 - Applied state: `Page.appliedRegions`. Applied frames leave `visibleStrokes` (not drawn by the stroke renderer, not
-  in strokes.json, not erasable) and the text layer draws them as a 2 px solid frame with a 20 px "image" label.
+  in strokes.json) and the text layer draws them as a 2 px solid frame with a 20 px "image" label.
   Done there (not in `CanvasStrokeRenderer`, as the plan said) so the swap rides the text layer's pen-idle hold and
   the renderer interface stays per-stroke. Rejected image ops leave the region pending again. Image-only markdown
   lines are not placed as text runs. `appliedRegions` maps the region stroke id to its region id; every placement
   (revert or newer version) drops the entries whose `images/<region id>.png` the shown markdown no longer references
   (OQ2 A, 2026-11-07 review fix): the frame is dashed again, the page counts as changed and Send re-sends the region.
+  The eraser hits `visibleStrokes` only (2026-11-07 review fix): applied frames and consumed strokes cannot be erased
+  from the board, so an applied region keeps its ink excluded from segments; ink inside it stays erasable. The export
+  text layer (`TextLayer.renderForExport`) has no pending ticks and no region frames, so crops and page PNGs are clean.
+  Known limit: a row shift moves a region frame and its ink by each stroke's own centre, so a shift line inside a region
+  can split them (not fixed: it needs a region-aware shift through the undo history).
 - Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
-  (region images never change), removed with the conversation (delete and server-side removal). Ids are checked
-  against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images before paginating; a
+  (region images never change), removed with the conversation (delete and server-side removal). Only PNG bodies (signature checked) are kept, written through a unique temp file. Unpair deletes all of it and
+  the share zips. Ids are checked
+  against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images (concurrently) before paginating; a
   freeze made while offline keeps the `[image]` text for that version (frozen pages are reused).
 - Share bundle: `cache/share/spec-v<N>.zip` through FileProvider `<applicationId>.share` (`res/xml/file_paths.xml`),
-  `spec-v<N>.md` unchanged, `images/<id>.png`, `MISSING.txt` for images not available.
+  `spec-v<N>.md` unchanged, `images/<id>.png`, `MISSING.txt` for images not available. A new bundle deletes the earlier
+  files of the dir (spec content must not linger; one share is live at a time, so no per-conversation names).
+- Test fixture changed: `SpecImageCacheTest` png fixture got the full 8-byte PNG signature (the cache now checks it).
 - Test changed: `StrokeTest.shape_tools_are_shapes_and_pens_are_not` expected exactly rectangle and arrow as shapes;
   the image region is a third shape. Golden `board_tool_icons.png` re-recorded for the new glyph; new goldens
   `region_frame_pending`, `region_frame_applied`, `document_with_inline_image`.
