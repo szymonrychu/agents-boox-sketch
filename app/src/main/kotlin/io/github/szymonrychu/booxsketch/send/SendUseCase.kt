@@ -21,19 +21,26 @@ import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.SendSelection
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.StrokesCodec
 import io.github.szymonrychu.booxsketch.model.notebook.AnnotationClassifier
+import io.github.szymonrychu.booxsketch.model.notebook.EditOp
 import io.github.szymonrychu.booxsketch.model.notebook.FreehandInsertMarks
+import io.github.szymonrychu.booxsketch.model.notebook.ImageRegions
 import io.github.szymonrychu.booxsketch.model.notebook.LayoutCodec
+import io.github.szymonrychu.booxsketch.model.notebook.OpKind
 import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.RegionRef
 import io.github.szymonrychu.booxsketch.model.notebook.Segmenter
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.notebook.ToolInsertMarks
+import io.github.szymonrychu.booxsketch.model.rectOf
 import io.github.szymonrychu.booxsketch.model.selectPagesForSend
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.ExportResult
 import io.github.szymonrychu.booxsketch.render.PageRasterExporter
+import io.github.szymonrychu.booxsketch.render.RegionCropper
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -80,6 +87,12 @@ sealed interface SendOutcome {
 
     /** Edit ops need the spec version they edit, and the conversation has none stored: nothing was written. */
     data object NoBaseVersion : SendOutcome
+
+    /** Board page [page] has more new image regions than one upload takes per page ([max]): nothing was written. */
+    data class TooManyRegions(
+        val page: Int,
+        val max: Int,
+    ) : SendOutcome
 }
 
 /** What a send needs from the board: the notebook and marking pages sent. */
@@ -137,6 +150,8 @@ class SendUseCase(
      */
     private val measure: TextMeasure? = null,
     private val classifier: AnnotationClassifier = AnnotationClassifier(listOf(ToolInsertMarks, FreehandInsertMarks)),
+    /** Crops an image region of a board page (with its text layer) to a PNG, or null when it cannot fit the cap. */
+    private val cropRegion: (Page, Stroke, Bitmap?, Canvas, ConfigDto) -> ByteArray? = RegionCropper(CanvasStrokeRenderer())::crop,
 ) {
     private val mutex = Mutex()
 
@@ -158,7 +173,7 @@ class SendUseCase(
             // Read without creating a conversation: a refused send must leave none behind.
             val base = base(conversations.peekCurrent()?.serverId)
             val parts =
-                when (val r = exportBoard(notebook, indices, cfg, clientId, base?.lines.orEmpty())) {
+                when (val r = exportBoard(notebook, indices, cfg, clientId, base)) {
                     is Prepared.Failed -> return@withLock r.outcome
                     is Prepared.Parts -> r.parts
                 }
@@ -177,6 +192,7 @@ class SendUseCase(
                     Payload.png(it, n).writeBytes(part.png)
                     part.strokes?.let { s -> Payload.strokes(it, n).writeBytes(s) }
                     part.layout?.let { l -> Payload.layout(it, n).writeBytes(l) }
+                    part.regions.forEachIndexed { k, png -> Payload.region(it, n, k).writeBytes(png) }
                 }
                 Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, baseVersion = base?.version)
             }
@@ -202,7 +218,8 @@ class SendUseCase(
         if (parts.isEmpty()) return SendOutcome.NothingToSend
         // Ops edit the base version: runs are limited to its lines, so ops without one cannot occur.
         if (base == null && parts.any { it.ops.isNotEmpty() }) return SendOutcome.NoBaseVersion
-        val total = parts.sumOf { it.png.size.toLong() + (it.strokes?.size ?: 0) + (it.layout?.size ?: 0) }
+        val total =
+            parts.sumOf { p -> p.png.size.toLong() + (p.strokes?.size ?: 0) + (p.layout?.size ?: 0) + p.regions.sumOf { it.size } }
         return if (total > cfg.maxUploadBytes) SendOutcome.TooLarge(total, cfg.maxUploadBytes.toLong()) else null
     }
 
@@ -263,19 +280,30 @@ class SendUseCase(
             SendOutcome.Queued(checkNotNull(first))
         }
 
-    /** Exports board pages [indices] of [notebook]: PNG, strokes and, for notebook pages, the layout and its segments. */
+    /**
+     * Exports board pages [indices] of [notebook]: PNG, strokes and, for notebook pages, the layout with its segments
+     * and image ops plus the region crops. Image ops need a [base] version (the connector requires `base_version` for
+     * any op); without one the regions go as plain drawing. More than [MAX_REGIONS_PER_PAGE] new regions on a page
+     * refuse the send.
+     */
     private suspend fun exportBoard(
         notebook: Notebook,
         indices: List<Int>,
         cfg: ConfigDto,
         clientId: String,
-        baseLines: Set<String>,
+        base: Base?,
     ): Prepared {
         val geometry = NotebookGeometry(notebook.canvas.w, notebook.canvas.h)
+        for (i in indices) {
+            if (ImageRegions.unsent(notebook.pages[i]).size > MAX_REGIONS_PER_PAGE) {
+                return Prepared.Failed(SendOutcome.TooManyRegions(i, MAX_REGIONS_PER_PAGE))
+            }
+        }
         val parts = mutableListOf<PagePart>()
         for (i in indices) {
             val page = notebook.pages[i]
-            when (val r = withContext(worker) { exportBoardPage(page, notebook.canvas, cfg) }) {
+            val layer = withContext(worker) { boardPage?.invoke(page) }
+            when (val r = withContext(worker) { exportBoardPage(page, layer, notebook.canvas, cfg) }) {
                 ExportResult.Empty -> {
                     Unit
                 }
@@ -287,20 +315,69 @@ class SendUseCase(
                 is ExportResult.Exported -> {
                     val strokes = withContext(worker) { StrokesCodec.encode(notebook.canvas, page) }
                     val kept = strokes.takeIf { it.size <= cfg.maxStrokesBytes }
-                    // The layout's stroke indices point into the strokes part: no strokes part, no layout.
-                    val notebookPart = kept?.let { withContext(worker) { notebookLayout(clientId, page, geometry, parts.size, baseLines) } }
-                    parts += PagePart(i, r.png, kept, notebookPart?.bytes, notebookPart?.segments.orEmpty(), notebookPart?.ops.orEmpty())
+                    val n = parts.size
+                    // The layout's stroke indices point into the strokes part: no strokes part, no layout and no ops.
+                    val images =
+                        if (kept == null || base == null) {
+                            emptyList()
+                        } else {
+                            regions(page, n, base.lines, layer, notebook.canvas, cfg)
+                                ?: return Prepared.Failed(SendOutcome.ExportFailed(i, REGION_TOO_BIG))
+                        }
+                    val notebookPart =
+                        kept?.let {
+                            withContext(worker) {
+                                notebookLayout(clientId, page, geometry, n, base?.lines.orEmpty(), images.map { it.first })
+                            }
+                        }
+                    val ops = notebookPart?.ops.orEmpty()
+                    parts += PagePart(i, r.png, kept, notebookPart?.bytes, notebookPart?.segments.orEmpty(), ops, images.map { it.second })
                 }
             }
         }
         return Prepared.Parts(parts)
     }
 
-    private fun exportBoardPage(
+    /**
+     * One image op per region of [page] not sent yet (spec 4.3 rule 1) with its crop: the region's rect `[x, y, w, h]`
+     * in page px, its members as strokes, part `region.<part>.<k>.png` and, as `after_line`, the run of a [baseLines]
+     * line ending nearest above the rect. Null when a region is degenerate or its crop cannot fit the PNG cap.
+     */
+    @Suppress("LongParameterList")
+    private suspend fun regions(
         page: Page,
+        part: Int,
+        baseLines: Set<String>,
+        layer: Bitmap?,
         canvas: Canvas,
         cfg: ConfigDto,
-    ): ExportResult = boardPage?.let { exportPage(it(page), page, canvas, cfg) } ?: export(page, canvas, cfg)
+    ): List<Pair<EditOp, ByteArray>>? {
+        val geometry = NotebookGeometry(canvas.w, canvas.h)
+        return ImageRegions.unsent(page).mapIndexed { k, region ->
+            val r = rectOf(region)
+            if (r.r <= r.l || r.b <= r.t) return null
+            val above =
+                page.text
+                    .filter { it.lineId in baseLines && geometry.rowTop(it.row + it.wrapRows) <= r.t + geometry.rowPitch / 2f }
+                    .maxByOrNull { it.row + it.wrapRows }
+            val op =
+                EditOp(
+                    id = newId(),
+                    kind = OpKind.IMAGE,
+                    strokeIds = ImageRegions.members(page, region),
+                    rect = listOf(r.l, r.t, r.r - r.l, r.b - r.t),
+                    region = RegionRef(newId(), "region.$part.$k.png", above?.lineId),
+                )
+            op to (withContext(worker) { cropRegion(page, region, layer, canvas, cfg) } ?: return null)
+        }
+    }
+
+    private fun exportBoardPage(
+        page: Page,
+        layer: Bitmap?,
+        canvas: Canvas,
+        cfg: ConfigDto,
+    ): ExportResult = layer?.let { exportPage(it, page, canvas, cfg) } ?: export(page, canvas, cfg)
 
     private fun canvasOf(upload: List<AnnotatedInput>): Canvas {
         val size =
@@ -458,28 +535,32 @@ class SendUseCase(
     }
 
     /**
-     * The `layout.<part>.json` of a notebook page with the segments and edit ops it sends, or null for a page with
-     * neither new handwriting rows nor text runs (plain drawing needs no layout). Only runs whose line id is in
+     * The `layout.<part>.json` of a notebook page with the segments and edit ops it sends, or null for a page with no
+     * new handwriting rows, text runs or [imageOps] (plain drawing needs no layout). Only runs whose line id is in
      * [baseLines] are sent and annotated: the connector rejects (422) any run or op line id the base version's layout
-     * does not have. The handwriting over those runs is classified first ([AnnotationClassifier]); its strokes are in
-     * no segment. Segment ids carry the upload part index.
+     * does not have. The ink inside image regions is the picture of its [imageOps]: never classified, never a segment.
+     * The other handwriting over those runs is classified first ([AnnotationClassifier]); its strokes are in no
+     * segment. Segment ids carry the upload part index. The image ops follow the classified ones.
      */
+    @Suppress("LongParameterList")
     private fun notebookLayout(
         clientId: String,
         page: Page,
         geometry: NotebookGeometry,
         part: Int,
         baseLines: Set<String>,
+        imageOps: List<EditOp>,
     ): NotebookPart? {
         val runs = page.text.filter { it.lineId in baseLines }
         val shown = page.copy(text = runs)
-        val classified = measure?.let { classifier.classify(shown, geometry, it, newId) }
+        val inRegions = ImageRegions.excluded(page)
+        val classified = measure?.let { classifier.classify(shown, geometry, it, inRegions, newId) }
         val segments =
-            Segmenter.segment(page, geometry, part, exclude = classified?.opStrokeIds.orEmpty()).segments.map {
+            Segmenter.segment(page, geometry, part, exclude = inRegions + classified?.opStrokeIds.orEmpty()).segments.map {
                 PendingSegment(clientId, it.id, it.row, it.x0, it.x1, it.strokeIds)
             }
-        val ops = classified?.ops.orEmpty()
-        if (segments.isEmpty() && runs.isEmpty()) return null
+        val ops = classified?.ops.orEmpty() + imageOps
+        if (segments.isEmpty() && runs.isEmpty() && ops.isEmpty()) return null
         return NotebookPart(LayoutCodec.encode(shown, geometry, segments, ops), segments, ops.map { PendingOp(clientId, it) })
     }
 
@@ -521,7 +602,16 @@ class SendUseCase(
         val layout: ByteArray? = null,
         val pending: List<PendingSegment> = emptyList(),
         val ops: List<PendingOp> = emptyList(),
+        /** Region crops; crop k is the part `region.<part>.<k>.png`. */
+        val regions: List<ByteArray> = emptyList(),
     )
+
+    companion object {
+        /** Image regions per page and upload: the connector's default `max_regions_per_page`, not in `/config` yet. */
+        const val MAX_REGIONS_PER_PAGE = 4
+
+        private const val REGION_TOO_BIG = "image region does not fit the PNG size cap"
+    }
 }
 
 private const val PAGE_DPI = 300f

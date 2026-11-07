@@ -22,6 +22,11 @@ fun sendOutcomeText(outcome: SendOutcome): String? =
             "Nothing to send: no page changed since the last send. Long-press Send to send all pages."
         }
 
+        is SendOutcome.TooManyRegions -> {
+            "Not sent: page ${outcome.page + 1} has more than ${outcome.max} new image regions, " +
+                "the server takes at most ${outcome.max} per page and send."
+        }
+
         is SendOutcome.TooManyPages -> {
             "Not sent: ${outcome.count} pages selected, the server takes at most ${outcome.max} per send."
         }

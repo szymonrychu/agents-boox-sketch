@@ -178,13 +178,14 @@ data class Classification(
 
 /**
  * Classifies the handwriting of a notebook page with text runs into edit ops (spec 4.3, rules 2-4). Candidates are the
- * visible strokes not in a pending segment or op. In order: margin inserts ([finders]; the arrow tip on a text band
- * inserts inline at the nearest word boundary, anywhere else after the nearest run above), strikes ([StrikeDetector]
- * over a text band crossing words: delete those words; strikes over the same words of a run are one op), replaces
- * (pen strokes centred in an annotation band, grouped by x with a gap over one cell, over the words of a run on that
- * row: replace those words). Targets are whole words, as source offsets with the source text as quote. The ops come
- * ordered by their line (row, then x0) and by x within a line (Q13 A). Everything else is new handwriting for the
- * [Segmenter]; margin strokes outside any insert are [Classification.marginInk].
+ * visible strokes not in a pending segment or op, not rejected and not in `exclude` (the ink of image regions). In
+ * order: margin inserts ([finders]; the arrow tip on a text band inserts inline at the nearest word boundary, anywhere
+ * else after the nearest run above), strikes ([StrikeDetector] over a text band crossing words: delete those words;
+ * strikes over the same words of a run are one op), replaces (pen strokes centred in an annotation band, grouped by x
+ * with a gap over one cell, over the words of a run on that row: replace those words). Targets are whole words, as
+ * source offsets with the source text as quote. The ops come ordered by their line (row, then x0) and by x within a
+ * line (Q13 A). Everything else is new handwriting for the [Segmenter]; margin strokes outside any insert are
+ * [Classification.marginInk].
  */
 class AnnotationClassifier(
     private val finders: List<InsertMarkFinder>,
@@ -193,10 +194,13 @@ class AnnotationClassifier(
         page: Page,
         geometry: NotebookGeometry,
         measure: TextMeasure,
+        exclude: Set<String> = emptySet(),
         newId: () -> String,
     ): Classification {
-        val pending = page.pendingSegments.flatMap { it.strokeIds }.toSet() + page.pendingOps.flatMap { it.op.strokeIds }
-        val candidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in pending && it.id !in page.rejectedStrokes }
+        val skip =
+            exclude + page.rejectedStrokes + page.pendingSegments.flatMap { it.strokeIds } +
+                page.pendingOps.flatMap { it.op.strokeIds }
+        val candidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in skip }
         val boxes = page.text.associateWith { WordBoxes.of(it, geometry, measure) }
         val ops = ArrayList<Pair<Placed, EditOp>>()
         val used = HashSet<String>()
