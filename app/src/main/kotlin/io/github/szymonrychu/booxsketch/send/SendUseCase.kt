@@ -23,6 +23,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.SendSelection
 import io.github.szymonrychu.booxsketch.model.StrokesCodec
 import io.github.szymonrychu.booxsketch.model.notebook.AnnotationClassifier
+import io.github.szymonrychu.booxsketch.model.notebook.FreehandInsertMarks
 import io.github.szymonrychu.booxsketch.model.notebook.LayoutCodec
 import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
@@ -135,7 +136,7 @@ class SendUseCase(
      * segmented; without it (tests of plain pages) nothing is classified.
      */
     private val measure: TextMeasure? = null,
-    private val classifier: AnnotationClassifier = AnnotationClassifier(listOf(ToolInsertMarks)),
+    private val classifier: AnnotationClassifier = AnnotationClassifier(listOf(ToolInsertMarks, FreehandInsertMarks)),
 ) {
     private val mutex = Mutex()
 
