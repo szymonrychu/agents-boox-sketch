@@ -77,6 +77,9 @@ class ConversationRepository(
         return id
     }
 
+    /** The conversation [current] would return, without selecting or creating one; null when it would create one. */
+    suspend fun peekCurrent(): ConversationEntity? = _selected.value?.let { id -> dao.get(id)?.takeUnless { it.deleted } } ?: dao.latest()
+
     /** Where a send goes: the selected conversation, else the most recent one, else a new one. */
     suspend fun current(): ConversationEntity {
         _selected.value?.let { id -> dao.get(id)?.takeUnless { it.deleted }?.let { return it } }

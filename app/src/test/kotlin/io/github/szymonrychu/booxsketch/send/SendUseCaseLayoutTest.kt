@@ -20,6 +20,8 @@ import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
+import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.render.ExportResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -187,6 +189,55 @@ class SendUseCaseLayoutTest {
         runBlocking<Unit> {
             board.notebook = Notebook(CANVAS, listOf(Page(listOf(writing("a", 4)), true, consumed = setOf("a"))), 0)
             assertThat(useCase.send(all = true, caption = null)).isEqualTo(SendOutcome.NothingToSend)
+        }
+
+    private fun run(
+        lineId: String,
+        row: Int,
+    ) = SourceMap.stripWithColours("x").let {
+        TextRun(lineId, 2, 1, row, 53f, display = it.display, colourSpans = it.spans, sourceMap = it.map, sourceStrokeIds = emptyList())
+    }
+
+    private fun layoutJson(vararg lineIds: String) =
+        """{"lines":[""" +
+            lineIds.mapIndexed { n, id -> """{"line_id":"$id","source_line":${n + 1},"origin":null}""" }.joinToString(",") +
+            "]}"
+
+    @Test
+    fun runs_omitted_when_latest_stored_version_has_no_layout() =
+        runBlocking<Unit> {
+            db.conversationDao().upsert(ConversationEntity("local-1", "srv-1", "t", 0, 1))
+            repo.select("local-1")
+            db.specDao().upsert(SpecEntity("srv-1", 2, "x", "2026-11-07T00:00:00Z", layout = layoutJson("L1")))
+            db.specDao().upsert(SpecEntity("srv-1", 3, "x", "2026-11-07T00:00:00Z", layout = null))
+            board.notebook = Notebook(CANVAS, listOf(Page(listOf(writing("a", 4)), true, text = listOf(run("L1", 8)))), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            // The connector validates every run line id against base_version 3, which has no lines.
+            assertThat(layoutOf(clientId).runs).isEmpty()
+            assertThat(Payload.readPages(dir(clientId)).baseVersion).isEqualTo(3)
+        }
+
+    @Test
+    fun runs_limited_to_lines_of_the_latest_stored_layout() =
+        runBlocking<Unit> {
+            db.conversationDao().upsert(ConversationEntity("local-1", "srv-1", "t", 0, 1))
+            repo.select("local-1")
+            db.specDao().upsert(SpecEntity("srv-1", 3, "x", "2026-11-07T00:00:00Z", layout = layoutJson("L1", "L3")))
+            board.notebook =
+                Notebook(CANVAS, listOf(Page(listOf(writing("a", 4)), true, text = listOf(run("L1", 8), run("L2", 9)))), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(layoutOf(clientId).runs.map { it.lineId }).containsExactly("L1")
+        }
+
+    @Test
+    fun a_page_with_only_runs_unknown_to_the_base_has_no_layout_part() =
+        runBlocking<Unit> {
+            db.conversationDao().upsert(ConversationEntity("local-1", "srv-1", "t", 0, 1))
+            repo.select("local-1")
+            db.specDao().upsert(SpecEntity("srv-1", 3, "x", "2026-11-07T00:00:00Z", layout = null))
+            board.notebook = Notebook(CANVAS, listOf(Page(listOf(drawing("d")), true, text = listOf(run("L1", 8)))), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(File(dir(clientId), "layout.0.json").exists()).isFalse()
         }
 
     @Test

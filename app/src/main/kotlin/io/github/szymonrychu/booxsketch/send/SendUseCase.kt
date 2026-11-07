@@ -7,6 +7,7 @@ import io.github.szymonrychu.booxsketch.api.ConfigDto
 import io.github.szymonrychu.booxsketch.api.HandoffDto
 import io.github.szymonrychu.booxsketch.api.OutboxKind
 import io.github.szymonrychu.booxsketch.api.OutboxState
+import io.github.szymonrychu.booxsketch.board.NotebookSync
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.OutboxEntity
@@ -137,8 +138,10 @@ class SendUseCase(
                     is SendSelection.Pages -> sel.indices
                 }
             val clientId = newId()
+            // Read without creating a conversation: a refused send must leave none behind.
+            val base = base(conversations.peekCurrent()?.serverId)
             val parts =
-                when (val r = exportBoard(notebook, indices, cfg, clientId)) {
+                when (val r = exportBoard(notebook, indices, cfg, clientId, base?.lines.orEmpty())) {
                     is Prepared.Failed -> return@withLock r.outcome
                     is Prepared.Parts -> r.parts
                 }
@@ -147,7 +150,6 @@ class SendUseCase(
             if (total > cfg.maxUploadBytes) return@withLock SendOutcome.TooLarge(total, cfg.maxUploadBytes.toLong())
 
             val conversation = conversations.current()
-            val baseVersion = baseVersion(conversation.serverId, notebook, indices)
             enqueue(
                 clientId,
                 OutboxKind.SKETCH,
@@ -161,7 +163,7 @@ class SendUseCase(
                     part.strokes?.let { s -> Payload.strokes(it, n).writeBytes(s) }
                     part.layout?.let { l -> Payload.layout(it, n).writeBytes(l) }
                 }
-                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, baseVersion = baseVersion)
+                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, baseVersion = base?.version)
             }
             conversations.titleFromCaption(conversation.localId, caption)
             board.markSent(indices.associateWith { notebook.pages[it] })
@@ -234,6 +236,7 @@ class SendUseCase(
         indices: List<Int>,
         cfg: ConfigDto,
         clientId: String,
+        baseLines: Set<String>,
     ): Prepared {
         val geometry = NotebookGeometry(notebook.canvas.w, notebook.canvas.h)
         val parts = mutableListOf<PagePart>()
@@ -252,7 +255,7 @@ class SendUseCase(
                     val strokes = withContext(worker) { StrokesCodec.encode(notebook.canvas, page) }
                     val kept = strokes.takeIf { it.size <= cfg.maxStrokesBytes }
                     // The layout's stroke indices point into the strokes part: no strokes part, no layout.
-                    val notebookPart = kept?.let { withContext(worker) { notebookLayout(clientId, page, geometry, parts.size) } }
+                    val notebookPart = kept?.let { withContext(worker) { notebookLayout(clientId, page, geometry, parts.size, baseLines) } }
                     parts += PagePart(i, r.png, kept, notebookPart?.first, notebookPart?.second.orEmpty())
                 }
             }
@@ -423,34 +426,50 @@ class SendUseCase(
 
     /**
      * The `layout.<part>.json` of a notebook page and the segments it sends, or null for a page with neither new
-     * handwriting rows nor text runs (plain drawing needs no layout). Segment ids carry the upload part index.
+     * handwriting rows nor text runs (plain drawing needs no layout). Segment ids carry the upload part index. Only
+     * runs whose line id is in [baseLines] are sent: the connector rejects (422) any run line id the base version's
+     * layout does not have.
      */
     private fun notebookLayout(
         clientId: String,
         page: Page,
         geometry: NotebookGeometry,
         part: Int,
+        baseLines: Set<String>,
     ): Pair<ByteArray, List<PendingSegment>>? {
         val segments =
             Segmenter.segment(page, geometry, part).segments.map {
                 PendingSegment(clientId, it.id, it.row, it.x0, it.x1, it.strokeIds)
             }
-        if (segments.isEmpty() && page.text.isEmpty()) return null
-        return LayoutCodec.encode(page, geometry, segments, emptyList()) to segments
+        val runs = page.text.filter { it.lineId in baseLines }
+        if (segments.isEmpty() && runs.isEmpty()) return null
+        return LayoutCodec.encode(page.copy(text = runs), geometry, segments, emptyList()) to segments
     }
 
     /**
-     * `base_version`: the conversation's latest stored spec version (what the board shows once synced), else the newest
-     * version of the sent pages' runs; null for a conversation without a server id (base_version needs one).
+     * `base_version`: the conversation's latest stored spec version, with the line ids of its layout (none when it has
+     * no layout). The connector checks base_version is the latest and every run line id against that version's
+     * layout, and the translator keeps line ids relative to it. Null for a conversation without a server id or a
+     * stored version.
      */
-    private suspend fun baseVersion(
-        serverId: String?,
-        notebook: Notebook,
-        indices: List<Int>,
-    ): Int? {
-        if (serverId == null) return null
-        return db.specDao().latest(serverId)?.version ?: indices.flatMap { notebook.pages[it].text }.maxOfOrNull { it.specVersion }
+    private suspend fun base(serverId: String?): Base? {
+        val latest = serverId?.let { db.specDao().latest(it) } ?: return null
+        val lines =
+            latest.layout
+                ?.let {
+                    NotebookSync
+                        .layoutModel(it)
+                        .lines
+                        .map { l -> l.lineId }
+                        .toSet()
+                }.orEmpty()
+        return Base(latest.version, lines)
     }
+
+    private class Base(
+        val version: Int,
+        val lines: Set<String>,
+    )
 
     private class PagePart(
         val index: Int,
