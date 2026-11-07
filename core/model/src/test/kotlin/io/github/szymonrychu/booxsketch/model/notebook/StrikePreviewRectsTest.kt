@@ -22,6 +22,12 @@ class StrikePreviewRectsTest {
     }
 
     @Test
+    fun rejected_strike_has_no_rect() {
+        val p = page(listOf(milk), line("s", 140f, 340f, textY(4))).copy(rejectedStrokes = setOf("s"))
+        assertThat(StrikePreview.rects(p, g, measure)).isEmpty()
+    }
+
+    @Test
     fun no_strike_no_rect() {
         val p = page(listOf(milk), word("w", 140f, 200f, annotationY(4)))
         assertThat(StrikePreview.rects(p, g, measure)).isEmpty()

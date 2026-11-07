@@ -88,6 +88,16 @@ class RunPlacerOpsTest {
     }
 
     @Test
+    fun rejected_op_marks_its_strokes_rejected() {
+        val above = mark("w", g.rowTop(4) + 26f)
+        val op = EditOp("op1", OpKind.REPLACE, OpTarget("L1", 4, 9, "fresh"), strokeIds = listOf("w"))
+        val n = withOp(notebook(Page(listOf(above), false, text = listOf(run("L1", 4, "buy fresh milk")))), op)
+        val p =
+            applyOps(n, "buy fresh milk", listOf(OpStatusModel("op1", false, "illegible")), line("L1", 1, LineOrigin.Kept("L1")))
+        assertThat(p.notebook.pages[0].rejectedStrokes).containsExactly("w")
+    }
+
+    @Test
     fun applied_insert_after_line_takes_next_row_and_shifts() {
         val note = Stroke("n", Tool.BALLPOINT, 2f, listOf(Point(1050f, 450f, 0.5f, 0L), Point(1200f, 450f, 0.5f, 10L)))
         val box = Stroke("R", Tool.RECTANGLE, 4f, listOf(Point(1000f, 400f, 1f, 0L), Point(1300f, 500f, 1f, 10L)))
