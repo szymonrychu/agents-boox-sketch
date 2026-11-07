@@ -25,6 +25,7 @@ import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.testing.FreezingInput
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -43,6 +44,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import kotlin.coroutines.CoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -334,5 +336,50 @@ class NotebookSyncTest {
             assertThat(latest.specVersion).isEqualTo(2)
             // The connector cursor ignores the local note.
             assertThat(db.feedbackDao().maxId("srv")).isEqualTo(1)
+        }
+
+    @Test
+    fun local_notes_sort_by_time_across_timestamp_formats() =
+        runTest {
+            val dao = db.feedbackDao()
+            // Server style with an offset and fractions, 10:00:00.5; a local note in Instant style at 10:00:00 is older.
+            dao.upsert(FeedbackEntity("srv", 1, "note", "server", null, 1, "2026-11-07T10:00:00.500000+00:00"))
+            dao.upsert(FeedbackEntity("srv", -1, "note", "local", null, 2, "2026-11-07T10:00:00Z"))
+            dao.upsert(FeedbackEntity("srv", 2, "note", "newest", null, 1, "2026-11-07T10:00:01+00:00"))
+            assertThat(dao.observe("srv").first().map { it.text }).containsExactly("newest", "server", "local").inOrder()
+        }
+
+    @Test
+    fun a_version_applied_meanwhile_writes_no_notes() =
+        runTest {
+            val vm = struckBoard()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            val layout =
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":{"kept":"L1"}}],""" +
+                    """"ops":[{"id":"op-1","status":"rejected","note":"the words differ"}]}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy fresh milk", "2026-11-07T00:00:00Z", "[]", layout))
+            // Another placement of the same version lands while this one renders: this one is stale and notes nothing.
+            val worker =
+                object : CoroutineDispatcher() {
+                    private var first = true
+
+                    override fun dispatch(
+                        context: CoroutineContext,
+                        block: Runnable,
+                    ) {
+                        if (first) {
+                            first = false
+                            vm.applyVersion(2, "buy fresh milk", NotebookSync.layoutModel(layout), vm.textLayers.layer.measure)
+                        }
+                        dispatcher.dispatch(context, block)
+                    }
+                }
+            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = worker, feedback = db.feedbackDao())
+            val job = launch { sync.onVersion("srv", "local", 2) }
+            advanceUntilIdle()
+            job.join()
+            assertThat(db.feedbackDao().all("srv")).isEmpty()
         }
 }
