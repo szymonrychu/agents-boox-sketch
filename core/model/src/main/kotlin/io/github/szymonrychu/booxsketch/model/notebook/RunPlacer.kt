@@ -279,7 +279,8 @@ object RunPlacer {
                     p.copy(
                         pendingOps = p.pendingOps - done.toSet(),
                         consumed = p.consumed + edits.flatMap { it.op.strokeIds },
-                        rejectedStrokes = p.rejectedStrokes + rejected.flatMap { it.op.strokeIds },
+                        // A rejected image op returns its region to pending (sent again); its ink is not rejected ink.
+                        rejectedStrokes = p.rejectedStrokes + rejected.filter { it.op.kind != OpKind.IMAGE }.flatMap { it.op.strokeIds },
                         appliedRegions = p.appliedRegions + regions,
                     ),
                 )

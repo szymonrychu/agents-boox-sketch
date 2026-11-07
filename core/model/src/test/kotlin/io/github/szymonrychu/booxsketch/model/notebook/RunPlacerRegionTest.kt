@@ -115,6 +115,29 @@ class RunPlacerRegionTest {
     }
 
     @Test
+    fun rejected_image_op_does_not_mark_its_ink_rejected() {
+        // A rejected edit op leaves its strokes as rejected ink; a rejected image op only returns the region to pending.
+        val strike = PendingOp("c1", EditOp("op2", OpKind.DELETE, OpTarget("L1", 0, 5, "intro"), strokeIds = listOf("s")))
+        val page =
+            Page(
+                listOf(regionStroke("r", 4, 9), stroke("in", 6), stroke("s", 2)),
+                false,
+                text = listOf(run("L1", 2, "intro")),
+                pendingOps = listOf(imageOp("op1", "r", "in"), strike),
+            )
+        val p =
+            applyOps(
+                notebook(page),
+                "intro",
+                listOf(line("L1", 1, LineOrigin.Kept("L1"))),
+                listOf(OpStatusModel("op1", false, "unclear"), OpStatusModel("op2", false, "unclear")),
+            )
+        val after = p.notebook.pages[0]
+        assertThat(after.rejectedStrokes).containsExactly("s")
+        assertThat(ImageRegions.unsent(after).map { it.id }).containsExactly("r")
+    }
+
+    @Test
     fun ink_of_an_applied_region_stays_out_of_segments() {
         val page = Page(listOf(regionStroke("r", 4, 9), stroke("in", 6), stroke("w", 12)), true, appliedRegions = mapOf("r" to "reg-op1"))
         assertThat(ImageRegions.excluded(page)).containsExactly("in")

@@ -67,6 +67,11 @@ Lessons that outlive a session. Newest first.
   splits frame from ink. `UndoStack.shiftRows` decides each stroke id once (page first, then the history entries) and
   applies that decision to the page and every entry, so undo/redo restore exact positions even when the step that drew
   the region is undone.
+- Rebase onto P5a/P5b (2026-11-07): image ops ride the edit-op pipeline (`PendingOp` stamped with the base version,
+  per-upload release, drop on failure). The ink of every region (`ImageRegions.excluded`) is excluded from both the
+  `Segmenter` and the `AnnotationClassifier` (`classify(exclude = ...)`), so region ink is never a strike, replace or
+  insert; classified ops come first in the layout, then the image ops. A rejected image op does not add its strokes to
+  `rejectedStrokes` (only rejected edit ops do): the region is simply pending again and re-sent.
 - Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
   (region images never change), removed with the conversation (delete and server-side removal). Only PNG bodies (signature checked) are kept, written through a unique temp file. Unpair deletes all of it and
   the share zips. Ids are checked
