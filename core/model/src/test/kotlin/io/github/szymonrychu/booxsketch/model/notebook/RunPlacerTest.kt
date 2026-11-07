@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.model.notebook
 
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.Command
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
@@ -180,32 +181,50 @@ class RunPlacerTest {
     }
 
     @Test
-    fun shift_is_one_undoable_command() {
+    fun shift_is_not_an_undo_step_and_history_follows_it() {
         val below = stroke("ink5", 5)
-        val n = notebook(Page(listOf(stroke("a", 4), below), false, pendingSegments = listOf(pending("p0-r4-0", 4, "a", x0 = 53f))))
+        val mine = stroke("mine", 7)
+        val undo = UndoStack()
+        val n =
+            undo.apply(
+                notebook(Page(listOf(stroke("a", 4), below), false, pendingSegments = listOf(pending("p0-r4-0", 4, "a", x0 = 53f)))),
+                Command.AddStroke(mine),
+            )
+        val text = "w".repeat(40) + " " + "z".repeat(40)
+        val placed = apply(n, text, line("L1", 1, LineOrigin.Segments(listOf("p0-r4-0"))), undo = undo).notebook
+
+        fun Notebook.y(id: String) =
+            pages[0]
+                .strokes
+                .single { it.id == id }
+                .points[0]
+                .y
+        assertThat(placed.y("ink5")).isEqualTo(below.points[0].y + g.rowPitch)
+        assertThat(placed.y("mine")).isEqualTo(mine.points[0].y + g.rowPitch)
+        // Undo takes back the user's last stroke, not the placement's shift: ink stays aligned with the text.
+        val undone = undo.undo(placed)
+        assertThat(undone.pages[0].strokes.map { it.id }).containsExactly("a", "ink5")
+        assertThat(undone.y("ink5")).isEqualTo(below.points[0].y + g.rowPitch)
+        assertThat(
+            undone.pages[0]
+                .text
+                .single()
+                .row,
+        ).isEqualTo(4)
+        assertThat(undo.canUndo(undone)).isFalse()
+        // Redo puts it back where its row went.
+        assertThat(undo.redo(undone).y("mine")).isEqualTo(mine.points[0].y + g.rowPitch)
+    }
+
+    @Test
+    fun shift_without_history_leaves_nothing_to_undo() {
+        val n =
+            notebook(Page(listOf(stroke("a", 4), stroke("ink5", 5)), false, pendingSegments = listOf(pending("p0-r4-0", 4, "a", x0 = 53f))))
         val undo = UndoStack()
         val text = "w".repeat(40) + " " + "z".repeat(40)
         val placed = apply(n, text, line("L1", 1, LineOrigin.Segments(listOf("p0-r4-0"))), undo = undo).notebook
-        assertThat(
-            placed.pages[0]
-                .strokes
-                .single { it.id == "ink5" }
-                .points[0]
-                .y,
-        ).isEqualTo(below.points[0].y + g.rowPitch)
-        assertThat(undo.canUndo(placed)).isTrue()
-        val undone = undo.undo(placed)
-        assertThat(
-            undone.pages[0]
-                .strokes
-                .single { it.id == "ink5" }
-                .points[0]
-                .y,
-        ).isEqualTo(below.points[0].y)
-        assertThat(undo.canUndo(undone)).isFalse()
-        // The text and the consumed strokes are not part of the undo step.
-        assertThat(undone.pages[0].consumed).containsExactly("a")
-        assertThat(undone.pages[0].text).hasSize(1)
+        assertThat(undo.canUndo(placed)).isFalse()
+        assertThat(placed.pages[0].changedSinceSend).isFalse()
     }
 
     @Test
@@ -372,5 +391,215 @@ class RunPlacerTest {
         val left = p.notebook.runs().single { it.lineId == "L1" }
         // The left run ends before the right one starts: 30 chars do not fit 547 px, so it shrinks or wraps.
         assertThat(measure.width(left.display, left.scale) <= 600f - 53f || left.wrapRows > 1).isTrue()
+    }
+
+    @Test
+    fun revert_marks_pages_with_restored_ink_changed() {
+        val n =
+            notebook(
+                Page(
+                    listOf(stroke("a", 2), stroke("b", 5)),
+                    false,
+                    text =
+                        listOf(
+                            run("L1", 2, "kept", strokes = listOf("a")),
+                            run("L2", 5, "later", sourceLine = 2, strokes = listOf("b")),
+                        ),
+                    consumed = setOf("a", "b"),
+                ),
+                Page(
+                    listOf(stroke("c", 3)),
+                    false,
+                    text = listOf(run("L3", 3, "other", sourceLine = 3, strokes = listOf("c"))),
+                    consumed = setOf("c"),
+                ),
+            )
+        val p =
+            apply(
+                n,
+                "kept\n\nother",
+                line("L1", 1, LineOrigin.Kept("L1")),
+                line("L3", 3, LineOrigin.Kept("L3")),
+                version = 4,
+                revertedFrom = 1,
+            )
+        // The un-hidden ink of L2 is re-sendable: Send of changed pages picks page 0 up.
+        assertThat(p.notebook.pages[0].changedSinceSend).isTrue()
+        assertThat(p.notebook.pages[1].changedSinceSend).isFalse()
+    }
+
+    @Test
+    fun narrow_column_at_the_margin_moves_the_run_left_instead_of_one_char_rows() {
+        val x0 = g.marginX - 20f
+        val n = notebook(Page(listOf(stroke("a", 4, x0, x0 + 15f)), false, pendingSegments = listOf(pending("p0-r4-0", 4, "a", x0 = x0))))
+        val p = apply(n, "hello world!", line("L1", 1, LineOrigin.Segments(listOf("p0-r4-0"))))
+        val run = p.notebook.runs().single()
+        assertThat(run.wrapRows).isEqualTo(1)
+        assertThat(run.x0).isAtLeast(g.textLeft.toFloat())
+        assertThat(run.x0 + measure.width(run.display, run.scale)).isAtMost(g.marginX + 0.5f)
+    }
+
+    @Test
+    fun narrow_column_before_a_neighbour_is_floored() {
+        val n =
+            notebook(
+                Page(
+                    listOf(stroke("a", 4, 400f, 410f)),
+                    false,
+                    text = listOf(run("L9", 4, "right", sourceLine = 2, x0 = 430f)),
+                    pendingSegments = listOf(pending("p0-r4-0", 4, "a", x0 = 400f)),
+                ),
+            )
+        val p =
+            apply(
+                n,
+                "hello world again\nright",
+                line("L1", 1, LineOrigin.Segments(listOf("p0-r4-0"))),
+                line("L9", 2, LineOrigin.Kept("L9")),
+            )
+        val run = p.notebook.runs().single { it.lineId == "L1" }
+        // 30 px to the neighbour would give one or two chars per row; the floor keeps it to a few rows.
+        assertThat(run.wrapRows).isAtMost(2)
+        assertThat(run.column).isAtLeast(RunPlacer.MIN_COLUMN_CELLS * g.cell.toFloat())
+    }
+
+    @Test
+    fun placed_column_is_kept_on_the_run() {
+        val n =
+            notebook(
+                Page(
+                    listOf(stroke("a", 4, 53f, 200f), stroke("b", 4, 600f, 700f)),
+                    false,
+                    pendingSegments = listOf(pending("p0-r4-0", 4, "a", x0 = 53f), pending("p0-r4-1", 4, "b", x0 = 600f)),
+                ),
+            )
+        val p =
+            apply(
+                n,
+                "x".repeat(30) + "\nright",
+                line("L1", 1, LineOrigin.Segments(listOf("p0-r4-0"))),
+                line("L2", 2, LineOrigin.Segments(listOf("p0-r4-1"))),
+            )
+        assertThat(
+            p.notebook
+                .runs()
+                .single { it.lineId == "L1" }
+                .column,
+        ).isEqualTo(600f - 53f)
+    }
+
+    @Test
+    fun second_overflow_of_a_page_goes_before_the_first_on_the_overflow_page() {
+        val long = "w".repeat(40) + " " + "z".repeat(40)
+        val n =
+            notebook(
+                Page(
+                    listOf(stroke("a", 10, 53f), stroke("i11", 11), stroke("b", 12, 53f), stroke("x13", 13), stroke("z", 15)),
+                    false,
+                    text = listOf(run("L9", 14, "tail", sourceLine = 3)),
+                    pendingSegments = listOf(pending("p0-r10-0", 10, "a", x0 = 53f), pending("p0-r12-0", 12, "b", x0 = 53f)),
+                ),
+            )
+        val p =
+            apply(
+                n,
+                "$long\n$long\ntail",
+                line("L1", 1, LineOrigin.Segments(listOf("p0-r10-0"))),
+                line("L2", 2, LineOrigin.Segments(listOf("p0-r12-0"))),
+                line("L9", 3, LineOrigin.Kept("L9")),
+            )
+        val pages = p.notebook.pages
+        assertThat(pages).hasSize(2)
+        val over = pages[1]
+        // L9 came before the ink z on page 0: it leads the overflow page, z follows on the next row.
+        assertThat(over.text.single().lineId).isEqualTo("L9")
+        assertThat(over.text.single().row).isEqualTo(0)
+        assertThat(
+            g.rowAt(
+                over.strokes
+                    .single { it.id == "z" }
+                    .points[0]
+                    .y,
+            ),
+        ).isEqualTo(1)
+        for (page in pages) for (r in page.text) assertThat(r.row + r.wrapRows).isAtMost(g.rowCount)
+    }
+
+    @Test
+    fun revert_ignores_segment_origins_of_the_old_version() {
+        val n =
+            notebook(
+                Page(
+                    listOf(stroke("new", 4)),
+                    false,
+                    text = listOf(run("L1", 2, "kept")),
+                    pendingSegments = listOf(pending("p0-r4-0", 4, "new", clientId = "c2")),
+                ),
+            )
+        val p =
+            apply(
+                n,
+                "kept\nold line",
+                line("L1", 1, LineOrigin.Kept("L1")),
+                line("L2", 2, LineOrigin.Segments(listOf("p0-r4-0"))),
+                version = 5,
+                revertedFrom = 2,
+            )
+        val page = p.notebook.pages[0]
+        // The new, unanswered handwriting with the same segment id stays pending and visible.
+        assertThat(page.pendingSegments.map { it.clientId }).containsExactly("c2")
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.text.single { it.lineId == "L2" }.row).isEqualTo(3)
+    }
+
+    @Test
+    fun first_origin_null_line_goes_before_the_next_lines_run() {
+        val n =
+            notebook(
+                Page(listOf(stroke("ink0", 0)), false),
+                Page(emptyList(), false, text = listOf(run("L2", 3, "later", sourceLine = 2))),
+            )
+        val p = apply(n, "added\nlater", line("L5", 1, null), line("L2", 2, LineOrigin.Kept("L2")))
+        assertThat(p.notebook.runs(0)).isEmpty()
+        assertThat(
+            g.rowAt(
+                p.notebook.pages[0]
+                    .strokes
+                    .single()
+                    .points[0]
+                    .y,
+            ),
+        ).isEqualTo(0)
+        // Row 2 above L2 is free: the new line goes there and nothing moves.
+        assertThat(
+            p.notebook
+                .runs(1)
+                .single { it.lineId == "L5" }
+                .row,
+        ).isEqualTo(2)
+        assertThat(
+            p.notebook
+                .runs(1)
+                .single { it.lineId == "L2" }
+                .row,
+        ).isEqualTo(3)
+    }
+
+    @Test
+    fun first_origin_null_line_pushes_the_next_run_down_when_the_row_above_is_taken() {
+        val n = notebook(Page(listOf(stroke("ink2", 2)), false, text = listOf(run("L2", 3, "later", sourceLine = 2))))
+        val p = apply(n, "added\nlater", line("L5", 1, null), line("L2", 2, LineOrigin.Kept("L2")))
+        assertThat(
+            p.notebook
+                .runs()
+                .single { it.lineId == "L5" }
+                .row,
+        ).isEqualTo(3)
+        assertThat(
+            p.notebook
+                .runs()
+                .single { it.lineId == "L2" }
+                .row,
+        ).isEqualTo(4)
     }
 }

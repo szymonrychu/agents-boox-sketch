@@ -1,6 +1,5 @@
 package io.github.szymonrychu.booxsketch.model.notebook
 
-import io.github.szymonrychu.booxsketch.model.Command
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
@@ -20,16 +19,23 @@ data class Placement(
  * with a run keeps it (text, version and source line updated, refitted); a line from pending segments gets a new run
  * at the first segment's page, row and x0 and its strokes are consumed; any other line (origin null, OQ6 A; a kept
  * line with no run; an op line) gets a new row right after the previous line's run. Runs whose line is gone are
- * removed first; on a revert their strokes become visible ink again (OQ2 A). Lines inside fenced blocks, table rows
- * and blank lines are never placed: their segments' strokes stay ink.
+ * removed first; on a revert their strokes become visible ink again (OQ2 A, the page counts as changed so Send picks
+ * the ink up) and the old version's segment origins are ignored (segment ids repeat across uploads). Lines inside
+ * fenced blocks, table rows and blank lines are never placed: their segments' strokes stay ink. A first shown line
+ * with no anchor goes just above the next shown line's run or segment.
  *
  * Fit: at scale 1 when it fits the column (x0 to the margin, or to the next run or segment on the row), else shrunk
- * down to [MIN_SCALE], else wrapped at word boundaries at [MIN_SCALE]. Rows a line needs that hold other runs, ink or
- * pending segments move down by whole rows with everything below them (on the selected page through [UndoStack] as
- * one [Command.ShiftRows]). Rows pushed past the last row move to a new page inserted right after (OQ4 A).
+ * down to [MIN_SCALE], else wrapped at word boundaries at [MIN_SCALE]. A column narrower than [MIN_COLUMN_CELLS] cells
+ * is widened to that, moving x0 left when the margin is closer. Rows a line needs that hold other runs, ink or pending
+ * segments move down by whole rows with everything below them; the ink moves through [UndoStack.shiftRows], which is
+ * not an undo step and keeps the history aligned. Rows pushed past the last row move to a new page inserted right
+ * after (OQ4 A); a later overflow of the same page goes above the earlier one there.
  */
 object RunPlacer {
     const val MIN_SCALE = 0.85f
+
+    /** The narrowest column a run is fitted in, in grid cells (about 15 characters at scale 1). */
+    const val MIN_COLUMN_CELLS = 6
 
     /** Float rounding slack of a fit test, in page px. */
     private const val FIT_SLACK = 0.5f
@@ -52,12 +58,17 @@ object RunPlacer {
                 .filter { placeable.getOrElse(it.sourceLine - 1) { false } }
                 .map { it.lineId }
                 .toSet()
-        work.dropRuns(shown, unconsume = layout.revertedFrom != null)
+        val revert = layout.revertedFrom != null
+        work.dropRuns(shown, unconsume = revert)
         work.applyOps(layout.ops)
-        val answered = work.answeredClients(layout.lines)
+
+        // A revert copies the old version's origins: its segment ids may match new, unanswered handwriting.
+        fun segmentsOf(line: SpecLineModel) = if (revert) emptyList() else (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
+        val ordered = layout.lines.sortedBy { it.sourceLine }
+        val answered = work.answeredClients(ordered.flatMap(::segmentsOf))
         var prev: String? = null
-        for (line in layout.lines.sortedBy { it.sourceLine }) {
-            val segments = (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
+        for ((k, line) in ordered.withIndex()) {
+            val segments = segmentsOf(line)
             if (line.lineId !in shown) {
                 work.dropSegments(answered, segments)
                 continue
@@ -67,7 +78,8 @@ object RunPlacer {
             when {
                 work.hasRun(line.lineId) -> work.update(line.lineId, text)
                 work.hasSegments(answered, segments) -> work.placeAtSegments(line.lineId, text, answered, segments)
-                else -> work.placeAfter(line.lineId, text, prev)
+                prev != null -> work.placeAfter(line.lineId, text, prev)
+                else -> work.placeFirst(line.lineId, text, ordered.drop(k + 1).filter { it.lineId in shown }, answered, ::segmentsOf)
             }
             prev = line.lineId
         }
@@ -194,8 +206,17 @@ object RunPlacer {
                 if (gone.isEmpty()) continue
                 gone.forEach { markDirty(i, it.row until it.row + it.wrapRows) }
                 val restored = if (unconsume) gone.flatMap { it.sourceStrokeIds }.toSet() else emptySet()
-                setPage(i, p.copy(text = p.text - gone.toSet(), consumed = p.consumed - restored))
-                if (restored.isNotEmpty()) markDirty(i, 0 until g.rowCount)
+                val back = restored.intersect(p.consumed)
+                setPage(
+                    i,
+                    p.copy(
+                        text = p.text - gone.toSet(),
+                        consumed = p.consumed - back,
+                        changedSinceSend =
+                            p.changedSinceSend || back.isNotEmpty(),
+                    ),
+                )
+                if (back.isNotEmpty()) markDirty(i, 0 until g.rowCount)
             }
         }
 
@@ -213,9 +234,9 @@ object RunPlacer {
             }
         }
 
-        /** The upload client ids this version answers: per segment id the client holding most of the version's segments. */
-        fun answeredClients(lines: List<SpecLineModel>): Set<String> {
-            val ids = lines.flatMap { (it.origin as? LineOrigin.Segments)?.ids.orEmpty() }.toSet()
+        /** The upload client ids this version answers: the client holding most of the version's segment [ids]. */
+        fun answeredClients(segmentIds: List<String>): Set<String> {
+            val ids = segmentIds.toSet()
             if (ids.isEmpty()) return emptySet()
             val all = n.pages.flatMap { it.pendingSegments }
             val counts = all.filter { it.segmentId in ids }.groupingBy { it.clientId }.eachCount()
@@ -314,11 +335,35 @@ object RunPlacer {
         fun placeAfter(
             lineId: String,
             text: Text,
-            prev: String?,
+            prev: String,
         ) {
-            val anchor = prev?.let(::findRun)
+            val anchor = findRun(prev)
             val i = anchor?.first ?: 0
             val row = anchor?.second?.let { it.row + it.wrapRows } ?: 0
+            put(i, newRun(lineId, text, row, g.textLeft.toFloat(), emptyList()), replacing = null, dirty = true, ownRowFree = false)
+        }
+
+        /**
+         * A first shown line with nothing before it: above the first of [later] that has a run or (answered) segments,
+         * on the free row right above it, else on its row pushing it down; page 0 row 0 when there is none.
+         */
+        fun placeFirst(
+            lineId: String,
+            text: Text,
+            later: List<SpecLineModel>,
+            answered: Set<String>,
+            idsOf: (SpecLineModel) -> List<String>,
+        ) {
+            val anchor =
+                later.firstNotNullOfOrNull { line ->
+                    findRun(line.lineId)?.let { (i, r) -> i to r.row }
+                        ?: segmentsOf(answered, idsOf(line))
+                            .minWithOrNull(compareBy({ it.first }, { it.second.row }))
+                            ?.let { (i, s) -> i to s.row }
+                }
+            val (i, next) = anchor ?: (0 to 0)
+            // The free row right above the anchor when there is one, so nothing moves.
+            val row = if (next > 0 && !occupied(page(i), next - 1)) next - 1 else next
             put(i, newRun(lineId, text, row, g.textLeft.toFloat(), emptyList()), replacing = null, dirty = true, ownRowFree = false)
         }
 
@@ -334,9 +379,9 @@ object RunPlacer {
             ownRowFree: Boolean = true,
         ) {
             val others = page(i).text.filter { it !== replacing }
-            val right = rightBound(page(i), run, others)
-            val (scale, rows) = fit(run.display, right - run.x0, measure)
-            val placed = run.copy(scale = scale, wrapRows = rows)
+            val (x0, column) = column(run.x0, rightBound(page(i), run, others))
+            val (scale, rows) = fit(run.display, column, measure)
+            val placed = run.copy(x0 = x0, column = column, scale = scale, wrapRows = rows)
             setPage(i, page(i).copy(text = others))
             val from = if (ownRowFree) placed.row + 1 else placed.row
             val needed = from until placed.row + rows
@@ -361,6 +406,21 @@ object RunPlacer {
             return minOf(g.marginX.toFloat(), next.minOrNull() ?: Float.MAX_VALUE)
         }
 
+        /**
+         * x0 and width of the column from [x0] to [right], floored at [MIN_COLUMN_CELLS] cells: a narrower one would wrap
+         * into a row per character or two. The floor extends past [right] (a neighbour), and x0 moves left (not past
+         * the text column start) when the margin is closer.
+         */
+        private fun column(
+            x0: Float,
+            right: Float,
+        ): Pair<Float, Float> {
+            val floor = (MIN_COLUMN_CELLS * g.cell).toFloat()
+            if (right - x0 >= floor) return x0 to right - x0
+            val left = minOf(x0, g.marginX - floor).coerceAtLeast(g.textLeft.toFloat())
+            return left to maxOf(right - left, floor)
+        }
+
         private fun rowOf(y: Float): Int = floor((y - g.topMargin) / g.rowPitch).toInt()
 
         private fun occupied(
@@ -380,8 +440,10 @@ object RunPlacer {
             val fromY = g.rowTop(from).toFloat()
             val dy = (rows * g.rowPitch).toFloat()
             val stack = undo
-            if (stack != null && i == n.current) {
-                n = stack.apply(n, Command.ShiftRows(fromY, dy))
+            if (stack !=
+                null
+            ) {
+                n = stack.shiftRows(n, i, fromY, dy)
             } else {
                 setPage(i, page(i).copy(strokes = shiftStrokes(page(i).strokes, fromY, dy)))
             }
@@ -412,6 +474,7 @@ object RunPlacer {
                 val segments = p.pendingSegments.filter { it.row >= cut }
                 if (runs.isEmpty() && strokes.isEmpty() && segments.isEmpty()) return
                 val ids = strokes.map { it.id }.toSet()
+                undo?.forget(i)
                 setPage(
                     i,
                     p.copy(
@@ -421,7 +484,18 @@ object RunPlacer {
                         consumed = p.consumed - ids,
                     ),
                 )
-                val target = overflowOf[i] ?: insertAfter(i)
+                val earlier = overflowOf[i]
+                val target = earlier ?: insertAfter(i)
+                undo?.forget(target)
+                if (earlier != null) {
+                    // An earlier overflow of this placement is there: these rows came before it on page i.
+                    val height =
+                        (
+                            runs.map { it.row + it.wrapRows } + segments.map { it.row + 1 } +
+                                strokes.map { rowOf(centreY(it)) + 1 }
+                        ).max() - cut
+                    shift(target, 0, height)
+                }
                 val dy = -(cut * g.rowPitch).toFloat()
                 val t = page(target)
                 setPage(

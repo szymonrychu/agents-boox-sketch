@@ -10,16 +10,6 @@ sealed interface Command {
     ) : Command
 
     data object Clear : Command
-
-    /**
-     * Moves every stroke whose bounding-box centre lies at or below page y [fromY] down by [dy] page px: a whole-row
-     * shift of the ink under a wrapped or inserted text line (Q16 A), one undoable step. It does not mark the page
-     * changed since the last send: the ink only moved with its rows.
-     */
-    data class ShiftRows(
-        val fromY: Float,
-        val dy: Float,
-    ) : Command
 }
 
 /** The vertical centre of [s]'s bounding box, the y a row shift and the segmenter judge a stroke by. */
@@ -100,13 +90,39 @@ class UndoStack {
                 is Command.AddStroke -> before + c.stroke
                 is Command.EraseStrokes -> before.filterNot { it.id in c.ids }
                 Command.Clear -> emptyList()
-                is Command.ShiftRows -> shiftStrokes(before, c.fromY, c.dy)
             }
         if (after == before) return n
         val h = histories.getOrPut(n.current) { History() }
         h.undo.addLast(Entry(before, after))
         h.redo.clear()
-        return n.withStrokes(after, changed = c !is Command.ShiftRows)
+        return n.withStrokes(after)
+    }
+
+    /**
+     * Moves every stroke of page [page] centred at or below page y [fromY] down by [dy] page px: the whole-row shift
+     * under a wrapped or inserted text line (Q16 A). It is not an undo step (the text moved with it is not in the
+     * history): the page's history entries move the same way, so undo and redo stay aligned with the shifted rows. The
+     * page does not count as changed since the last send.
+     */
+    fun shiftRows(
+        n: Notebook,
+        page: Int,
+        fromY: Float,
+        dy: Float,
+    ): Notebook {
+        histories[page]?.let { h ->
+            for (q in listOf(h.undo, h.redo)) {
+                val moved = q.map { Entry(shiftStrokes(it.before, fromY, dy), shiftStrokes(it.after, fromY, dy)) }
+                q.clear()
+                q.addAll(moved)
+            }
+        }
+        return n.copy(pages = n.pages.mapIndexed { i, p -> if (i == page) p.copy(strokes = shiftStrokes(p.strokes, fromY, dy)) else p })
+    }
+
+    /** Drops the history of page [page]: its strokes moved in a way no entry can follow (rows sent to another page). */
+    fun forget(page: Int) {
+        histories.remove(page)
     }
 
     fun undo(n: Notebook): Notebook {
@@ -135,14 +151,6 @@ class UndoStack {
         return n.withStrokes(e.after)
     }
 
-    private fun Notebook.withStrokes(
-        strokes: List<Stroke>,
-        changed: Boolean = true,
-    ): Notebook =
-        copy(
-            pages =
-                pages.mapIndexed { i, p ->
-                    if (i == current) p.copy(strokes = strokes, changedSinceSend = changed || p.changedSinceSend) else p
-                },
-        )
+    private fun Notebook.withStrokes(strokes: List<Stroke>): Notebook =
+        copy(pages = pages.mapIndexed { i, p -> if (i == current) p.copy(strokes = strokes, changedSinceSend = true) else p })
 }
