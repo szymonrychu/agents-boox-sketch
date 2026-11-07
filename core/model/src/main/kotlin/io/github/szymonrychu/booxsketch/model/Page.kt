@@ -1,12 +1,24 @@
 package io.github.szymonrychu.booxsketch.model
 
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class Page(
     val strokes: List<Stroke>,
     val changedSinceSend: Boolean,
-)
+    /** Spec lines rendered on this page's rows. */
+    val text: List<TextRun> = emptyList(),
+    /** Ids of strokes a spec version used; hidden, never drawn, never exported, kept for undo bookkeeping. */
+    val consumed: Set<String> = emptySet(),
+    val pendingSegments: List<PendingSegment> = emptyList(),
+    val pendingOps: List<PendingOp> = emptyList(),
+) {
+    /** The strokes that are drawn and exported: [strokes] minus [consumed]. */
+    val visibleStrokes: List<Stroke> get() = if (consumed.isEmpty()) strokes else strokes.filter { it.id !in consumed }
+}
 
 /** Immutable notebook: every operation returns a new instance. */
 @Serializable
@@ -14,6 +26,8 @@ data class Notebook(
     val canvas: Canvas,
     val pages: List<Page>,
     val current: Int,
+    /** The conversation this board belongs to (one notebook per conversation); null until bound. */
+    val conversationLocalId: String? = null,
 ) {
     /** Appends an empty page and selects it. */
     fun addPage(): Notebook = copy(pages = pages + Page(emptyList(), false), current = pages.size)
