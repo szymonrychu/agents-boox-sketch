@@ -144,7 +144,10 @@ class AnnotationClassifier(
         val above =
             boxes.keys
                 .filter { it.row + it.wrapRows - 1 < row }
-                .maxWithOrNull(compareBy({ it.row + it.wrapRows }, { it.x0 })) ?: return null
+                .groupBy { it.row + it.wrapRows }
+                .maxByOrNull { it.key }
+                ?.value
+                ?.minByOrNull { it.x0 } ?: return null
         return OpAt(above.lineId, above.source.length, AtMode.AFTER_LINE) to above
     }
 
@@ -227,11 +230,19 @@ class AnnotationClassifier(
         return OpTarget(run.lineId, from, to, run.source.substring(from, to))
     }
 
-    /** The source offset of display boundary [boundary]: right after the char before it, or the first char's offset. */
+    /**
+     * The source offset of display boundary [boundary]: the first char's offset at the start, else the offset of the
+     * char at the boundary (past the closing markup of the word before it), or the end of the source.
+     */
     private fun sourceOffset(
         run: TextRun,
         boundary: Int,
-    ): Int = if (boundary <= 0) run.sourceMap.toSource(0) else run.sourceMap.toSource(boundary - 1) + 1
+    ): Int =
+        when {
+            boundary <= 0 -> run.sourceMap.toSource(0)
+            boundary >= run.display.length -> run.source.length
+            else -> run.sourceMap.toSource(boundary)
+        }
 
     private fun distance(
         x: Float,
