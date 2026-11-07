@@ -10,6 +10,12 @@ import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.ConversationEntity
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
+import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.Notebook
+import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Point
+import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.model.Tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -223,9 +229,81 @@ class DocumentViewModelTest {
                     store,
                     layout,
                     scope,
-                    prefetch = { md -> calls += "prefetch:$md" },
+                    prefetch = { md ->
+                        calls += "prefetch:$md"
+                        true
+                    },
                 )
             vm.until { true }
             assertThat(calls).containsExactly("prefetch:# two", "paginate").inOrder()
+        }
+
+    private fun withImages(available: () -> Boolean) =
+        DocumentViewModel(
+            "c1",
+            "srv-1",
+            db,
+            {
+                paginated++
+                listOf(RenderedPage(Bitmap.createBitmap(40, 60, Bitmap.Config.ARGB_8888), 0..0))
+            },
+            store,
+            layout,
+            scope,
+            prefetch = { available() },
+        )
+
+    @Test
+    fun unavailable_image_does_not_break_opening() =
+        runBlocking<Unit> {
+            val s = withImages { false }.until { true }
+            assertThat(s.version).isEqualTo(2)
+            assertThat(s.pages).hasSize(1)
+        }
+
+    @Test
+    fun version_opened_without_its_images_is_paginated_again_once_they_are_available() =
+        runBlocking<Unit> {
+            withImages { false }.until { true }
+            assertThat(paginated).isEqualTo(1)
+            // Still missing: the freeze stays provisional, the next open tries again.
+            withImages { false }.until { true }
+            assertThat(paginated).isEqualTo(2)
+            // Now available: paginated with the images and frozen for good.
+            withImages { true }.until { true }
+            assertThat(paginated).isEqualTo(3)
+            withImages { true }.until { true }
+            assertThat(paginated).isEqualTo(3)
+        }
+
+    @Test
+    fun version_without_images_inked_on_keeps_its_freeze() =
+        runBlocking<Unit> {
+            withImages { false }.until { true }
+            val inked =
+                Notebook(
+                    Canvas(40, 60, 300f),
+                    listOf(
+                        Page(
+                            listOf(
+                                Stroke(
+                                    "a",
+                                    Tool.BALLPOINT,
+                                    4f,
+                                    listOf(
+                                        Point(1f, 1f, 0.5f, 0),
+                                        Point(9f, 9f, 0.5f, 10),
+                                    ),
+                                ),
+                            ),
+                            false,
+                        ),
+                    ),
+                    0,
+                )
+            store.notebookStore("c1", 2).save(inked)
+            // Ink is in page coordinates: the freeze it was drawn on stays even once the images arrive.
+            withImages { true }.until { true }
+            assertThat(paginated).isEqualTo(1)
         }
 }

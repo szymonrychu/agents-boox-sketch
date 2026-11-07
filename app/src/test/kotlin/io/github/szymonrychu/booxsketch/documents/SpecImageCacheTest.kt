@@ -104,14 +104,17 @@ class SpecImageCacheTest {
             val missing = "11111111-2222-4333-8444-555555555555"
             val md = "![image](images/$region.png)\n\n![image](images/$missing.png)\n"
             val c = cache()
-            c.prefetch("srv-1", md)
+            assertThat(c.prefetch("srv-1", md)).isFalse()
             assertThat(c.cached("srv-1", region)).isNotNull()
             assertThat(c.cached("srv-1", missing)).isNull()
             // Offline: nothing thrown, nothing kept.
             val offline = cache(online = false)
             offline.deleteAll()
-            offline.prefetch("srv-1", md)
+            assertThat(offline.prefetch("srv-1", md)).isFalse()
             assertThat(offline.cached("srv-1", region)).isNull()
+            // Every referenced image available: complete.
+            assertThat(c.prefetch("srv-1", "![image](images/$region.png)\n")).isTrue()
+            assertThat(c.prefetch("srv-1", "no images\n")).isTrue()
         }
 
     @Test

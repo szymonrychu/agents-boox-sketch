@@ -41,8 +41,11 @@ class DocumentViewModel(
     private val layout: DocumentLayout,
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    /** Fetches what a version's markdown needs before it is paginated (its region images, see [SpecImageCache]). */
-    private val prefetch: suspend (markdown: String) -> Unit = {},
+    /**
+     * Fetches what a version's markdown needs before it is paginated (its region images, see [SpecImageCache]); false
+     * when something is missing, so the freeze stays provisional and the next open tries again.
+     */
+    private val prefetch: suspend (markdown: String) -> Boolean = { true },
 ) {
     private val _state = MutableStateFlow(DocumentViewState())
     val state: StateFlow<DocumentViewState> = _state.asStateFlow()
@@ -95,8 +98,8 @@ class DocumentViewModel(
                             .get(serverId, version)
                             ?.markdown
                             .orEmpty()
-                    prefetch(markdown)
-                    store.freeze(conversationLocalId, version, paginate(markdown), layout)
+                    val complete = prefetch(markdown)
+                    store.freeze(conversationLocalId, version, paginate(markdown), layout, imagesMissing = !complete)
                 }
             }
         // The user may have picked another version while this one froze.

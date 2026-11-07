@@ -38,13 +38,14 @@ class SpecImageCache(
             }
     }
 
-    /** Fetches every image [markdown] references, concurrently; the ones that are not available stay missing. */
+    /**
+     * Fetches every image [markdown] references, concurrently; the ones that are not available stay missing. True when
+     * every referenced image is available.
+     */
     suspend fun prefetch(
         conversationServerId: String,
         markdown: String,
-    ) {
-        coroutineScope { ids(markdown).map { async { get(conversationServerId, it) } }.awaitAll() }
-    }
+    ): Boolean = coroutineScope { ids(markdown).map { async { get(conversationServerId, it) } }.awaitAll() }.all { it != null }
 
     @Suppress("SwallowedException") // an image that cannot be fetched now is shown as text and fetched next time
     private suspend fun fetch(

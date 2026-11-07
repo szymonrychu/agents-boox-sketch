@@ -36,8 +36,10 @@ Lessons that outlive a session. Newest first.
 - Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
   (region images never change), removed with the conversation (delete and server-side removal). Only PNG bodies (signature checked) are kept, written through a unique temp file. Unpair deletes all of it and
   the share zips. Ids are checked
-  against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images (concurrently) before paginating; a
-  freeze made while offline keeps the `[image]` text for that version (frozen pages are reused).
+  against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images (concurrently) before paginating. A
+  freeze made while any referenced image is missing (offline, images route failing) is provisional: it carries an
+  `images-missing` marker and, like a failed diagram, is discarded and paginated anew on the next open while no stroke
+  and no sent mark exist (2026-11-07 review fix). After ink or send it stays, as ink is in page coordinates.
 - Share bundle: `cache/share/spec-v<N>.zip` through FileProvider `<applicationId>.share` (`res/xml/file_paths.xml`),
   `spec-v<N>.md` unchanged, `images/<id>.png`, `MISSING.txt` for images not available. A new bundle deletes the earlier
   files of the dir (spec content must not linger; one share is live at a time, so no per-conversation names).
