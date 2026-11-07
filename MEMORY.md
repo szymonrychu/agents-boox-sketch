@@ -1120,3 +1120,35 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
 - `TextMeasure.width(text, scale, bold)` (default: regular width); headings are measured bold in `WordBoxes`, wrap and
   fit, as `TextLayer` draws them. Strike merges are transitive. Feedback is ordered by `julianday(createdAt)`.
 - Not changed: P4 notebooks saved without `TextRun.source` (review 9) - P4 has not shipped.
+
+## 2026-11-07 Freehand loop and arrow recognition (T-46 P5b, Task 5.5)
+
+- `FreehandShapes` (`:core:model`, `model/notebook`, pure Kotlin) recognises a pen-drawn closed loop and a
+  pen-drawn arrow; the wiring into the insert classifier is Task 5.6. It reuses `Vec` and `RectF`
+  instead of the plan's `PointF2` and `RectF4`, which do not exist (no Task 4.1 type needed).
+- Loop: closed when the end is within 1 cell of the start, or the last 15 percent of the path crosses an
+  earlier segment (the polygon is then the part after the crossing, so an overshoot does not count). Area
+  >= (1.5 cells)^2, bounds >= 1 cell each way (a letter O, D or 0 is about 0.6 cell), and the path length at
+  most 1.8x the bounds perimeter (a wiggly word that happens to self-cross is not a loop). Shape-tool
+  strokes never qualify.
+- Arrow shaft: chord >= 2 cells, mean chord deviation < 0.25 chord, path <= 1.5x chord, and the first fifth
+  of the path within 45 degrees of the chord. The last check is not in the spec: without it a bracket
+  "[" passed as a hook arrow (its 90 degree return at the foot reads as a 100+ degree head turn).
+- Head in the same stroke: the tip is the point farthest from the start among those with 5-20 percent of the
+  path left; the rest turns back 100-170 degrees and is >= 8 px. Head in following strokes (1 or 2): each arm
+  stroke < 0.6 cell (a single chevron stroke holds both arms, so < 1.2 cell), touching a shaft end within 0.3
+  cell, arms >= 8 px, on opposite sides of the shaft axis and on the tail side of the tip. Either shaft end
+  may carry the head (shaft drawn tip first).
+- Fixtures in `core/model/src/test/resources/freehand/` are generated point lists with a seeded jitter
+  (6 loops, 6 arrows, 6 negatives), not device traces; the device checklist counts real misses.
+
+## 2026-11-07 Freehand recognition review fixes (T-46 P5b)
+
+- Loop closure gap is now min(1 cell, 0.35 x the stroke's larger bounds side), so a 1.5-2 cell "C" or "U"
+  (gap 0.8-0.99 cell) is no longer a loop. The end may also close on a point in the first half of the path
+  (a lead-in or an overshoot past the start is cut off), and the path-ratio test uses the cut polygon's own
+  length, not the whole stroke.
+- Hook arm minimum is max(0.25 cell, 5 percent of the stroke's larger bounds side) instead of 8 px, so a
+  pen-lift flick at the end of a straight line is not an arrow. V-head arms keep the 8 px floor.
+- A double-headed arrow (shaft plus a V head at each end) consumes both heads in `strokeIds`; `tip` is the
+  first head found (shaft end drawn last first). Not supported: a head drawn before its shaft.
