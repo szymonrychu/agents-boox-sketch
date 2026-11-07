@@ -148,6 +148,14 @@ class AnnotationClassifierTest {
     }
 
     @Test
+    fun rejected_strokes_are_not_classified_again() {
+        val p = page(listOf(milk), line("s", 140f, 340f, textY(4))).copy(rejectedStrokes = setOf("s"))
+        val r = classify(p)
+        assertThat(r.ops).isEmpty()
+        assertThat(r.opStrokeIds).isEmpty()
+    }
+
+    @Test
     fun pending_and_consumed_strokes_are_not_classified_again() {
         val strike = line("s", 140f, 340f, textY(4))
         val sent = EditOp("old", OpKind.DELETE, OpTarget("L1", 4, 14, "fresh milk"), strokeIds = listOf("s"))

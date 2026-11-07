@@ -15,6 +15,8 @@ data class Page(
     val consumed: Set<String> = emptySet(),
     val pendingSegments: List<PendingSegment> = emptyList(),
     val pendingOps: List<PendingOp> = emptyList(),
+    /** Ids of strokes of ops the connector rejected: kept as plain ink, never classified again, no strike preview. */
+    val rejectedStrokes: Set<String> = emptySet(),
 ) {
     /** The strokes that are drawn and exported: [strokes] minus [consumed]. */
     val visibleStrokes: List<Stroke> get() = if (consumed.isEmpty()) strokes else strokes.filter { it.id !in consumed }

@@ -97,7 +97,7 @@ class AnnotationClassifier(
         newId: () -> String,
     ): Classification {
         val pending = page.pendingSegments.flatMap { it.strokeIds }.toSet() + page.pendingOps.flatMap { it.op.strokeIds }
-        val candidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in pending }
+        val candidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in pending && it.id !in page.rejectedStrokes }
         val boxes = page.text.associateWith { WordBoxes.of(it, geometry, measure) }
         val ops = ArrayList<Pair<Placed, EditOp>>()
         val used = HashSet<String>()

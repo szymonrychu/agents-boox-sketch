@@ -7,7 +7,8 @@ import io.github.szymonrychu.booxsketch.model.RectF
 /**
  * The optimistic strike preview (spec 3.5): the text band rect of every word a visible stroke strikes through, drawn
  * in grey over the text until the version that deletes them arrives. Local only and never stored: recomputed from the
- * page state, so undo, erase, a rejected op's version or a stale base re-render all agree with what is on the page.
+ * page state, so undo, erase or a stale base re-render all agree with what is on the page. Strokes of rejected ops
+ * ([Page.rejectedStrokes]) are plain ink and give no preview.
  */
 object StrikePreview {
     fun rects(
@@ -18,7 +19,7 @@ object StrikePreview {
         if (page.text.isEmpty()) return emptyList()
         val boxes = page.text.associateWith { WordBoxes.of(it, geometry, measure) }
         return page.visibleStrokes
-            .filter { it.points.isNotEmpty() }
+            .filter { it.points.isNotEmpty() && it.id !in page.rejectedStrokes }
             .mapNotNull { struckWords(it, boxes, geometry) }
             .flatMap { (run, range) ->
                 boxes

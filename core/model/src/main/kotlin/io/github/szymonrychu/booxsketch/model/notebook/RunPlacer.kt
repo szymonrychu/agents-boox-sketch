@@ -230,8 +230,15 @@ object RunPlacer {
                 val p = page(i)
                 val done = p.pendingOps.filter { it.op.id in byId }
                 if (done.isEmpty()) continue
-                val used = done.filter { byId.getValue(it.op.id).applied }.flatMap { it.op.strokeIds }
-                setPage(i, p.copy(pendingOps = p.pendingOps - done.toSet(), consumed = p.consumed + used))
+                val (applied, rejected) = done.partition { byId.getValue(it.op.id).applied }
+                setPage(
+                    i,
+                    p.copy(
+                        pendingOps = p.pendingOps - done.toSet(),
+                        consumed = p.consumed + applied.flatMap { it.op.strokeIds },
+                        rejectedStrokes = p.rejectedStrokes + rejected.flatMap { it.op.strokeIds },
+                    ),
+                )
                 markDirty(i, 0 until g.rowCount)
             }
         }

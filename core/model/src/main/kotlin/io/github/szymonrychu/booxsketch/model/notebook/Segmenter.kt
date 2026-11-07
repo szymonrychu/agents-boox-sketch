@@ -36,7 +36,7 @@ object Segmenter {
         pageIndex: Int,
         exclude: Set<String> = emptySet(),
     ): Segmentation {
-        val skip = exclude + page.pendingSegments.flatMap { it.strokeIds } + page.pendingOps.flatMap { it.op.strokeIds }
+        val skip = exclude + page.rejectedStrokes + page.pendingSegments.flatMap { it.strokeIds } + page.pendingOps.flatMap { it.op.strokeIds }
         val drawing = ArrayList<String>()
         val byRow = sortedMapOf<Int, MutableList<Box>>()
         val candidates = page.visibleStrokes.filter { it.id !in skip && it.points.isNotEmpty() }.map(::Box)
