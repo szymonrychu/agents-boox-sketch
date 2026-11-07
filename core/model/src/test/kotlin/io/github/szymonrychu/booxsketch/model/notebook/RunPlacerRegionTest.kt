@@ -91,7 +91,7 @@ class RunPlacerRegionTest {
                 listOf(OpStatusModel("op1", true)),
             )
         val after = p.notebook.pages[0]
-        assertThat(after.appliedRegions).containsExactly("r")
+        assertThat(after.appliedRegions).containsExactly("r", "reg-op1")
         assertThat(after.pendingOps).isEmpty()
         // The ink inside the region is the picture: never consumed, still visible; the frame leaves the ink layer.
         assertThat(after.consumed).isEmpty()
@@ -114,10 +114,76 @@ class RunPlacerRegionTest {
 
     @Test
     fun ink_of_an_applied_region_stays_out_of_segments() {
-        val page = Page(listOf(regionStroke("r", 4, 9), stroke("in", 6), stroke("w", 12)), true, appliedRegions = setOf("r"))
+        val page = Page(listOf(regionStroke("r", 4, 9), stroke("in", 6), stroke("w", 12)), true, appliedRegions = mapOf("r" to "reg-op1"))
         assertThat(ImageRegions.excluded(page)).containsExactly("in")
         assertThat(ImageRegions.unsent(page)).isEmpty()
         val segments = Segmenter.segment(page, g, 0, ImageRegions.excluded(page)).segments
         assertThat(segments.flatMap { it.strokeIds }).containsExactly("w")
+    }
+
+    private fun appliedPlacement(): Notebook {
+        val page =
+            Page(
+                listOf(regionStroke("r", 4, 9), stroke("in", 6)),
+                false,
+                text = listOf(run("L1", 2, "intro")),
+                pendingOps = listOf(imageOp("op1", "r", "in")),
+            )
+        return applyOps(
+            notebook(page),
+            "intro\n![image](images/reg-op1.png)",
+            listOf(line("L1", 1, LineOrigin.Kept("L1")), line("L2", 2, LineOrigin.Op("op1"))),
+            listOf(OpStatusModel("op1", true)),
+        ).notebook
+    }
+
+    @Test
+    fun revert_without_image_returns_region_to_pending() {
+        val applied = appliedPlacement()
+        val p =
+            RunPlacer.apply(
+                applied,
+                4,
+                "intro",
+                SpecLayoutModel(listOf(line("L1", 1, LineOrigin.Kept("L1"))), emptyList(), revertedFrom = 2),
+                measure,
+                g,
+            )
+        val after = p.notebook.pages[0]
+        assertThat(after.appliedRegions).isEmpty()
+        assertThat(after.visibleStrokes.map { it.id }).containsExactly("r", "in")
+        assertThat(ImageRegions.unsent(after).map { it.id }).containsExactly("r")
+        assertThat(after.changedSinceSend).isTrue()
+    }
+
+    @Test
+    fun later_version_without_image_returns_region_to_pending() {
+        val p =
+            RunPlacer.apply(
+                appliedPlacement(),
+                4,
+                "intro",
+                SpecLayoutModel(listOf(line("L1", 1, LineOrigin.Kept("L1"))), emptyList()),
+                measure,
+                g,
+            )
+        assertThat(p.notebook.pages[0].appliedRegions).isEmpty()
+    }
+
+    @Test
+    fun later_version_still_referencing_the_image_keeps_it_applied() {
+        val p =
+            RunPlacer.apply(
+                appliedPlacement(),
+                4,
+                "intro\nmore\n![image](images/reg-op1.png)",
+                SpecLayoutModel(
+                    listOf(line("L1", 1, LineOrigin.Kept("L1")), line("L3", 2, null), line("L2", 3, null)),
+                    emptyList(),
+                ),
+                measure,
+                g,
+            )
+        assertThat(p.notebook.pages[0].appliedRegions).hasSize(1)
     }
 }

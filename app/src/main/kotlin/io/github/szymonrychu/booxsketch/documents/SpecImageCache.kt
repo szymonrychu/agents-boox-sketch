@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch.documents
 
 import io.github.szymonrychu.booxsketch.api.ApiError
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import io.github.szymonrychu.booxsketch.model.notebook.ImageRegions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -71,14 +72,7 @@ class SpecImageCache(
         /** Ids as they appear in paths: letters, digits and hyphens (uuids). */
         private val SAFE_ID = Regex("[A-Za-z0-9-]+")
 
-        private val REFERENCE = Regex("""!\[[^\]]*]\(images/([A-Za-z0-9-]+)\.png\)""")
-
         /** The region ids [markdown] references as images, in order, each once. */
-        fun ids(markdown: String): List<String> =
-            REFERENCE
-                .findAll(markdown)
-                .map { it.groupValues[1] }
-                .distinct()
-                .toList()
+        fun ids(markdown: String): List<String> = ImageRegions.referencedIds(markdown)
     }
 }

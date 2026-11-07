@@ -16,11 +16,12 @@ data class Page(
     val pendingSegments: List<PendingSegment> = emptyList(),
     val pendingOps: List<PendingOp> = emptyList(),
     /**
-     * Ids of image region strokes a spec version placed as an image (spec 3.6): drawn by the text layer as a thin solid
-     * frame with an "image" label instead of the dashed pending frame, and no longer exported as ink. The ink inside
-     * stays visible ink.
+     * Image region stroke id to the region id of its image, for the regions a spec version placed as an image (spec
+     * 3.6): drawn by the text layer as a thin solid frame with an "image" label instead of the dashed pending frame, and
+     * no longer exported as ink. The ink inside stays visible ink. An entry ends when a shown version no longer
+     * references `images/<region id>.png` (a revert or a rewrite): the region is pending again.
      */
-    val appliedRegions: Set<String> = emptySet(),
+    val appliedRegions: Map<String, String> = emptyMap(),
 ) {
     /** The strokes that are drawn and exported: [strokes] minus [consumed] and the [appliedRegions] frames. */
     val visibleStrokes: List<Stroke>
