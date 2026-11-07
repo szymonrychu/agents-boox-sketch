@@ -186,7 +186,10 @@ internal fun BoardScreenWith(
     val shownPage = notebook.pages[notebook.current]
     // Rendered on the main thread only when the page's text or pending rows changed (page switch, send); a new
     // spec version is pre-rendered off the main thread by NotebookSync, so this finds it cached.
-    val textLayer = remember(shownPage.text, shownPage.pendingSegments) { vm.textLayers.bitmapFor(shownPage) }
+    // The strike preview is set at pen idle together with its swap (StrikePreviewSync), so this finds that bitmap.
+    val strikeOverlay by vm.strikeOverlay.collectAsState()
+    val overlay = strikeOverlay.rects.takeIf { strikeOverlay.page == notebook.current }.orEmpty()
+    val textLayer = remember(shownPage.text, shownPage.pendingSegments, overlay) { vm.textLayers.bitmapFor(shownPage, overlay) }
     val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(

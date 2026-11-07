@@ -3,6 +3,8 @@ package io.github.szymonrychu.booxsketch.board
 import android.graphics.Bitmap
 import android.graphics.RectF
 import io.github.szymonrychu.booxsketch.api.SpecLayoutDto
+import io.github.szymonrychu.booxsketch.data.FeedbackDao
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecDao
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
@@ -21,6 +23,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import java.time.Instant
+import io.github.szymonrychu.booxsketch.model.RectF as ModelRect
 
 /**
  * Applies stored spec versions to the board (spec 6). A version with a layout is placed by
@@ -32,6 +36,8 @@ import kotlinx.serialization.json.contentOrNull
  * feedback, document notes) leave the board as it is; a version at or below the board's applied one is skipped. A
  * version is placed only while the board shows its conversation's notebook (or the unbound one it is about to adopt):
  * the check runs in the same main-thread step as the placement, so a conversation switch never gets another's text.
+ * The strike preview ([StrikePreviewSync]) is recomputed for the placed page and swapped in with the text, and the
+ * notes of rejected edit ops go to the feedback strip.
  */
 class NotebookSync(
     private val specs: SpecDao,
@@ -39,6 +45,9 @@ class NotebookSync(
     private val holds: TextLayerHolds,
     private val main: CoroutineDispatcher = Dispatchers.Main.immediate,
     private val worker: CoroutineDispatcher = Dispatchers.Default,
+    /** Where the notes of rejected ops go (the feedback strip); none in tests that do not look at them. */
+    private val feedback: FeedbackDao? = null,
+    private val now: () -> String = { Instant.now().toString() },
 ) {
     private val mutex = Mutex()
 
@@ -69,13 +78,20 @@ class NotebookSync(
             holds.awaitPenIdle()
             val (base, preview) = withContext(main) { board.notebook.value to board.placeVersion(version, spec.markdown, layout, measure) }
             val page = preview.notebook.pages[preview.notebook.current]
-            val bitmap = withContext(worker) { board.textLayers.prerender(page) }
+            val (bitmap, overlay) =
+                withContext(worker) {
+                    val rects = board.strikeRects(preview.notebook)
+                    board.textLayers.prerender(page, rects) to rects
+                }
             val done =
                 withContext(main) {
                     // The board switched conversation (or applied this version) meanwhile: nothing to place.
-                    stale() || commit(base, bitmap) { board.applyVersion(version, spec.markdown, layout, measure) }
+                    stale() || commit(base, bitmap, overlay) { board.applyVersion(version, spec.markdown, layout, measure) }
                 }
-            if (done) return@withLock
+            if (done) {
+                noteRejected(conversationServerId, version, base, layout)
+                return@withLock
+            }
         }
     }
 
@@ -86,16 +102,48 @@ class NotebookSync(
     private fun commit(
         base: Notebook,
         bitmap: Bitmap?,
+        overlay: List<ModelRect>,
         apply: () -> Placement,
     ): Boolean {
         if (board.notebook.value !== base || !holds.idleNow()) return false
         holds.hold {
             val placed = apply()
             val n = placed.notebook
+            board.setStrikeOverlay(n.current, overlay)
             val dirty = placed.changedRows[n.current]?.let { rows -> dirtyRect(NotebookGeometry(n.canvas.w, n.canvas.h), rows) }
             if (dirty != null || n.current != base.current) holds.surface?.swapText(shownStrokes(n), bitmap, dirty)
         }
         return true
+    }
+
+    /**
+     * The note of each op the version rejected that this board sent (spec 5.3: rejected ops keep their ink) goes to the
+     * feedback strip as a local item: a negative id, so it never moves the connector cursor ([FeedbackDao.maxId]).
+     */
+    private suspend fun noteRejected(
+        conversationServerId: String,
+        version: Int,
+        base: Notebook,
+        layout: SpecLayoutModel,
+    ) {
+        val dao = feedback ?: return
+        val sent =
+            base.pages
+                .withIndex()
+                .flatMap { (i, p) -> p.pendingOps.map { it.op.id to (i to it.op) } }
+                .toMap()
+        for (status in layout.ops.filter { !it.applied }) {
+            val (page, op) = sent[status.id] ?: continue
+            val what = op.target?.let { "${op.kind.name.lowercase()} \"${it.quote}\"" } ?: op.kind.name.lowercase()
+            val text =
+                "Edit not applied ($what)" +
+                    status.note
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { ": $it" }
+                        .orEmpty()
+            val id = minOf(0, dao.minId(conversationServerId) ?: 0) - 1
+            dao.upsert(FeedbackEntity(conversationServerId, id, "note", text, "page ${page + 1}", version, now()))
+        }
     }
 
     private fun Notebook.showsConversation(localId: String) = conversationLocalId == null || conversationLocalId == localId

@@ -6,6 +6,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -35,8 +36,11 @@ class FakeBoard(
         notebook = notebook.markSent(sent.filter { (i, p) -> notebook.pages.getOrNull(i) == p }.keys)
     }
 
-    override suspend fun addPending(pending: Map<Int, List<PendingSegment>>) {
-        notebook = notebook.addPending(pending)
+    override suspend fun addPending(
+        pending: Map<Int, List<PendingSegment>>,
+        ops: Map<Int, List<PendingOp>>,
+    ) {
+        notebook = notebook.addPending(pending, ops)
     }
 }
 

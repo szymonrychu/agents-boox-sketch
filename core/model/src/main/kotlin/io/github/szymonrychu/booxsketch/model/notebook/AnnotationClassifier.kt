@@ -157,7 +157,7 @@ class AnnotationClassifier(
         // Per run: the display ranges struck and their strokes, merged where they overlap.
         val hits = HashMap<TextRun, MutableList<Pair<IntRange, MutableList<Stroke>>>>()
         for (s in strokes) {
-            val (run, range) = struck(s, boxes, geometry) ?: continue
+            val (run, range) = struckWords(s, boxes, geometry) ?: continue
             val list = hits.getOrPut(run) { ArrayList() }
             val merged = list.firstOrNull { (r, _) -> r.first <= range.last && range.first <= r.last }
             if (merged == null) {
@@ -173,18 +173,6 @@ class AnnotationClassifier(
                     EditOp(newId(), OpKind.DELETE, target = target(run, range), strokeIds = group.map { it.id })
             }
         }
-    }
-
-    /** The run and words [s] strikes through, or null when it is no strike over words. */
-    private fun struck(
-        s: Stroke,
-        boxes: Map<TextRun, List<WordBox>>,
-        geometry: NotebookGeometry,
-    ): Pair<TextRun, IntRange>? {
-        val row = geometry.rowAt(centre(s).y) ?: return null
-        val band = geometry.textBandTop(row).toFloat()..geometry.rowLineY(row).toFloat()
-        if (!StrikeDetector.isStrike(s, band)) return null
-        return bestOverlap(boxes, row, s.points.minOf { it.x }, s.points.maxOf { it.x })
     }
 
     private fun replaces(
@@ -230,27 +218,6 @@ class AnnotationClassifier(
         return out
     }
 
-    /** The run on [row] whose words overlap x [x0]..[x1] the most (by covered word width), and those words. */
-    private fun bestOverlap(
-        boxes: Map<TextRun, List<WordBox>>,
-        row: Int,
-        x0: Float,
-        x1: Float,
-    ): Pair<TextRun, IntRange>? =
-        boxes
-            .mapNotNull { (run, b) ->
-                val onRow = b.filter { it.row == row }
-                WordBoxes.overlapped(onRow, x0, x1)?.let { range ->
-                    val covered =
-                        onRow
-                            .filter {
-                                it.from >= range.first && it.to <= range.last + 1
-                            }.sumOf { (it.right - it.left).toDouble() }
-                    Triple(run, range, covered)
-                }
-            }.maxByOrNull { it.third }
-            ?.let { (run, range) -> run to range }
-
     /** The op target of display range [range] of [run]: source offsets and the source text there. */
     private fun target(
         run: TextRun,
@@ -287,3 +254,32 @@ class AnnotationClassifier(
 /** Centre of a stroke's bounding box. */
 internal fun centre(s: Stroke): Vec =
     Vec((s.points.minOf { it.x } + s.points.maxOf { it.x }) / 2f, (s.points.minOf { it.y } + s.points.maxOf { it.y }) / 2f)
+
+/** The run and the words [s] strikes through ([StrikeDetector] over the text band of its row), or null. */
+internal fun struckWords(
+    s: Stroke,
+    boxes: Map<TextRun, List<WordBox>>,
+    geometry: NotebookGeometry,
+): Pair<TextRun, IntRange>? {
+    val row = geometry.rowAt(centre(s).y) ?: return null
+    val band = geometry.textBandTop(row).toFloat()..geometry.rowLineY(row).toFloat()
+    if (!StrikeDetector.isStrike(s, band)) return null
+    return bestOverlap(boxes, row, s.points.minOf { it.x }, s.points.maxOf { it.x })
+}
+
+/** The run on [row] whose words overlap x [x0]..[x1] the most (by covered word width), and those words. */
+internal fun bestOverlap(
+    boxes: Map<TextRun, List<WordBox>>,
+    row: Int,
+    x0: Float,
+    x1: Float,
+): Pair<TextRun, IntRange>? =
+    boxes
+        .mapNotNull { (run, b) ->
+            val onRow = b.filter { it.row == row }
+            WordBoxes.overlapped(onRow, x0, x1)?.let { range ->
+                val covered = onRow.filter { it.from >= range.first && it.to <= range.last + 1 }.sumOf { (it.right - it.left).toDouble() }
+                Triple(run, range, covered)
+            }
+        }.maxByOrNull { it.third }
+        ?.let { (run, range) -> run to range }

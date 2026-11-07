@@ -38,6 +38,10 @@ fun sendOutcomeText(outcome: SendOutcome): String? =
             "These notes were already sent."
         }
 
+        SendOutcome.NoBaseVersion -> {
+            "Not sent: the edits need the document version they change. Wait for the document, then send again."
+        }
+
         is SendOutcome.ExportFailed -> {
             "Not sent: page ${outcome.page + 1} cannot be exported (${outcome.reason})."
         }
