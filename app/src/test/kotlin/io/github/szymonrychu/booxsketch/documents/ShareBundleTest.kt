@@ -39,6 +39,19 @@ class ShareBundleTest {
         }
 
     @Test
+    fun a_new_bundle_removes_earlier_ones() =
+        runBlocking<Unit> {
+            ShareBundle.build(tmp.root, 4, md) { byteArrayOf(1) }
+            ShareBundle.build(tmp.root, 5, md) { byteArrayOf(1) }
+            assertThat(
+                tmp.root
+                    .listFiles()
+                    .orEmpty()
+                    .map { it.name },
+            ).containsExactly("spec-v5.zip")
+        }
+
+    @Test
     fun no_images_no_zip_path_taken() {
         assertThat(ShareBundle.needsBundle("# Spec\n\nno pictures, ![web](https://example.invalid/x.png)")).isFalse()
         assertThat(ShareBundle.needsBundle(md)).isTrue()
