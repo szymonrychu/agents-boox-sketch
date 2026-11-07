@@ -2,6 +2,34 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 Notebook text rows, model and wire foundation (T-46 P4, Tasks 4.1-4.3)
+
+- Model: `Page` gains `text`, `consumed`, `pendingSegments`, `pendingOps`; `Notebook` gains
+  `conversationLocalId` (OQ1 A: one notebook per conversation, bound in Task 4.7). All have defaults, so a
+  notebook saved by v0.14.x decodes through normal defaulting (no migration code).
+- `SourceMap`/`stripWithColours`: `displayToSource` has `display.length + 1` entries. `[[colour]]` opens a
+  span reusing `COLOUR_MARKER` of `MarkerSpan.kt` (made internal), `[[/]]` closes it, an unclosed marker
+  colours to the end of the line (no label text like Documents' `[red]`: the board colours the text itself).
+  `*`, backticks and `_` at word edges are dropped; a leading `* ` bullet, `- ` and `1. ` stay as typed text;
+  `snake_case` keeps its underscore; other `[[...]]` markers stay plain text.
+- `LayoutCodec` lives in `:core:model` (it needs `Page`) and builds the JSON by hand like `StrokesCodec`; the
+  DTOs in `:core:api` (`PageLayoutDto` and friends) mirror it and `ContractTest` decodes the codec output
+  strictly through `PageLayoutDto`, so the two cannot drift. No `kind` on the wire (Q2: every page is a
+  notebook page). Stroke ids become indices into the visible-stroke list; an id that is not visible throws.
+- `StrokesCodec` and `PngExporter` now write `page.visibleStrokes`: consumed strokes are never exported, so the
+  indices in the layout match `strokes.json` (the layout and strokes parts must come from the same page state).
+- Bug found by Review Focus 5: `UndoStack.withStrokes` rebuilt the page as `Page(strokes, true)`, dropping
+  `text`, `consumed` and the pending lists on every undo/redo/add/erase. It now uses `copy`. Test:
+  `SegmenterTest.undo_after_apply_keeps_consumed_strokes_out_of_segments`.
+- Errors: `StaleBase`, `OpReplayed`, `Busy` (409) and `StaleTarget(detail)` (422 `stale_target`); the outbox
+  treats all four as permanent failures until Task 4.6 gives the user the re-render and re-send path.
+- `openapi.json` was refreshed from the uncommitted working tree of the connector P2 branch (the revert route is
+  not committed there yet); refresh again once P2 merges and re-run `ContractTest`.
+- `Segmenter`: row = row of the vertical centre of the stroke's bounding box; strokes with the centre in the
+  margin (any tool) are neither segments nor drawing (they are P5 marks); shapes outside the margin, strokes
+  taller than 1.5 rows and strokes centred in the top margin or below the last row are `drawing`. A gap of
+  exactly two cells (106 px) does not split, more does.
+
 ## 2026-11-05 Dismiss mode: a touch on the board closes the strip, popup and panel (T-46 P0)
 
 - Reported bug: with raw drawing on, a pen tap on the board inked at once (the firmware draws before

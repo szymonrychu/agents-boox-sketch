@@ -101,5 +101,5 @@ class UndoStack {
     }
 
     private fun Notebook.withStrokes(strokes: List<Stroke>): Notebook =
-        copy(pages = pages.mapIndexed { i, p -> if (i == current) Page(strokes, true) else p })
+        copy(pages = pages.mapIndexed { i, p -> if (i == current) p.copy(strokes = strokes, changedSinceSend = true) else p })
 }
