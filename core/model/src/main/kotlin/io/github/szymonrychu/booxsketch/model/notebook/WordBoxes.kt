@@ -15,7 +15,7 @@ data class WordBox(
 
 /**
  * Word boxes of rendered runs (spec 3.4, 3.5, 3.7): where each word of a run is drawn, measured with the same
- * [TextMeasure] the text layer draws with, on every row a wrapped run takes. Annotations target whole words through
+ * [TextMeasure] the text layer draws with (bold for headings), on every row a wrapped run takes. Annotations target whole words through
  * them.
  */
 object WordBoxes {
@@ -28,7 +28,7 @@ object WordBoxes {
         if (run.wrapRows <= 1) return listOf(run.display.indices)
         // The column the placement wrapped in (a neighbour on the row may have narrowed it), so the rows match.
         val column = if (run.column > 0f) run.column else geometry.marginX - run.x0
-        val parts = RunPlacer.wrap(run.display, run.scale, column, measure)
+        val parts = RunPlacer.wrap(run.display, run.scale, column, measure, run.heading)
         if (parts.size <= run.wrapRows) return parts
         return parts.take(run.wrapRows - 1) + listOf(parts[run.wrapRows - 1].first until run.display.length)
     }
@@ -40,7 +40,7 @@ object WordBoxes {
     ): List<WordBox> =
         rows(run, geometry, measure).withIndex().flatMap { (k, range) ->
             words(run.display, range).map { (from, to) ->
-                fun x(offset: Int) = run.x0 + measure.width(run.display.substring(range.first, offset), run.scale)
+                fun x(offset: Int) = run.x0 + measure.width(run.display.substring(range.first, offset), run.scale, run.heading)
                 WordBox(from, to, x(from), x(to), run.row + k)
             }
         }

@@ -94,6 +94,7 @@ object RunPlacer {
         scale: Float,
         column: Float,
         measure: TextMeasure,
+        bold: Boolean = false,
     ): List<IntRange> {
         val rows = ArrayList<IntRange>()
         var start = 0
@@ -102,7 +103,7 @@ object RunPlacer {
             if (start >= display.length) break
             var end = start + 1
             var lastBreak = -1
-            while (end < display.length && measure.width(display.substring(start, end + 1), scale) <= column) {
+            while (end < display.length && measure.width(display.substring(start, end + 1), scale, bold) <= column) {
                 if (display[end] == ' ') lastBreak = end
                 end++
             }
@@ -118,12 +119,13 @@ object RunPlacer {
         display: String,
         column: Float,
         measure: TextMeasure,
+        bold: Boolean = false,
     ): Pair<Float, Int> {
-        val full = measure.width(display, 1f)
+        val full = measure.width(display, 1f, bold)
         if (full <= column + FIT_SLACK) return 1f to 1
         val scale = maxOf(MIN_SCALE, column / full)
-        if (measure.width(display, scale) <= column + FIT_SLACK) return scale to 1
-        return MIN_SCALE to wrap(display, MIN_SCALE, column, measure).size
+        if (measure.width(display, scale, bold) <= column + FIT_SLACK) return scale to 1
+        return MIN_SCALE to wrap(display, MIN_SCALE, column, measure, bold).size
     }
 
     private val HEADING = Regex("^\\s*#{1,6}\\s")
@@ -391,7 +393,7 @@ object RunPlacer {
         ) {
             val others = page(i).text.filter { it !== replacing }
             val (x0, column) = column(run.x0, rightBound(page(i), run, others))
-            val (scale, rows) = fit(run.display, column, measure)
+            val (scale, rows) = fit(run.display, column, measure, run.heading)
             val placed = run.copy(x0 = x0, column = column, scale = scale, wrapRows = rows)
             setPage(i, page(i).copy(text = others))
             val from = if (ownRowFree) placed.row + 1 else placed.row
