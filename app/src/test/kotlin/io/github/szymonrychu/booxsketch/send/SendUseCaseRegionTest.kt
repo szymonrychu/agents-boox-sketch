@@ -19,6 +19,7 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.notebook.OpKind
 import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
+import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.render.ExportResult
 import kotlinx.coroutines.Dispatchers
@@ -322,5 +323,66 @@ class SendUseCaseRegionTest {
             val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
             assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
             assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+        }
+
+    /** 20 px per char, like [SendUseCaseOpsTest]: "buy fresh milk" from x 53 has fresh 133-233 and milk 253-333. */
+    private fun milk(
+        lineId: String,
+        row: Int,
+    ) = SourceMap.stripWithColours("buy fresh milk").let {
+        TextRun(lineId, 3, 1, row, 53f, display = it.display, colourSpans = it.spans, sourceMap = it.map, sourceStrokeIds = emptyList())
+    }
+
+    private fun flatLine(
+        id: String,
+        y: Float,
+    ) = Stroke(id, Tool.BALLPOINT, 2f, (0..10).map { Point(140f + 20f * it, y, 0.5f, it * 10L) })
+
+    @Test
+    fun image_region_and_strike_on_one_page_send_both_ops_and_region_ink_is_not_classified() =
+        runBlocking<Unit> {
+            spec(
+                4,
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":null},{"line_id":"L2","source_line":2,"origin":null}]}""",
+            )
+            val classifying =
+                SendUseCase(
+                    db = db,
+                    conversations = repo,
+                    board = board,
+                    export = { _, _, _ -> ExportResult.Exported(ByteArray(64) { 1 }, 300, 400) },
+                    limits = { cfg },
+                    outboxRoot = tmp.newFolder("outbox-classify"),
+                    kick = {},
+                    worker = Dispatchers.Unconfined,
+                    newId = { "00000000-0000-4000-8000-00000000000${++ids}" },
+                    measure = TextMeasure { text, scale -> text.length * 20f * scale },
+                    cropRegion = { _, region, _, _, _ ->
+                        crops += region.id
+                        ByteArray(32) { 7 }
+                    },
+                )
+            // "s" strikes "fresh milk" of L1 (row 4). The region covers rows 9-12 with L2 on row 10: "in" lies flat over
+            // its words like a strike, but it is ink of the picture.
+            val strike = flatLine("s", g.textBandTop(4) + 30f)
+            val inside = flatLine("in", g.textBandTop(10) + 30f)
+            val page = Page(listOf(strike, region("r", 9, 13), inside), true, text = listOf(milk("L1", 4), milk("L2", 10)))
+            board.notebook = Notebook(CANVAS, listOf(page), 0)
+            val clientId = (classifying.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            val ops = layoutOf(clientId).ops
+            assertThat(ops.map { it.kind }).containsExactly("delete", "image").inOrder()
+            assertThat(ops.first().target!!.lineId).isEqualTo("L1")
+            // strokes.0.json holds s, r, in.
+            assertThat(ops.first().strokes).containsExactly(0)
+            assertThat(ops.last().strokes).containsExactly(1, 2)
+            assertThat(layoutOf(clientId).segments).isEmpty()
+            assertThat(File(dir(clientId), "region.0.0.png").exists()).isTrue()
+            // Both wait for a version in one pipeline: same upload, stamped with the base version.
+            val pending = board.notebook.pages[0].pendingOps
+            assertThat(pending.map { it.op.kind }).containsExactly(OpKind.DELETE, OpKind.IMAGE).inOrder()
+            assertThat(pending.map { it.clientId }.toSet()).containsExactly(clientId)
+            assertThat(pending.map { it.baseVersion }.toSet()).containsExactly(4)
+            assertThat(pending.first().op.strokeIds).containsExactly("s")
+            assertThat(pending.last().op.strokeIds).containsExactly("r", "in")
         }
 }
