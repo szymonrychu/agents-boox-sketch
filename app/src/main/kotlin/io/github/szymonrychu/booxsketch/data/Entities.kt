@@ -80,7 +80,10 @@ data class CursorEntity(
     val cursor: Long,
 )
 
-/** One item the translator told the user, kept apart from the spec text. [id] is the connector's id, ascending. */
+/**
+ * One item the translator told the user, kept apart from the spec text. [id] is the connector's id, ascending; the app's
+ * own notes (rejected edit ops) take negative ids.
+ */
 @Entity(tableName = "feedback", primaryKeys = ["conversationServerId", "id"])
 data class FeedbackEntity(
     val conversationServerId: String,

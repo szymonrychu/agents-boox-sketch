@@ -21,7 +21,7 @@ data class Segmentation(
 
 /**
  * Splits the new handwriting of a notebook page into row lines (spec 4.2). A candidate is a visible stroke that is not
- * in `exclude` (ops and regions), not already in a pending segment and whose centre is not in the margin. Shape
+ * in `exclude` (ops and regions), not already in a pending segment or pending op and whose centre is not in the margin. Shape
  * strokes, strokes spanning more than 1.5 rows and strokes centred in the top margin or below the last row are
  * drawing. The others are grouped by the row of their vertical centre and split where the gap between neighbouring
  * strokes exceeds two cells.
@@ -36,7 +36,9 @@ object Segmenter {
         pageIndex: Int,
         exclude: Set<String> = emptySet(),
     ): Segmentation {
-        val skip = exclude + page.pendingSegments.flatMap { it.strokeIds }
+        val skip =
+            exclude + page.rejectedStrokes + page.pendingSegments.flatMap { it.strokeIds } +
+                page.pendingOps.flatMap { it.op.strokeIds }
         val drawing = ArrayList<String>()
         val byRow = sortedMapOf<Int, MutableList<Box>>()
         val candidates = page.visibleStrokes.filter { it.id !in skip && it.points.isNotEmpty() }.map(::Box)

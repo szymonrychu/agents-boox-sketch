@@ -49,6 +49,7 @@ object RunPlacer {
         measure: TextMeasure,
         geometry: NotebookGeometry,
         undo: UndoStack? = null,
+        answeredUploads: Set<String>? = null,
     ): Placement {
         val source = markdown.split('\n').map { it.removeSuffix("\r") }
         val placeable = placeableLines(source)
@@ -74,7 +75,8 @@ object RunPlacer {
                 continue
             }
             val stripped = SourceMap.stripWithColours(source[line.sourceLine - 1])
-            val text = Text(stripped, HEADING.containsMatchIn(source[line.sourceLine - 1]), version, line.sourceLine)
+            val text =
+                Text(source[line.sourceLine - 1], stripped, HEADING.containsMatchIn(source[line.sourceLine - 1]), version, line.sourceLine)
             when {
                 work.hasRun(line.lineId) -> work.update(line.lineId, text)
                 work.hasSegments(answered, segments) -> work.placeAtSegments(line.lineId, text, answered, segments)
@@ -84,7 +86,24 @@ object RunPlacer {
             prev = line.lineId
         }
         work.dropAnswered(answered)
+        work.release(version, answeredUploads)
         return Placement(work.n.copy(appliedSpecVersion = version), work.dirty.toMap())
+    }
+
+    /**
+     * Releases the pending segments and ops of uploads based on a version older than [version] (all of them when null),
+     * limited to the uploads in [uploads] (client ids; all when null): their strokes become ordinary unsent ink again and
+     * their pages count as changed.
+     */
+    fun releasePending(
+        notebook: Notebook,
+        version: Int?,
+        geometry: NotebookGeometry,
+        uploads: Set<String>? = null,
+    ): Placement {
+        val work = Work(notebook, geometry, TextMeasure { text, scale -> text.length * scale }, null)
+        work.release(version, uploads)
+        return Placement(work.n, work.dirty.toMap())
     }
 
     /** Display offset ranges of the rows [display] wraps into at [scale] within [column] px, breaking at spaces. */
@@ -93,6 +112,7 @@ object RunPlacer {
         scale: Float,
         column: Float,
         measure: TextMeasure,
+        bold: Boolean = false,
     ): List<IntRange> {
         val rows = ArrayList<IntRange>()
         var start = 0
@@ -101,7 +121,7 @@ object RunPlacer {
             if (start >= display.length) break
             var end = start + 1
             var lastBreak = -1
-            while (end < display.length && measure.width(display.substring(start, end + 1), scale) <= column) {
+            while (end < display.length && measure.width(display.substring(start, end + 1), scale, bold) <= column) {
                 if (display[end] == ' ') lastBreak = end
                 end++
             }
@@ -117,12 +137,13 @@ object RunPlacer {
         display: String,
         column: Float,
         measure: TextMeasure,
+        bold: Boolean = false,
     ): Pair<Float, Int> {
-        val full = measure.width(display, 1f)
+        val full = measure.width(display, 1f, bold)
         if (full <= column + FIT_SLACK) return 1f to 1
         val scale = maxOf(MIN_SCALE, column / full)
-        if (measure.width(display, scale) <= column + FIT_SLACK) return scale to 1
-        return MIN_SCALE to wrap(display, MIN_SCALE, column, measure).size
+        if (measure.width(display, scale, bold) <= column + FIT_SLACK) return scale to 1
+        return MIN_SCALE to wrap(display, MIN_SCALE, column, measure, bold).size
     }
 
     private val HEADING = Regex("^\\s*#{1,6}\\s")
@@ -150,6 +171,7 @@ object RunPlacer {
     }
 
     private class Text(
+        val source: String,
         val stripped: StrippedLine,
         val heading: Boolean,
         val version: Int,
@@ -228,8 +250,15 @@ object RunPlacer {
                 val p = page(i)
                 val done = p.pendingOps.filter { it.op.id in byId }
                 if (done.isEmpty()) continue
-                val used = done.filter { byId.getValue(it.op.id).applied }.flatMap { it.op.strokeIds }
-                setPage(i, p.copy(pendingOps = p.pendingOps - done.toSet(), consumed = p.consumed + used))
+                val (applied, rejected) = done.partition { byId.getValue(it.op.id).applied }
+                setPage(
+                    i,
+                    p.copy(
+                        pendingOps = p.pendingOps - done.toSet(),
+                        consumed = p.consumed + applied.flatMap { it.op.strokeIds },
+                        rejectedStrokes = p.rejectedStrokes + rejected.flatMap { it.op.strokeIds },
+                    ),
+                )
                 markDirty(i, 0 until g.rowCount)
             }
         }
@@ -269,6 +298,36 @@ object RunPlacer {
             }
         }
 
+        /** Pending marks of [uploads] (all when null) based on a version below [version] (any when null): their ink is unsent again. */
+        fun release(
+            version: Int?,
+            uploads: Set<String>?,
+        ) {
+            for (i in n.pages.indices) {
+                val p = page(i)
+                val segments =
+                    p.pendingSegments.filter {
+                        (version == null || it.baseVersion < version) &&
+                            (uploads == null || it.clientId in uploads)
+                    }
+                val ops =
+                    p.pendingOps.filter {
+                        (version == null || it.baseVersion < version) && (uploads == null || it.clientId in uploads)
+                    }
+                if (segments.isEmpty() && ops.isEmpty()) continue
+                setPage(
+                    i,
+                    p.copy(
+                        pendingSegments = p.pendingSegments - segments.toSet(),
+                        pendingOps = p.pendingOps - ops.toSet(),
+                        changedSinceSend = true,
+                    ),
+                )
+                segments.forEach { markDirty(i, it.row..it.row) }
+                if (ops.isNotEmpty()) markDirty(i, 0 until g.rowCount)
+            }
+        }
+
         /** Every remaining pending segment of an answered upload: the version did not use it, its strokes stay ink. */
         fun dropAnswered(answered: Set<String>) {
             for (i in n.pages.indices) {
@@ -297,6 +356,7 @@ object RunPlacer {
             sourceMap = text.stripped.map,
             sourceStrokeIds = strokes,
             heading = text.heading,
+            source = text.source,
         )
 
         fun update(
@@ -312,6 +372,7 @@ object RunPlacer {
                     colourSpans = text.stripped.spans,
                     sourceMap = text.stripped.map,
                     heading = text.heading,
+                    source = text.source,
                 )
             val changed = run.display != old.display || run.colourSpans != old.colourSpans || run.heading != old.heading
             put(i, run, replacing = old, dirty = changed)
@@ -380,7 +441,7 @@ object RunPlacer {
         ) {
             val others = page(i).text.filter { it !== replacing }
             val (x0, column) = column(run.x0, rightBound(page(i), run, others))
-            val (scale, rows) = fit(run.display, column, measure)
+            val (scale, rows) = fit(run.display, column, measure, run.heading)
             val placed = run.copy(x0 = x0, column = column, scale = scale, wrapRows = rows)
             setPage(i, page(i).copy(text = others))
             val from = if (ownRowFree) placed.row + 1 else placed.row

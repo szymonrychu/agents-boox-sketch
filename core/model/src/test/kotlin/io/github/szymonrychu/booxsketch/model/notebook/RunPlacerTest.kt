@@ -35,7 +35,8 @@ class RunPlacerTest {
         vararg strokeIds: String,
         clientId: String = "c1",
         x0: Float = 100f,
-    ) = PendingSegment(clientId, segmentId, row, x0, 300f, strokeIds.toList())
+        baseVersion: Int = 0,
+    ) = PendingSegment(clientId, segmentId, row, x0, 300f, strokeIds.toList(), baseVersion)
 
     private fun notebook(vararg pages: Page) = Notebook(canvas, pages.toList(), 0)
 
@@ -362,7 +363,11 @@ class RunPlacerTest {
                     listOf(stroke("a", 4), stroke("b", 7), stroke("c", 9)),
                     false,
                     pendingSegments =
-                        listOf(pending("p0-r4-0", 4, "a"), pending("p0-r7-0", 7, "b"), pending("p0-r9-0", 9, "c", clientId = "c2")),
+                        listOf(
+                            pending("p0-r4-0", 4, "a"),
+                            pending("p0-r7-0", 7, "b"),
+                            pending("p0-r9-0", 9, "c", clientId = "c2", baseVersion = 2),
+                        ),
                 ),
             )
         val p = apply(n, "a", line("L1", 1, LineOrigin.Segments(listOf("p0-r4-0"))))
@@ -533,7 +538,7 @@ class RunPlacerTest {
                     listOf(stroke("new", 4)),
                     false,
                     text = listOf(run("L1", 2, "kept")),
-                    pendingSegments = listOf(pending("p0-r4-0", 4, "new", clientId = "c2")),
+                    pendingSegments = listOf(pending("p0-r4-0", 4, "new", clientId = "c2", baseVersion = 5)),
                 ),
             )
         val p =

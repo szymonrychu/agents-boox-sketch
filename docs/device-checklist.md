@@ -325,3 +325,34 @@ Needs connector 2.1.0 and the notebook preset. Note Air 6C, portrait and landsca
       latest version, and Send sends the same ink again.
 - [ ] Record the text layer render time of a full page from the log next to the Robolectric
       number in MEMORY.md (target under 50 ms).
+
+## Handwritten edits on text rows (0.16.0, T-46 P5a)
+
+Needs connector 2.1.0, the notebook preset and a page with text rows. Note Air 6C, portrait and landscape.
+
+- [ ] Strike: draw one flat line through two words of a text row. About 0.7 s after the pen lifts
+      (never while it moves) the two words turn grey in one partial refresh. Send: when the version
+      arrives the words are gone, the line is hidden and the rest of the row closes up.
+- [ ] Scribble: zig-zag over one word, staying inside the lower half of the row. It turns grey like a
+      strike and is deleted the same way.
+- [ ] Replace: write a word in the upper half of a row, above a word of its text. Send: the version
+      shows the new word in place of the old one, and the handwriting above is hidden.
+- [ ] Insert inline: write a note in the right margin, draw a rectangle around it (shape tool), then
+      an arrow from the rectangle's edge to a gap between two words. Send: the note's text appears
+      at that gap; note, box and arrow are hidden.
+- [ ] Insert after a line: as above, but the arrow tip in the upper half of the row below a line (or
+      under the last line). Send: the note becomes a new line on the next row and the rows below
+      move down one row with their ink.
+- [ ] Two edits on one line (a strike and a replace): both are applied in x order.
+- [ ] An edit the translator rejects (for example a replace written over the wrong words after a
+      revert): the version keeps its ink visible and the Documents feedback strip shows
+      "Edit not applied (...)" with the translator's reason.
+- [ ] Margin ink without a box and arrow: sent as ordinary ink; the translator applies it under the
+      annotated-spec rule.
+- [ ] Undo a strike before sending: the grey preview goes away at pen idle.
+- [ ] Send edits after a newer version was made elsewhere: the item fails with "The document
+      changed; check the latest version", the marks stay as ink, the board shows the latest version,
+      and Send sends them again.
+- [ ] Misclassification rate: over 20 strikes, 20 replaces and 10 inserts in normal handwriting,
+      note how many came out as the wrong kind or as new handwriting, and record the numbers and any
+      threshold change in MEMORY.md.

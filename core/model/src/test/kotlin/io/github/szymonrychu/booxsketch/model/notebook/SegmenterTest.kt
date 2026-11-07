@@ -110,6 +110,15 @@ class SegmenterTest {
     }
 
     @Test
+    fun pending_op_strokes_excluded() {
+        val op = EditOp("o1", OpKind.DELETE, OpTarget("L1", 0, 3, "buy"), strokeIds = listOf("s"))
+        val p = page(stroke("a", 100f, 200f), stroke("s", 100f, 200f, row = 6)).copy(pendingOps = listOf(PendingOp("c", op)))
+        val r = segment(p)
+        assertThat(r.segments.flatMap { it.strokeIds }).containsExactly("a")
+        assertThat(r.drawing).isEmpty()
+    }
+
+    @Test
     fun excluded_set_is_skipped() {
         val r = segment(page(stroke("a", 100f, 200f), stroke("op", 100f, 200f, row = 6)), exclude = setOf("op"))
         assertThat(r.segments.flatMap { it.strokeIds }).containsExactly("a")
