@@ -11,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -31,6 +32,7 @@ enum class IconKind {
     ERASER,
     RECTANGLE,
     ARROW,
+    IMAGE_REGION,
     COLOUR,
     UNDO,
     REDO,
@@ -51,6 +53,7 @@ fun Tool.iconKind(): IconKind =
         Tool.MARKER -> IconKind.MARKER
         Tool.RECTANGLE -> IconKind.RECTANGLE
         Tool.ARROW -> IconKind.ARROW
+        Tool.IMAGE_REGION -> IconKind.IMAGE_REGION
     }
 
 /** Design grid of every glyph, in dp (and in path units). */
@@ -87,6 +90,7 @@ private fun DrawScope.draw(
         IconKind.ERASER -> eraser(c)
         IconKind.RECTANGLE -> drawRect(c, Offset(3f, 6f), Size(18f, 12f), style = line)
         IconKind.ARROW -> arrow(c)
+        IconKind.IMAGE_REGION -> imageRegion(c)
         IconKind.COLOUR -> colour(c, fill)
         IconKind.UNDO -> undo(c)
         IconKind.REDO -> scale(-1f, 1f, pivot = Offset(GRID / 2, GRID / 2)) { undo(c) }
@@ -191,6 +195,24 @@ private fun DrawScope.arrow(c: Color) {
         c,
         style = line,
     )
+}
+
+/** A dashed rectangle with a small mountain inside: the image region tool. */
+private fun DrawScope.imageRegion(c: Color) {
+    drawRect(c, Offset(3f, 5f), Size(18f, 14f), style = Stroke(width = LINE, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 2f))))
+    drawPath(
+        path {
+            moveTo(6f, 16f)
+            lineTo(10f, 10f)
+            lineTo(13f, 14f)
+            lineTo(15f, 12f)
+            lineTo(18f, 16f)
+            close()
+        },
+        c,
+        style = Fill,
+    )
+    drawCircle(c, 1.5f, Offset(16f, 8.5f))
 }
 
 private fun DrawScope.colour(

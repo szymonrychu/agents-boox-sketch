@@ -9,6 +9,7 @@ import io.github.szymonrychu.booxsketch.board.NotebookFiles
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.ConversationEntity
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
+import io.github.szymonrychu.booxsketch.documents.SpecImageCache
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +44,8 @@ class ConversationRepository(
     private val annotations: AnnotationStore? = null,
     /** The board notebooks; a conversation that goes away takes its notebook with it (T-46 OQ1 A). */
     private val notebooks: NotebookFiles? = null,
+    /** The region images of specs; a conversation that goes away takes its images with it. */
+    private val specImages: SpecImageCache? = null,
 ) {
     private val dao = db.conversationDao()
     private val _selected = MutableStateFlow(prefs.getString(KEY_SELECTED, null))
@@ -157,6 +160,7 @@ class ConversationRepository(
                     db.specDao().deleteFor(it)
                     db.feedbackDao().deleteFor(it)
                     db.cursorDao().delete(it)
+                    specImages?.delete(it)
                 }
                 dao.delete(row.localId)
             }.map { it.localId }
@@ -198,6 +202,7 @@ class ConversationRepository(
         dirs.map { File(it).canonicalFile }.filter { it.parentFile == root }.forEach { it.deleteRecursively() }
         annotations?.delete(localId)
         notebooks?.delete(localId)
+        row.serverId?.let { specImages?.delete(it) }
         if (_selected.value == localId) select(null)
         return null
     }

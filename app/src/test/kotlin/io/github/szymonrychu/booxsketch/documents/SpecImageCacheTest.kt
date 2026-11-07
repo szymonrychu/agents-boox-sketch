@@ -1,0 +1,154 @@
+package io.github.szymonrychu.booxsketch.documents
+
+import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+class SpecImageCacheTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private lateinit var server: MockWebServer
+    private val paths = mutableListOf<String>()
+    private val png = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3)
+    private val region = "0b7f6a1e-2c3d-4e5f-8a9b-0c1d2e3f4a5b"
+
+    @Before
+    fun setUp() {
+        server =
+            MockWebServer().apply {
+                dispatcher =
+                    object : Dispatcher() {
+                        override fun dispatch(request: RecordedRequest): MockResponse {
+                            val path = request.path.orEmpty()
+                            paths += path
+                            return if (path.endsWith("/images/$region.png")) {
+                                MockResponse().setResponseCode(200).setHeader("Content-Type", "image/png").setBody(Buffer().write(png))
+                            } else {
+                                MockResponse()
+                                    .setResponseCode(404)
+                                    .setHeader("Content-Type", "application/json")
+                                    .setBody("""{"error":"not_found","detail":""}""")
+                            }
+                        }
+                    }
+            }
+        server.start()
+    }
+
+    @After
+    fun tearDown() = server.shutdown()
+
+    private fun cache(online: Boolean = true) =
+        SpecImageCache(File(tmp.root, "spec-images")) {
+            if (online) ConnectorClient(server.url("/").toString(), { "test-token" }, OkHttpClient()) else null
+        }
+
+    @Test
+    fun get_fetches_once_and_keeps_the_file() =
+        runBlocking<Unit> {
+            val c = cache()
+            assertThat(c.cached("srv-1", region)).isNull()
+            assertThat(c.get("srv-1", region)).isEqualTo(png)
+            assertThat(c.get("srv-1", region)).isEqualTo(png)
+            assertThat(paths.single()).endsWith("/conversations/srv-1/images/$region.png")
+            assertThat(c.cached("srv-1", region)).isEqualTo(File(tmp.root, "spec-images/srv-1/$region.png"))
+        }
+
+    @Test
+    fun offline_or_unknown_image_is_null_and_not_cached() =
+        runBlocking<Unit> {
+            assertThat(cache(online = false).get("srv-1", region)).isNull()
+            val missing = "11111111-2222-4333-8444-555555555555"
+            assertThat(cache().get("srv-1", missing)).isNull()
+            assertThat(cache().cached("srv-1", missing)).isNull()
+        }
+
+    @Test
+    fun a_body_that_is_not_a_png_is_not_kept() =
+        runBlocking<Unit> {
+            png[0] = 0
+            val c = cache()
+            assertThat(c.get("srv-1", region)).isNull()
+            assertThat(c.cached("srv-1", region)).isNull()
+            assertThat(File(tmp.root, "spec-images/srv-1").listFiles().orEmpty()).isEmpty()
+        }
+
+    @Test
+    fun concurrent_gets_of_one_image_all_succeed() =
+        runBlocking<Unit> {
+            val c = cache()
+            val all = (1..8).map { async(Dispatchers.IO) { c.get("srv-1", region) } }.awaitAll()
+            assertThat(all.all { it contentEquals png }).isTrue()
+            assertThat(c.cached("srv-1", region)!!.readBytes()).isEqualTo(png)
+            assertThat(File(tmp.root, "spec-images/srv-1").listFiles().orEmpty().map { it.name }).containsExactly("$region.png")
+        }
+
+    @Test
+    fun prefetch_keeps_what_is_available_and_survives_what_is_not() =
+        runBlocking<Unit> {
+            val missing = "11111111-2222-4333-8444-555555555555"
+            val md = "![image](images/$region.png)\n\n![image](images/$missing.png)\n"
+            val c = cache()
+            assertThat(c.prefetch("srv-1", md)).isFalse()
+            assertThat(c.cached("srv-1", region)).isNotNull()
+            assertThat(c.cached("srv-1", missing)).isNull()
+            // Offline: nothing thrown, nothing kept.
+            val offline = cache(online = false)
+            offline.deleteAll()
+            assertThat(offline.prefetch("srv-1", md)).isFalse()
+            assertThat(offline.cached("srv-1", region)).isNull()
+            // Every referenced image available: complete.
+            assertThat(c.prefetch("srv-1", "![image](images/$region.png)\n")).isTrue()
+            assertThat(c.prefetch("srv-1", "no images\n")).isTrue()
+        }
+
+    @Test
+    fun delete_all_removes_every_conversation() =
+        runBlocking<Unit> {
+            val c = cache()
+            c.get("srv-1", region)
+            c.deleteAll()
+            assertThat(File(tmp.root, "spec-images").exists()).isFalse()
+        }
+
+    @Test
+    fun ids_outside_the_reference_form_are_refused() =
+        runBlocking<Unit> {
+            assertThat(cache().get("srv-1", "../../etc/passwd")).isNull()
+            assertThat(cache().get("../x", region)).isNull()
+            assertThat(paths).isEmpty()
+        }
+
+    @Test
+    fun delete_removes_the_conversation_images() =
+        runBlocking<Unit> {
+            val c = cache()
+            c.get("srv-1", region)
+            c.delete("srv-1")
+            assertThat(c.cached("srv-1", region)).isNull()
+            assertThat(File(tmp.root, "spec-images/srv-1").exists()).isFalse()
+        }
+
+    @Test
+    fun ids_lists_the_image_references_in_order_once() {
+        val md =
+            "# T\n\n![image](images/$region.png)\n\ntext ![x](images/abc-1.png) and ![image](images/$region.png)\n\n" +
+                "![web](https://example.invalid/a.png)"
+        assertThat(SpecImageCache.ids(md)).containsExactly(region, "abc-1").inOrder()
+    }
+}

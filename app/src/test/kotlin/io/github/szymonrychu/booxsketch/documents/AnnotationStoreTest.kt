@@ -58,22 +58,22 @@ class AnnotationStoreTest {
     fun failed_diagram_freeze_is_retried_until_ink_or_send() {
         val s = store()
         s.freeze("c1", 2, failedPages(), layout)
-        assertThat(s.needsDiagramRetry("c1", 2)).isTrue()
+        assertThat(s.needsRetry("c1", 2)).isTrue()
         s.discardForRetry("c1", 2)
         assertThat(s.frozen("c1", 2)).isNull()
         s.freeze("c1", 2, pages(), layout)
-        assertThat(s.needsDiagramRetry("c1", 2)).isFalse()
+        assertThat(s.needsRetry("c1", 2)).isFalse()
 
         s.freeze("c1", 3, failedPages(), layout)
         val inked = Notebook(Canvas(60, 80, 300f), listOf(Page(listOf(stroke()), false)), 0)
         s.notebookStore("c1", 3).save(inked)
-        assertThat(s.needsDiagramRetry("c1", 3)).isFalse()
+        assertThat(s.needsRetry("c1", 3)).isFalse()
         s.discardForRetry("c1", 3)
         assertThat(s.frozen("c1", 3)).isNotNull()
 
         s.freeze("c1", 4, failedPages(), layout)
         s.markSent("c1", 4)
-        assertThat(s.needsDiagramRetry("c1", 4)).isFalse()
+        assertThat(s.needsRetry("c1", 4)).isFalse()
     }
 
     private fun stroke() = Stroke("a", Tool.BALLPOINT, 4f, listOf(Point(10f, 10f, 0.5f, 0), Point(40f, 40f, 0.5f, 10)))
@@ -86,12 +86,12 @@ class AnnotationStoreTest {
         val scope = CoroutineScope(Job() + Dispatchers.Unconfined)
         val board = DocumentInk(s, scope, Dispatchers.Unconfined).board("c1", 2, 1, Canvas(60, 80, 300f))
         assertThat(File(s.dir("c1", 2), "notebook.json").isFile).isTrue()
-        assertThat(s.needsDiagramRetry("c1", 2)).isTrue()
+        assertThat(s.needsRetry("c1", 2)).isTrue()
         runBlocking {
             board.onStroke(stroke())
             board.flush()
         }
-        assertThat(s.needsDiagramRetry("c1", 2)).isFalse()
+        assertThat(s.needsRetry("c1", 2)).isFalse()
         scope.cancel()
     }
 

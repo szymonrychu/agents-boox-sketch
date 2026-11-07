@@ -99,7 +99,9 @@ fun ToolStrip(
         state.onToolChanged(selected)
     }
     val pen = if (tool.isShape) state.lastPen else tool
-    val rectangle = !eraser && tool == Tool.RECTANGLE
+    // The box button stands for the rectangle and the image region (picked in the shape popup) and shows the one in use.
+    val rectangle = !eraser && tool.isBox
+    val box = if (tool == Tool.IMAGE_REGION) Tool.IMAGE_REGION else Tool.RECTANGLE
     val arrow = !eraser && tool == Tool.ARROW
 
     BoxWithConstraints(modifier.width(STRIP_WIDTH).fillMaxHeight()) {
@@ -118,8 +120,8 @@ fun ToolStrip(
                     state.press(ToolPopup.ERASER, eraser, y, ui) { vm.setEraser(true) }
                 }) { ToolIcon(IconKind.ERASER) }
                 StripButton("rectangle", "Rectangle", rectangle, onClick = { y ->
-                    state.press(ToolPopup.SHAPE, rectangle, y, ui) { vm.setTool(Tool.RECTANGLE) }
-                }) { ToolIcon(IconKind.RECTANGLE) }
+                    state.press(ToolPopup.SHAPE, rectangle, y, ui) { vm.setTool(box) }
+                }) { ToolIcon(box.iconKind()) }
                 StripButton("arrow", "Arrow", arrow, onClick = { y ->
                     state.press(ToolPopup.SHAPE, arrow, y, ui) { vm.setTool(Tool.ARROW) }
                 }) { ToolIcon(IconKind.ARROW) }

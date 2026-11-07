@@ -36,6 +36,57 @@ Lessons that outlive a session. Newest first.
   live after an open). `OnyxRawSessionTest` golden orders now expect `brush` right after `open`: they pinned
   "no brush after the open", which is the bug.
 
+## 2026-11-07 Image regions, inline images, share bundle (T-46 P6, Tasks 6.1-6.6, v0.18.0)
+
+- Tool: `Tool.IMAGE_REGION` ("image_region" in strokes.json) is a box shape like the rectangle (`Tool.isBox`). The
+  strip has separate rectangle and arrow buttons (no shape picker existed), so the shape popup gained a row of the
+  three shapes above the colour grid and the strip's box button stands for rectangle or image region, showing the
+  one in use. Pending regions are dashed dark grey (0xFF555555) whatever the pen colour.
+- Region members: visible strokes whose bbox centre lies in the region rect, the region stroke included
+  (`ImageRegions`). They are the image op's `strokes` and never segmented, also after the op was applied.
+- Send: one image op per region no pending op carries; `region.<part>.<k>.png` crops the text layer and visible ink
+  inside the rect (no grid, no region frames) at canvas resolution, 0.85x shrink under `max_png_bytes`, floor 16 px.
+  `after_line` is the base-version run ending nearest above the rect top. The cap of 4 new regions per page is a
+  client constant (`SendUseCase.MAX_REGIONS_PER_PAGE`, the connector default) until `/config` exposes it.
+- Why no op without a stored spec version: the connector requires `base_version` for any op (422), and a first send
+  has none. Then the region and its ink go as plain drawing ink (still not segmented) and the frame stays dashed;
+  it is sent as an op on a later Send once a version exists: an unsent region then counts as a page change
+  (`selectPagesForSend(regionsSendable)`), and the 4-region cap is only enforced when ops will be built.
+- Applied state: `Page.appliedRegions`. Applied frames leave `visibleStrokes` (not drawn by the stroke renderer, not
+  in strokes.json) and the text layer draws them as a 2 px solid frame with a 20 px "image" label.
+  Done there (not in `CanvasStrokeRenderer`, as the plan said) so the swap rides the text layer's pen-idle hold and
+  the renderer interface stays per-stroke. Rejected image ops leave the region pending again. Image-only markdown
+  lines are not placed as text runs. `appliedRegions` maps the region stroke id to its region id; every placement
+  (revert or newer version) drops the entries whose `images/<region id>.png` the shown markdown no longer references
+  (OQ2 A, 2026-11-07 review fix): the frame is dashed again, the page counts as changed and Send re-sends the region.
+  The eraser hits `visibleStrokes` only (2026-11-07 review fix): applied frames and consumed strokes cannot be erased
+  from the board, so an applied region keeps its ink excluded from segments; ink inside it stays erasable. The export
+  text layer (`TextLayer.renderForExport`) has no pending ticks and no region frames, so crops and page PNGs are clean.
+  A row shift (and an overflow move) treats a region and its members (bbox centre inside the rect) as one unit,
+  decided by the region's own centre (`shiftCentres`, 2026-11-07 review fix): a shift line inside a region no longer
+  splits frame from ink. `UndoStack.shiftRows` decides each stroke id once (page first, then the history entries) and
+  applies that decision to the page and every entry, so undo/redo restore exact positions even when the step that drew
+  the region is undone.
+- Rebase onto P5a/P5b (2026-11-07): image ops ride the edit-op pipeline (`PendingOp` stamped with the base version,
+  per-upload release, drop on failure). The ink of every region (`ImageRegions.excluded`) is excluded from both the
+  `Segmenter` and the `AnnotationClassifier` (`classify(exclude = ...)`), so region ink is never a strike, replace or
+  insert; classified ops come first in the layout, then the image ops. A rejected image op does not add its strokes to
+  `rejectedStrokes` (only rejected edit ops do): the region is simply pending again and re-sent.
+- Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
+  (region images never change), removed with the conversation (delete and server-side removal). Only PNG bodies (signature checked) are kept, written through a unique temp file. Unpair deletes all of it and
+  the share zips. Ids are checked
+  against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images (concurrently) before paginating. A
+  freeze made while any referenced image is missing (offline, images route failing) is provisional: it carries an
+  `images-missing` marker and, like a failed diagram, is discarded and paginated anew on the next open while no stroke
+  and no sent mark exist (2026-11-07 review fix). After ink or send it stays, as ink is in page coordinates.
+- Share bundle: `cache/share/spec-v<N>.zip` through FileProvider `<applicationId>.share` (`res/xml/file_paths.xml`),
+  `spec-v<N>.md` unchanged, `images/<id>.png`, `MISSING.txt` for images not available. A new bundle deletes the earlier
+  files of the dir (spec content must not linger; one share is live at a time, so no per-conversation names).
+- Test fixtures changed: `SpecImageCacheTest` and `DocumentsFlowTest` png bodies got the full 8-byte PNG signature (the cache now checks it).
+- Test changed: `StrokeTest.shape_tools_are_shapes_and_pens_are_not` expected exactly rectangle and arrow as shapes;
+  the image region is a third shape. Golden `board_tool_icons.png` re-recorded for the new glyph; new goldens
+  `region_frame_pending`, `region_frame_applied`, `document_with_inline_image`.
+
 ## 2026-11-07 Handwritten edit ops (T-46 P5a, Tasks 5.1-5.4, v0.16.0)
 
 - Word boxes (`WordBoxes`) measure each word with the text layer's own `TextMeasure`; `WordBoxes.rows` is now the one

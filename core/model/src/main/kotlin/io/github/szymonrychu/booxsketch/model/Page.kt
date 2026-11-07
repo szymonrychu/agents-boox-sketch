@@ -17,9 +17,22 @@ data class Page(
     val pendingOps: List<PendingOp> = emptyList(),
     /** Ids of strokes of ops the connector rejected: kept as plain ink, never classified again, no strike preview. */
     val rejectedStrokes: Set<String> = emptySet(),
+    /**
+     * Image region stroke id to the region id of its image, for the regions a spec version placed as an image (spec
+     * 3.6): drawn by the text layer as a thin solid frame with an "image" label instead of the dashed pending frame, and
+     * no longer exported as ink. The ink inside stays visible ink. An entry ends when a shown version no longer
+     * references `images/<region id>.png` (a revert or a rewrite): the region is pending again.
+     */
+    val appliedRegions: Map<String, String> = emptyMap(),
 ) {
-    /** The strokes that are drawn and exported: [strokes] minus [consumed]. */
-    val visibleStrokes: List<Stroke> get() = if (consumed.isEmpty()) strokes else strokes.filter { it.id !in consumed }
+    /** The strokes that are drawn and exported: [strokes] minus [consumed] and the [appliedRegions] frames. */
+    val visibleStrokes: List<Stroke>
+        get() =
+            if (consumed.isEmpty() && appliedRegions.isEmpty()) {
+                strokes
+            } else {
+                strokes.filter { it.id !in consumed && it.id !in appliedRegions }
+            }
 }
 
 /** Immutable notebook: every operation returns a new instance. */

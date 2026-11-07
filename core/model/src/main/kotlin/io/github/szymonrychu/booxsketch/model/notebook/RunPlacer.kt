@@ -3,8 +3,10 @@ package io.github.szymonrychu.booxsketch.model.notebook
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.centreY
+import io.github.szymonrychu.booxsketch.model.shiftCentres
 import io.github.szymonrychu.booxsketch.model.shiftStrokes
 import kotlin.math.floor
 
@@ -28,8 +30,9 @@ data class Placement(
  * down to [MIN_SCALE], else wrapped at word boundaries at [MIN_SCALE]. A column narrower than [MIN_COLUMN_CELLS] cells
  * is widened to that, moving x0 left when the margin is closer. Rows a line needs that hold other runs, ink or pending
  * segments move down by whole rows with everything below them; the ink moves through [UndoStack.shiftRows], which is
- * not an undo step and keeps the history aligned. Rows pushed past the last row move to a new page inserted right
- * after (OQ4 A); a later overflow of the same page goes above the earlier one there.
+ * not an undo step and keeps the history aligned. An image region and its ink move (or overflow) as one unit. Rows
+ * pushed past the last row move to a new page inserted right after (OQ4 A); a later overflow of the same page goes
+ * above the earlier one there.
  */
 object RunPlacer {
     const val MIN_SCALE = 0.85f
@@ -62,6 +65,7 @@ object RunPlacer {
         val revert = layout.revertedFrom != null
         work.dropRuns(shown, unconsume = revert)
         work.applyOps(layout.ops)
+        work.dropUnreferencedRegions(ImageRegions.referencedIds(markdown).toSet())
 
         // A revert copies the old version's origins: its segment ids may match new, unanswered handwriting.
         fun segmentsOf(line: SpecLineModel) = if (revert) emptyList() else (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
@@ -149,7 +153,10 @@ object RunPlacer {
     private val HEADING = Regex("^\\s*#{1,6}\\s")
     private val FENCE = Regex("^\\s*(```|~~~)")
 
-    /** False for fence lines and the lines between them, table rows and blank lines. */
+    /** A line that is only an image reference: on the board the image region itself stands for it. */
+    private val IMAGE_LINE = Regex("^\\s*!\\[[^\\]]*]\\([^)]*\\)\\s*$")
+
+    /** False for fence lines and the lines between them, table rows, image-only lines and blank lines. */
     private fun placeableLines(source: List<String>): List<Boolean> {
         var fenced = false
         return source.map { line ->
@@ -164,7 +171,7 @@ object RunPlacer {
                 }
 
                 else -> {
-                    line.isNotBlank() && !line.trimStart().startsWith("|")
+                    line.isNotBlank() && !line.trimStart().startsWith("|") && !IMAGE_LINE.matches(line)
                 }
             }
         }
@@ -242,7 +249,10 @@ object RunPlacer {
             }
         }
 
-        /** Reported ops leave the pending list; an applied op's strokes are consumed, a rejected op keeps its ink. */
+        /**
+         * Reported ops leave the pending list; a rejected op keeps its ink. An applied op's strokes are consumed, except
+         * an image op's: its ink is the picture and stays, its region stroke becomes an applied region (spec 3.6).
+         */
         fun applyOps(ops: List<OpStatusModel>) {
             if (ops.isEmpty()) return
             val byId = ops.associateBy { it.id }
@@ -251,14 +261,43 @@ object RunPlacer {
                 val done = p.pendingOps.filter { it.op.id in byId }
                 if (done.isEmpty()) continue
                 val (applied, rejected) = done.partition { byId.getValue(it.op.id).applied }
+                val (images, edits) = applied.partition { it.op.kind == OpKind.IMAGE }
+                val regionIds =
+                    p.strokes
+                        .filter { it.tool == Tool.IMAGE_REGION }
+                        .map { it.id }
+                        .toSet()
+                val regions =
+                    images.flatMap { d ->
+                        val regionId = d.op.region?.id
+                        d.op.strokeIds
+                            .filter { it in regionIds && regionId != null }
+                            .map { it to regionId.orEmpty() }
+                    }
                 setPage(
                     i,
                     p.copy(
                         pendingOps = p.pendingOps - done.toSet(),
-                        consumed = p.consumed + applied.flatMap { it.op.strokeIds },
-                        rejectedStrokes = p.rejectedStrokes + rejected.flatMap { it.op.strokeIds },
+                        consumed = p.consumed + edits.flatMap { it.op.strokeIds },
+                        // A rejected image op returns its region to pending (sent again); its ink is not rejected ink.
+                        rejectedStrokes = p.rejectedStrokes + rejected.filter { it.op.kind != OpKind.IMAGE }.flatMap { it.op.strokeIds },
+                        appliedRegions = p.appliedRegions + regions,
                     ),
                 )
+                markDirty(i, 0 until g.rowCount)
+            }
+        }
+
+        /**
+         * An applied region whose image the shown version does not reference is pending again (OQ2 A): its frame is
+         * dashed, it is exported and sent as an image op once more, and the page counts as changed.
+         */
+        fun dropUnreferencedRegions(referenced: Set<String>) {
+            for (i in n.pages.indices) {
+                val p = page(i)
+                val gone = p.appliedRegions.filterValues { it !in referenced }
+                if (gone.isEmpty()) continue
+                setPage(i, p.copy(appliedRegions = p.appliedRegions - gone.keys, changedSinceSend = true))
                 markDirty(i, 0 until g.rowCount)
             }
         }
@@ -531,7 +570,8 @@ object RunPlacer {
                     cut = straddling
                 }
                 val runs = p.text.filter { it.row >= cut }
-                val strokes = p.strokes.filter { it.points.isNotEmpty() && rowOf(centreY(it)) >= cut }
+                val centres = shiftCentres(p.strokes)
+                val strokes = p.strokes.filter { it.points.isNotEmpty() && rowOf(centres.getValue(it.id)) >= cut }
                 val segments = p.pendingSegments.filter { it.row >= cut }
                 if (runs.isEmpty() && strokes.isEmpty() && segments.isEmpty()) return
                 val ids = strokes.map { it.id }.toSet()
@@ -543,6 +583,7 @@ object RunPlacer {
                         strokes = p.strokes.filter { it.id !in ids },
                         pendingSegments = p.pendingSegments - segments.toSet(),
                         consumed = p.consumed - ids,
+                        appliedRegions = p.appliedRegions - ids,
                     ),
                 )
                 val earlier = overflowOf[i]
@@ -566,6 +607,7 @@ object RunPlacer {
                         strokes = t.strokes + shiftStrokes(strokes, Float.NEGATIVE_INFINITY, dy),
                         pendingSegments = t.pendingSegments + segments.map { it.copy(row = it.row - cut) },
                         consumed = t.consumed + p.consumed.intersect(ids),
+                        appliedRegions = t.appliedRegions + p.appliedRegions.filterKeys { it in ids },
                         changedSinceSend = t.changedSinceSend || strokes.any { it.id !in p.consumed },
                     ),
                 )
