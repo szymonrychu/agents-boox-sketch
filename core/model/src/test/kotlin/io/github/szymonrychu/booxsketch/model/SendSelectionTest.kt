@@ -51,4 +51,18 @@ class SendSelectionTest {
         val consumed = Page(listOf(Stroke("s", Tool.BRUSH, 2f, emptyList())), true, consumed = setOf("s"))
         assertThat(selectPagesForSend(nb(consumed, full(true)), all = true, maxPages = 4)).isEqualTo(SendSelection.Pages(listOf(1)))
     }
+
+    private fun withRegion(changed: Boolean) =
+        Page(
+            listOf(Stroke("r", Tool.IMAGE_REGION, 3f, listOf(Point(100f, 100f, 1f, 0L), Point(500f, 400f, 1f, 1L)))),
+            changed,
+        )
+
+    @Test
+    fun an_unsent_region_counts_as_changed_only_when_a_version_exists() {
+        val n = nb(withRegion(changed = false))
+        assertThat(selectPagesForSend(n, all = false, maxPages = 4)).isEqualTo(SendSelection.NothingToSend)
+        assertThat(selectPagesForSend(n, all = false, maxPages = 4, regionsSendable = true))
+            .isEqualTo(SendSelection.Pages(listOf(0)))
+    }
 }
