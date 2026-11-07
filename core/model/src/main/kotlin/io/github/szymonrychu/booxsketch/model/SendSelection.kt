@@ -17,9 +17,9 @@ sealed interface SendSelection {
 }
 
 /**
- * Picks the pages to upload, ascending. Empty pages are never selected. With [all] false only
- * pages with changedSinceSend; with [all] true every non-empty page. More than [maxPages] is
- * refused, never truncated.
+ * Picks the pages to upload, ascending. Pages without visible strokes (consumed ink is not visible) are never
+ * selected. With [all] false only pages with changedSinceSend; with [all] true every non-empty page. More than
+ * [maxPages] is refused, never truncated.
  */
 fun selectPagesForSend(
     n: Notebook,
@@ -29,7 +29,7 @@ fun selectPagesForSend(
     val indices =
         n.pages
             .withIndex()
-            .filter { (_, p) -> p.strokes.isNotEmpty() && (all || p.changedSinceSend) }
+            .filter { (_, p) -> p.visibleStrokes.isNotEmpty() && (all || p.changedSinceSend) }
             .map { it.index }
     return when {
         indices.isEmpty() -> SendSelection.NothingToSend

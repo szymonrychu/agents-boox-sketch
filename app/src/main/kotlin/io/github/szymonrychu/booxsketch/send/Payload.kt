@@ -25,6 +25,8 @@ data class PagesFile(
     val caption: String?,
     val pages: List<PageMetaDto>,
     val annotates: AnnotatesDto? = null,
+    /** The spec version the board showed (`meta.base_version`); null for a conversation without one. */
+    val baseVersion: Int? = null,
 )
 
 /** A hand-off payload (`handoff.json`): the request plus the spec version seen when it was queued. */
@@ -37,6 +39,7 @@ data class HandoffFile(
  * Files of one outbox payload directory. Written once at enqueue time; `meta.json` is written
  * once when the item is first resolved, and every retry re-sends these exact bytes.
  */
+@Suppress("TooManyFunctions") // one path, write and read per payload file
 object Payload {
     const val PAGES = "pages.json"
     const val META = "meta.json"
@@ -61,6 +64,13 @@ object Payload {
         n: Int,
     ) = File(dir, "strokes.$n.json")
 
+    /** The notebook layout of page part [n]; written only for a page with handwriting rows or text. */
+    fun layout(
+        dir: File,
+        n: Int,
+    ) = File(dir, "layout.$n.json")
+
+    @Suppress("LongParameterList")
     fun writePages(
         dir: File,
         clientId: String,
@@ -68,6 +78,7 @@ object Payload {
         indices: List<Int>,
         canvas: Canvas,
         annotates: AnnotatesDto? = null,
+        baseVersion: Int? = null,
     ) {
         val obj =
             buildJsonObject {
@@ -75,6 +86,7 @@ object Payload {
                 put("caption", caption?.let(::JsonPrimitive) ?: JsonNull)
                 put("pages", json.encodeToJsonElement(pageList, indices.map { PageMetaDto(it, canvas) }))
                 annotates?.let { put("annotates", json.encodeToJsonElement(AnnotatesDto.serializer(), it)) }
+                baseVersion?.let { put("base_version", it) }
             }
         File(dir, PAGES).writeText(obj.toString())
     }
@@ -86,6 +98,7 @@ object Payload {
             caption = obj["caption"]?.jsonPrimitive?.contentOrNull,
             pages = json.decodeFromJsonElement(pageList, obj.getValue("pages")),
             annotates = obj["annotates"]?.let { json.decodeFromJsonElement(AnnotatesDto.serializer(), it) },
+            baseVersion = obj["base_version"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.int,
         )
     }
 

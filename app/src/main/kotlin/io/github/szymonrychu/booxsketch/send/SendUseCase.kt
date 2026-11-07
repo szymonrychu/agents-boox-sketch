@@ -17,9 +17,13 @@ import io.github.szymonrychu.booxsketch.documents.AnnotationSend
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
+import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.SendSelection
 import io.github.szymonrychu.booxsketch.model.StrokesCodec
+import io.github.szymonrychu.booxsketch.model.notebook.LayoutCodec
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.Segmenter
 import io.github.szymonrychu.booxsketch.model.selectPagesForSend
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.ExportResult
@@ -75,6 +79,9 @@ interface SendBoard {
 
     /** Marks the sent pages, unless they changed since [sent] was taken. */
     suspend fun markSent(sent: Map<Int, Page>)
+
+    /** Records the segments just sent per page index: they wait for a spec version (the grey tick). */
+    suspend fun addPending(pending: Map<Int, List<PendingSegment>>)
 }
 
 /** Status of a thread item, kept in step with its outbox item. */
@@ -129,30 +136,18 @@ class SendUseCase(
                     is SendSelection.TooManyPages -> return@withLock SendOutcome.TooManyPages(sel.count, sel.max)
                     is SendSelection.Pages -> sel.indices
                 }
-            val parts = mutableListOf<PagePart>()
-            for (i in indices) {
-                val page = notebook.pages[i]
-                when (val r = withContext(worker) { exportBoardPage(page, notebook.canvas, cfg) }) {
-                    ExportResult.Empty -> {
-                        Unit
-                    }
-
-                    is ExportResult.TooBig -> {
-                        return@withLock SendOutcome.ExportFailed(i, r.reason)
-                    }
-
-                    is ExportResult.Exported -> {
-                        val strokes = withContext(worker) { StrokesCodec.encode(notebook.canvas, page) }
-                        parts += PagePart(i, r.png, strokes.takeIf { it.size <= cfg.maxStrokesBytes })
-                    }
+            val clientId = newId()
+            val parts =
+                when (val r = exportBoard(notebook, indices, cfg, clientId)) {
+                    is Prepared.Failed -> return@withLock r.outcome
+                    is Prepared.Parts -> r.parts
                 }
-            }
             if (parts.isEmpty()) return@withLock SendOutcome.NothingToSend
-            val total = parts.sumOf { it.png.size.toLong() + (it.strokes?.size ?: 0) }
+            val total = parts.sumOf { it.png.size.toLong() + (it.strokes?.size ?: 0) + (it.layout?.size ?: 0) }
             if (total > cfg.maxUploadBytes) return@withLock SendOutcome.TooLarge(total, cfg.maxUploadBytes.toLong())
 
-            val clientId = newId()
             val conversation = conversations.current()
+            val baseVersion = baseVersion(conversation.serverId, notebook, indices)
             enqueue(
                 clientId,
                 OutboxKind.SKETCH,
@@ -164,11 +159,14 @@ class SendUseCase(
                 parts.forEachIndexed { n, part ->
                     Payload.png(it, n).writeBytes(part.png)
                     part.strokes?.let { s -> Payload.strokes(it, n).writeBytes(s) }
+                    part.layout?.let { l -> Payload.layout(it, n).writeBytes(l) }
                 }
-                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas)
+                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, baseVersion = baseVersion)
             }
             conversations.titleFromCaption(conversation.localId, caption)
             board.markSent(indices.associateWith { notebook.pages[it] })
+            val pending = parts.filter { it.pending.isNotEmpty() }.associate { it.index to it.pending }
+            if (pending.isNotEmpty()) board.addPending(pending)
             kick()
             SendOutcome.Queued(clientId)
         }
@@ -229,6 +227,38 @@ class SendUseCase(
             kick()
             SendOutcome.Queued(checkNotNull(first))
         }
+
+    /** Exports board pages [indices] of [notebook]: PNG, strokes and, for notebook pages, the layout and its segments. */
+    private suspend fun exportBoard(
+        notebook: Notebook,
+        indices: List<Int>,
+        cfg: ConfigDto,
+        clientId: String,
+    ): Prepared {
+        val geometry = NotebookGeometry(notebook.canvas.w, notebook.canvas.h)
+        val parts = mutableListOf<PagePart>()
+        for (i in indices) {
+            val page = notebook.pages[i]
+            when (val r = withContext(worker) { exportBoardPage(page, notebook.canvas, cfg) }) {
+                ExportResult.Empty -> {
+                    Unit
+                }
+
+                is ExportResult.TooBig -> {
+                    return Prepared.Failed(SendOutcome.ExportFailed(i, r.reason))
+                }
+
+                is ExportResult.Exported -> {
+                    val strokes = withContext(worker) { StrokesCodec.encode(notebook.canvas, page) }
+                    val kept = strokes.takeIf { it.size <= cfg.maxStrokesBytes }
+                    // The layout's stroke indices point into the strokes part: no strokes part, no layout.
+                    val notebookPart = kept?.let { withContext(worker) { notebookLayout(clientId, page, geometry, parts.size) } }
+                    parts += PagePart(i, r.png, kept, notebookPart?.first, notebookPart?.second.orEmpty())
+                }
+            }
+        }
+        return Prepared.Parts(parts)
+    }
 
     private fun exportBoardPage(
         page: Page,
@@ -370,10 +400,43 @@ class SendUseCase(
         }
     }
 
+    /**
+     * The `layout.<part>.json` of a notebook page and the segments it sends, or null for a page with neither new
+     * handwriting rows nor text runs (plain drawing needs no layout). Segment ids carry the upload part index.
+     */
+    private fun notebookLayout(
+        clientId: String,
+        page: Page,
+        geometry: NotebookGeometry,
+        part: Int,
+    ): Pair<ByteArray, List<PendingSegment>>? {
+        val segments =
+            Segmenter.segment(page, geometry, part).segments.map {
+                PendingSegment(clientId, it.id, it.row, it.x0, it.x1, it.strokeIds)
+            }
+        if (segments.isEmpty() && page.text.isEmpty()) return null
+        return LayoutCodec.encode(page, geometry, segments, emptyList()) to segments
+    }
+
+    /**
+     * `base_version`: the conversation's latest stored spec version (what the board shows once synced), else the newest
+     * version of the sent pages' runs; null for a conversation without a server id (base_version needs one).
+     */
+    private suspend fun baseVersion(
+        serverId: String?,
+        notebook: Notebook,
+        indices: List<Int>,
+    ): Int? {
+        if (serverId == null) return null
+        return db.specDao().latest(serverId)?.version ?: indices.flatMap { notebook.pages[it].text }.maxOfOrNull { it.specVersion }
+    }
+
     private class PagePart(
         val index: Int,
         val png: ByteArray,
         val strokes: ByteArray?,
+        val layout: ByteArray? = null,
+        val pending: List<PendingSegment> = emptyList(),
     )
 }
 

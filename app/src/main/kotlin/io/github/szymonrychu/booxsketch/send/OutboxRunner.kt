@@ -39,6 +39,10 @@ class OutboxRunner(
     private val clock: () -> Long = System::currentTimeMillis,
     /** A permanently failed notes upload returns its document draft to editable (see [releaseDraft]). */
     private val annotations: AnnotationStore? = null,
+    /** Every permanently failed item, after its thread status: the board drops its pending segments (marks kept). */
+    private val onFailed: suspend (OutboxItem) -> Unit = {},
+    /** A 409 `stale_base`: a newer spec version exists, so the specs are synced and the board re-renders (Q17 A). */
+    private val onStaleBase: suspend () -> Unit = {},
 ) {
     private val mutex = Mutex()
     private val core =
@@ -69,6 +73,8 @@ class OutboxRunner(
                         failed++
                         db.threadDao().setStatus(r.item.clientId, ThreadStatus.failed(r.item.lastError))
                         releaseDraft(r.item)
+                        onFailed(r.item)
+                        if (r.error == ApiError.StaleBase) onStaleBase()
                     }
 
                     is DrainResult.WillRetry -> {
@@ -128,6 +134,8 @@ class OutboxRunner(
                             caption = pages.caption,
                             pages = pages.pages,
                             annotates = pages.annotates,
+                            // base_version needs a conversation id; a new conversation has no spec yet anyway.
+                            baseVersion = pages.baseVersion?.takeIf { serverId != null },
                         )
                     withContext(Dispatchers.IO) { Payload.writeMeta(dir, meta) }
                     item.copy(conversationServerId = serverId, conversationMode = meta.conversation)
@@ -149,18 +157,19 @@ class OutboxRunner(
             val dir = File(item.payloadDir)
             when (item.kind) {
                 OutboxKind.SKETCH -> {
-                    val (meta, pngs, strokes) =
+                    val parts =
                         withContext(Dispatchers.IO) {
                             val meta = Payload.readMeta(dir)
                             val n = meta.pages.indices
-                            Triple(
+                            SketchParts(
                                 meta,
                                 n.map { Payload.png(dir, it).readBytes() },
                                 n.map { Payload.strokes(dir, it).takeIf(File::isFile)?.readBytes() },
+                                n.map { Payload.layout(dir, it).takeIf(File::isFile)?.readBytes() },
                             )
                         }
                     // 202 and a 200 replay of the same client_id both count as accepted.
-                    val result = c.uploadSketch(meta, pngs, strokes)
+                    val result = c.uploadSketch(parts.meta, parts.pngs, parts.strokes, parts.layouts)
                     // Stored before the next item is resolved, so a later send in this new conversation reuses it.
                     // One transaction: a refresh that saw the new server conversation first left a twin row, drop it.
                     db.withTransaction {
@@ -186,6 +195,13 @@ class OutboxRunner(
                 }
             }
         }
+
+    private class SketchParts(
+        val meta: SketchMetaDto,
+        val pngs: List<ByteArray>,
+        val strokes: List<ByteArray?>,
+        val layouts: List<ByteArray?>,
+    )
 
     private suspend fun connector(): ConnectorClient = client() ?: throw ApiError.Unauthorized
 

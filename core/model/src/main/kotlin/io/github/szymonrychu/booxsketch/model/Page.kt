@@ -59,6 +59,28 @@ data class Notebook(
 
     fun select(i: Int): Notebook = if (i in pages.indices) copy(current = i) else this
 
+    /** Appends [pending] segments (per page index) to their pages; pages that no longer exist are skipped. */
+    fun addPending(pending: Map<Int, List<PendingSegment>>): Notebook =
+        copy(pages = pages.mapIndexed { i, p -> pending[i]?.let { p.copy(pendingSegments = p.pendingSegments + it) } ?: p })
+
+    /**
+     * Drops the pending segments and ops of the upload [clientId] (it failed): their strokes stay visible ink and the
+     * pages that had any count as changed again, so the next Send carries them (Q17 A: marks kept for a re-send).
+     */
+    fun dropPending(clientId: String): Notebook =
+        copy(
+            pages =
+                pages.map { p ->
+                    val segments = p.pendingSegments.filterNot { it.clientId == clientId }
+                    val ops = p.pendingOps.filterNot { it.clientId == clientId }
+                    if (segments.size == p.pendingSegments.size && ops.size == p.pendingOps.size) {
+                        p
+                    } else {
+                        p.copy(pendingSegments = segments, pendingOps = ops, changedSinceSend = true)
+                    }
+                },
+        )
+
     fun markSent(indices: Set<Int>): Notebook =
         copy(pages = pages.mapIndexed { idx, p -> if (idx in indices) p.copy(changedSinceSend = false) else p })
 }

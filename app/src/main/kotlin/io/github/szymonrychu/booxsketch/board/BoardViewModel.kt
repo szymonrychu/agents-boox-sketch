@@ -10,6 +10,11 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.hitStrokes
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.Placement
+import io.github.szymonrychu.booxsketch.model.notebook.RunPlacer
+import io.github.szymonrychu.booxsketch.model.notebook.SpecLayoutModel
+import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.snapShape
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +71,9 @@ class BoardViewModel(
 
     /** The selected page's text bitmap; created on first use (it needs Android graphics). */
     val textLayers: TextLayerCache by lazy { TextLayerCache(TextLayer(NotebookGeometry(defaultCanvas.w, defaultCanvas.h))) }
+
+    /** When a new text layer may reach the board: one hold at pen idle. */
+    val textHolds: TextLayerHolds by lazy { TextLayerHolds() }
 
     private val _saveError = MutableStateFlow<String?>(null)
 
@@ -150,6 +158,34 @@ class BoardViewModel(
      */
     fun markSentIfUnchanged(sent: Map<Int, Page>) =
         update { n -> n.markSent(sent.filter { (i, page) -> n.pages.getOrNull(i) == page }.keys) }
+
+    /** Records the segments of an upload: they wait for a spec version (grey tick on their rows). */
+    fun addPending(pending: Map<Int, List<PendingSegment>>) = update { it.addPending(pending) }
+
+    /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
+    fun dropPending(clientId: String) = update { it.dropPending(clientId) }
+
+    /** Spec [version] placed on the current notebook, without changing it (no undo entries). */
+    fun placeVersion(
+        version: Int,
+        markdown: String,
+        layout: SpecLayoutModel,
+        measure: TextMeasure,
+    ): Placement = RunPlacer.apply(_notebook.value, version, markdown, layout, measure, geometry(), undo = null)
+
+    /** Places spec [version] on the notebook; each row shift of the selected page is one undoable step. */
+    fun applyVersion(
+        version: Int,
+        markdown: String,
+        layout: SpecLayoutModel,
+        measure: TextMeasure,
+    ): Placement {
+        var placement: Placement? = null
+        update { n -> RunPlacer.apply(n, version, markdown, layout, measure, geometry(), undoStack).also { placement = it }.notebook }
+        return checkNotNull(placement)
+    }
+
+    private fun geometry() = _notebook.value.canvas.let { NotebookGeometry(it.w, it.h) }
 
     /** Writes the notebook now, cancelling a pending debounced save. */
     suspend fun flush() {

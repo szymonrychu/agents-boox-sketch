@@ -173,6 +173,15 @@ internal fun BoardScreenWith(
         }
         onDispose { chrome?.autoHideHandler = null }
     }
+    val boardSurface = remember { arrayOfNulls<TextLayerSurface>(1) }
+    DisposableEffect(input, vm) {
+        vm.textHolds.input = input
+        boardSurface[0]?.let { vm.textHolds.surface = it }
+        onDispose {
+            vm.textHolds.input = null
+            vm.textHolds.surface = null
+        }
+    }
     val popup = toolbox.popup
     val shownPage = notebook.pages[notebook.current]
     // Rendered on the main thread only when the page's text or pending rows changed (page switch, send); a new
@@ -195,6 +204,12 @@ internal fun BoardScreenWith(
             onShapeCancel = vm::onShapeCancel,
             background = background,
             textLayer = textLayer,
+            // A text layer swap holds this input, draws on this surface and waits while the pen is active.
+            onSurface = {
+                boardSurface[0] = it
+                vm.textHolds.surface = it
+            },
+            onPenActivity = vm.textHolds::onPenActivity,
             // A finger tap on the board dismisses every overlay in one burst.
             onBoardTap = { control.dismissAll(ui) },
             // Strip, popup or panel open: raw drawing is held off and a pen or finger down on the board dismisses them.

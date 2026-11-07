@@ -68,6 +68,7 @@ class BoardChromeWiringTest {
     private val input = FreezingInput(strokes.receiveAsFlow())
     private val state = ShellState()
     private var host: View? = null
+    private var shownVm: BoardViewModel? = null
 
     private fun vm() =
         BoardViewModel(NotebookStore(File(tmp.root, "n.json")), CoroutineScope(Dispatchers.Unconfined), Dispatchers.Unconfined)
@@ -82,7 +83,7 @@ class BoardChromeWiringTest {
         val registry = TabRegistry()
         registry.register(TabSpec(BOARD_TAB_ID, "Drawings", 10) { })
         registry.register(TabSpec("spec", "Spec", 20) { })
-        val vm = vm()
+        val vm = vm().also { shownVm = it }
         compose.setContent {
             host = LocalView.current
             val shellModifier = size?.let { Modifier.size(it.value) } ?: Modifier
@@ -998,5 +999,19 @@ class BoardChromeWiringTest {
         compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
         assertThat(emptyStartsWhileEnabled()).isEmpty()
         assertThat(outstanding()).isEqualTo(dismissHold())
+    }
+
+    @Test
+    fun text_holds_get_the_board_input_and_surface_and_its_pen_activity() {
+        show()
+        compose.waitForIdle()
+        val holds = checkNotNull(shownVm).textHolds
+        assertThat(holds.input).isSameInstanceAs(input)
+        assertThat(holds.surface).isInstanceOf(BoardSurfaceView::class.java)
+        assertThat(holds.idleNow()).isTrue()
+        strokes.trySend(StrokeEvent.Erase(10f, 10f, 4f))
+        compose.waitForIdle()
+        // A pen event just happened: a text swap now waits for the pen idle time.
+        assertThat(holds.idleNow()).isFalse()
     }
 }
