@@ -294,7 +294,8 @@ class AppContainer(
     /**
      * While the app is paired and in the foreground: applies the spec versions of the board's conversation as they are
      * stored, and polls the conversations while the board waits for a version (pending segments), since nothing else
-     * fetches specs when the Documents tab is closed. A deleted or pruned conversation leaves the board.
+     * fetches specs when the Documents tab is closed. The poll backs off from 5 s to 1 min and stops after about half
+     * an hour ([pendingPollDelay]); a new upload starts it again. A deleted or pruned conversation leaves the board.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun runNotebookSync() =
@@ -323,11 +324,12 @@ class AppContainer(
             }
             launch {
                 boardViewModel.notebook
-                    .map { n -> n.pages.any { it.pendingSegments.isNotEmpty() } }
+                    .map { n -> n.pages.flatMap { p -> p.pendingSegments.map { it.clientId } }.toSet() }
                     .distinctUntilChanged()
                     .collectLatest { waiting ->
-                        while (waiting) {
-                            delay(PENDING_POLL_MS)
+                        var attempt = 0
+                        while (waiting.isNotEmpty()) {
+                            delay(pendingPollDelay(attempt++) ?: break)
                             conversations.refresh()
                         }
                     }
@@ -496,8 +498,18 @@ class AppContainer(
         private const val DOCUMENT_DPI = 300f
         private const val DIAGNOSTICS_ORDER = 900
 
-        /** How often the conversations are refreshed while the board waits for a spec version. */
-        private const val PENDING_POLL_MS = 5_000L
+        private const val PENDING_POLL_FIRST_MS = 5_000L
+        private const val PENDING_POLL_MAX_MS = 60_000L
+        private const val PENDING_POLL_ATTEMPTS = 33
+
+        /**
+         * The wait before refresh number [attempt] (0-based) while the board waits for a spec version: 5 s doubling up
+         * to 1 min, null after [PENDING_POLL_ATTEMPTS] refreshes (about half an hour), so a translation that never
+         * answers does not poll forever.
+         */
+        internal fun pendingPollDelay(attempt: Int): Long? =
+            if (attempt >= PENDING_POLL_ATTEMPTS) null else minOf(PENDING_POLL_FIRST_MS shl minOf(attempt, 4), PENDING_POLL_MAX_MS)
+
         const val DRAWING_TAB_ORDER = 10
         const val TASKS_TAB_ORDER = 20
         const val DOCUMENTS_TAB_ORDER = 30

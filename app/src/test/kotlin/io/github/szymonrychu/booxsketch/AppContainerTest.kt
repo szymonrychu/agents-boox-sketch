@@ -156,4 +156,19 @@ class AppContainerTest {
         assertThat(ids).containsAtLeast("conversations", "documents", "diagnostics").inOrder()
         PanelTabs.clearForTest()
     }
+
+    @Test
+    fun pending_poll_backs_off_and_stops() {
+        val delays =
+            generateSequence(0) { it + 1 }
+                .map(AppContainer::pendingPollDelay)
+                .takeWhile { it != null }
+                .map { it!! }
+                .toList()
+        assertThat(delays.take(4)).containsExactly(5_000L, 10_000L, 20_000L, 40_000L).inOrder()
+        assertThat(delays.max()).isEqualTo(60_000L)
+        // A translation that never answers stops the polling after about half an hour.
+        assertThat(delays.sum()).isAtMost(31 * 60_000L)
+        assertThat(delays.sum()).isAtLeast(29 * 60_000L)
+    }
 }
