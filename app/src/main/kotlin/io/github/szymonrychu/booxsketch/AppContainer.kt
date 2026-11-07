@@ -31,6 +31,7 @@ import io.github.szymonrychu.booxsketch.documents.DocumentsViewModel
 import io.github.szymonrychu.booxsketch.documents.FeedbackSync
 import io.github.szymonrychu.booxsketch.documents.MarkdownPaginator
 import io.github.szymonrychu.booxsketch.documents.MermaidRenderer
+import io.github.szymonrychu.booxsketch.documents.ShareBundle
 import io.github.szymonrychu.booxsketch.documents.SourcesViewModel
 import io.github.szymonrychu.booxsketch.documents.SpecImageCache
 import io.github.szymonrychu.booxsketch.documents.SpecSync
@@ -145,6 +146,8 @@ class AppContainer(
             outboxRoot.deleteRecursively()
             annotationStore.deleteAll()
             notebookFiles.deleteAll()
+            specImages.deleteAll()
+            File(app.cacheDir, ShareBundle.DIR).deleteRecursively()
             tokenStore.clear()
         }
         outboxScheduler.cancelAll()
@@ -262,7 +265,7 @@ class AppContainer(
             store = annotationStore,
             layout = documentLayout,
             scope = appScope,
-            prefetch = { markdown -> SpecImageCache.ids(markdown).forEach { specImages.get(row.serverId, it) } },
+            prefetch = { markdown -> specImages.prefetch(row.serverId, markdown) },
         ).also { vm ->
             vm.revertTo = { version, latest ->
                 _sendMessage.value = sendOutcomeText(sendUseCase.revert(vm.conversationLocalId, version, latest))
@@ -370,7 +373,7 @@ class AppContainer(
             outboxRoot = outboxRoot,
             kick = ::kickOutbox,
             annotations = annotationStore,
-            // The export shows what the user saw: text and visible ink, without the pending ticks.
+            // The export shows text and visible ink, without the pending ticks and the region frames.
             boardPage = { page -> boardViewModel.textLayers.layer.render(page.copy(pendingSegments = emptyList()), null) },
         )
     }

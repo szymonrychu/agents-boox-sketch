@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = PairedApp::class, sdk = [35])
@@ -32,6 +33,20 @@ class UnpairTest {
             assertThat(c.tokenStore.token()).isNull()
             assertThat(c.tokenStore.origin()).isNull()
             assertThat(c.notebookStore.load()).isNull()
+        }
+
+    @Test
+    fun unpair_deletes_spec_images_and_share_zips() =
+        runBlocking {
+            val app = ApplicationProvider.getApplicationContext<App>()
+            val c: AppContainer = app.container
+            val image = File(app.filesDir, "spec-images/conv-1/reg-1.png").also { it.parentFile?.mkdirs() }
+            image.writeBytes(byteArrayOf(1))
+            val zip = File(app.cacheDir, "share/spec-v1.zip").also { it.parentFile?.mkdirs() }
+            zip.writeBytes(byteArrayOf(1))
+            c.unpair()
+            assertThat(image.exists()).isFalse()
+            assertThat(zip.exists()).isFalse()
         }
 
     @Test

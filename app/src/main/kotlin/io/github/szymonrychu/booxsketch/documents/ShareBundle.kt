@@ -21,7 +21,7 @@ object ShareBundle {
 
     fun needsBundle(markdown: String): Boolean = SpecImageCache.ids(markdown).isNotEmpty()
 
-    /** Writes `spec-v<version>.zip` into [dir] (replacing an earlier one) and returns it. */
+    /** Writes `spec-v<version>.zip` into [dir] (after deleting its earlier files) and returns it. */
     suspend fun build(
         dir: File,
         version: Int,
@@ -31,6 +31,8 @@ object ShareBundle {
         val images = SpecImageCache.ids(markdown).map { it to image(it) }
         return withContext(Dispatchers.IO) {
             dir.mkdirs()
+            // Earlier bundles hold spec content and are of no use once a new one is shared.
+            dir.listFiles().orEmpty().forEach { it.delete() }
             val zip = File(dir, "spec-v$version.zip")
             ZipOutputStream(zip.outputStream().buffered()).use { out ->
                 out.entry("spec-v$version.md", markdown.toByteArray(Charsets.UTF_8))

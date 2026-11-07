@@ -2,6 +2,9 @@ package io.github.szymonrychu.booxsketch.documents
 
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -21,7 +24,7 @@ class SpecImageCacheTest {
 
     private lateinit var server: MockWebServer
     private val paths = mutableListOf<String>()
-    private val png = byteArrayOf(-119, 80, 78, 71, 1, 2, 3)
+    private val png = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3)
     private val region = "0b7f6a1e-2c3d-4e5f-8a9b-0c1d2e3f4a5b"
 
     @Before
@@ -73,6 +76,51 @@ class SpecImageCacheTest {
             val missing = "11111111-2222-4333-8444-555555555555"
             assertThat(cache().get("srv-1", missing)).isNull()
             assertThat(cache().cached("srv-1", missing)).isNull()
+        }
+
+    @Test
+    fun a_body_that_is_not_a_png_is_not_kept() =
+        runBlocking<Unit> {
+            png[0] = 0
+            val c = cache()
+            assertThat(c.get("srv-1", region)).isNull()
+            assertThat(c.cached("srv-1", region)).isNull()
+            assertThat(File(tmp.root, "spec-images/srv-1").listFiles().orEmpty()).isEmpty()
+        }
+
+    @Test
+    fun concurrent_gets_of_one_image_all_succeed() =
+        runBlocking<Unit> {
+            val c = cache()
+            val all = (1..8).map { async(Dispatchers.IO) { c.get("srv-1", region) } }.awaitAll()
+            assertThat(all.all { it contentEquals png }).isTrue()
+            assertThat(c.cached("srv-1", region)!!.readBytes()).isEqualTo(png)
+            assertThat(File(tmp.root, "spec-images/srv-1").listFiles().orEmpty().map { it.name }).containsExactly("$region.png")
+        }
+
+    @Test
+    fun prefetch_keeps_what_is_available_and_survives_what_is_not() =
+        runBlocking<Unit> {
+            val missing = "11111111-2222-4333-8444-555555555555"
+            val md = "![image](images/$region.png)\n\n![image](images/$missing.png)\n"
+            val c = cache()
+            c.prefetch("srv-1", md)
+            assertThat(c.cached("srv-1", region)).isNotNull()
+            assertThat(c.cached("srv-1", missing)).isNull()
+            // Offline: nothing thrown, nothing kept.
+            val offline = cache(online = false)
+            offline.deleteAll()
+            offline.prefetch("srv-1", md)
+            assertThat(offline.cached("srv-1", region)).isNull()
+        }
+
+    @Test
+    fun delete_all_removes_every_conversation() =
+        runBlocking<Unit> {
+            val c = cache()
+            c.get("srv-1", region)
+            c.deleteAll()
+            assertThat(File(tmp.root, "spec-images").exists()).isFalse()
         }
 
     @Test
