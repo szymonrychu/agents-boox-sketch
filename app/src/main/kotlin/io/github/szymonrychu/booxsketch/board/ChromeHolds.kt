@@ -129,7 +129,7 @@ internal class ChromeHolds(
          * last measured. 600 ms: the full refresh the relayout asks for runs 300 ms after the draw
          * ([io.github.szymonrychu.booxsketch.ink.InputSelector.RAW_CALLBACK_TIMEOUT_MS] is 300 ms too),
          * so a healthy report (one or two frames) comes well inside it, while a stuck hold is still
-         * gone before the auto-hide gap ([io.github.szymonrychu.booxsketch.ui.ShellState.AUTO_HIDE_AFTER_STROKE_MS], 600 ms).
+         * gone well within a second.
          */
         const val RELAYOUT_REPORT_TIMEOUT_MS = 600L
     }

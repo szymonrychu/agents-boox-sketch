@@ -25,9 +25,8 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
-import kotlinx.coroutines.delay
 
-/** What the board slot sees of the shell: tab bar visibility, its window rects and stroke feedback. */
+/** What the board slot sees of the shell: tab bar visibility and its window rects. */
 interface BoardChrome {
     val visible: Boolean
 
@@ -40,13 +39,6 @@ interface BoardChrome {
     /** System bar insets the chrome drawn over the board (tab bar, dock) keeps clear; the board itself ignores them. */
     val insets: WindowInsets
 
-    /**
-     * Set by the board slot: runs the auto-hide on its terms (input hold, full refresh) and returns
-     * false to refuse it, e.g. while a stroke is in progress; the shell then retries after a quiet gap.
-     * Null: the shell hides the chrome directly.
-     */
-    var autoHideHandler: (() -> Boolean)?
-
     /** The side panel overlay is shown (hidden by default); [hide] hides it too. */
     val panelVisible: Boolean
 
@@ -57,8 +49,6 @@ interface BoardChrome {
     fun showPanel()
 
     fun hidePanel()
-
-    fun onStrokeCommitted()
 }
 
 /** Called after a tab change that does not land on the board, to clear e-ink ghosting. */
@@ -87,15 +77,6 @@ private class ShellChrome(
             state.dockSize = value
         }
 
-    override var autoHideHandler: (() -> Boolean)? = null
-
-    /** True when the auto-hide is done (the chrome is hidden); false when the board slot refused it. */
-    fun requestAutoHide(): Boolean =
-        autoHideHandler?.invoke() ?: run {
-            state.hide()
-            true
-        }
-
     override fun show() = state.show()
 
     override fun hide() = state.hide()
@@ -105,13 +86,11 @@ private class ShellChrome(
     override fun showPanel() = state.showPanel()
 
     override fun hidePanel() = state.hidePanel()
-
-    override fun onStrokeCommitted() = state.onStrokeCommitted()
 }
 
 /**
- * Top-level shell: the board tab hosts [board] full screen with the tab bar overlaid (and
- * auto-hidden after strokes, together with the side panel); with a single tab there is no tab bar.
+ * Top-level shell: the board tab hosts [board] full screen with the tab bar overlaid (it never hides on
+ * its own, only through the board's hide action); with a single tab there is no tab bar.
  * Every other tab shows its content below an always visible tab bar.
  * The board is disposed while another tab is selected.
  */
@@ -131,13 +110,6 @@ fun AppShell(
     val selectedId = if (specs.any { it.id == state.selected }) state.selected else BOARD_TAB_ID
     val onBoard = selectedId == BOARD_TAB_ID
 
-    LaunchedEffect(state.strokeTick) {
-        if (state.strokeTick > 0) {
-            do {
-                delay(ShellState.AUTO_HIDE_AFTER_STROKE_MS)
-            } while (!chrome.requestAutoHide())
-        }
-    }
     var firstTab by remember { mutableStateOf(true) }
     LaunchedEffect(selectedId) {
         if (firstTab) {

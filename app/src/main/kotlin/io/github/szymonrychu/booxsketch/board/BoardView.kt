@@ -160,8 +160,8 @@ class InputGate(
 
 /**
  * Recognises a finger tap: a finger ACTION_UP within [slop] px and [timeoutMs] of its ACTION_DOWN,
- * with a single pointer and no stroke in progress at either end. Stylus taps are strokes (they arm
- * the auto-hide instead), and on inputs that draw with the finger a finger tap is a stroke too.
+ * with a single pointer and no stroke in progress at either end. Stylus taps are strokes, and on
+ * inputs that draw with the finger a finger tap is a stroke too.
  */
 internal class TapDetector(
     private val slop: Float,
