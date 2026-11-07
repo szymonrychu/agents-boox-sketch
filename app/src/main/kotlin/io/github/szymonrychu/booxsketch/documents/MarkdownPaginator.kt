@@ -19,12 +19,14 @@ import org.intellij.markdown.parser.MarkdownParser
  * Lays a markdown document out as fixed-width pages of bitmaps. Top-level blocks are measured with
  * [android.text.StaticLayout] at [DocumentLayout.widthPx] and drawn onto page bitmaps by the page packer, so the view
  * and the export share the exact same pixels. [mermaid] draws diagram blocks; without it, or when it returns null, the
- * source is shown as code text.
+ * source is shown as code text. A paragraph that is only a region image reference (`![image](images/<id>.png)`) is
+ * drawn from [images] scaled to the column width; an image [images] does not have stays the literal `[image]`.
  */
 class MarkdownPaginator(
     private val layout: DocumentLayout,
     private val mermaid: BlockImage? = null,
     private val diagramBudgetMs: Long = MermaidRenderer.DOCUMENT_BUDGET_MS,
+    private val images: (regionId: String) -> Bitmap? = { null },
 ) {
     private val styles = TextStyles(layout)
     private val flavour = GFMFlavourDescriptor()
@@ -96,7 +98,7 @@ class MarkdownPaginator(
                 }
 
                 type == MarkdownElementTypes.PARAGRAPH -> {
-                    textBlock(inline(node, text), from, to)
+                    regionImage(node, text, from, to) ?: textBlock(inline(node, text), from, to)
                 }
 
                 type == MarkdownElementTypes.UNORDERED_LIST || type == MarkdownElementTypes.ORDERED_LIST -> {
@@ -127,6 +129,18 @@ class MarkdownPaginator(
                     textBlock(SpannableStringBuilder(node.getTextInNode(text).toString().trim()), from, to)
                 }
             }
+        }
+
+        /** An image block for a paragraph that is only a region image reference [images] has, else null. */
+        private fun regionImage(
+            node: ASTNode,
+            text: String,
+            from: Int,
+            to: Int,
+        ): RenderedBlock? {
+            val id = IMAGE_PARAGRAPH.matchEntire(node.getTextInNode(text).trim())?.groupValues?.get(1) ?: return null
+            val bitmap = images(id) ?: return null
+            return ImageBlock(scaleToWidth(bitmap, styles.textWidth, layout.pageHeightPx - 2 * PAGE_MARGIN_V), styles.spacing, from, to)
         }
 
         private fun heading(
@@ -448,6 +462,7 @@ class MarkdownPaginator(
             )
         val LINK_TYPES: Set<IElementType> =
             setOf(MarkdownElementTypes.INLINE_LINK, MarkdownElementTypes.FULL_REFERENCE_LINK, MarkdownElementTypes.SHORT_REFERENCE_LINK)
+        val IMAGE_PARAGRAPH = Regex("""!\[[^\]]*]\(images/([A-Za-z0-9-]+)\.png\)""")
         const val PAGE_MARGIN_V = 48
         const val QUOTE_INDENT = 40
         const val LIST_INDENT = 36

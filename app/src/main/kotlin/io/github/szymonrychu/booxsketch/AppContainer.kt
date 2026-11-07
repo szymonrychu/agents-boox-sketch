@@ -2,6 +2,7 @@ package io.github.szymonrychu.booxsketch
 
 import android.app.Application
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -32,6 +33,7 @@ import io.github.szymonrychu.booxsketch.documents.FeedbackSync
 import io.github.szymonrychu.booxsketch.documents.MarkdownPaginator
 import io.github.szymonrychu.booxsketch.documents.MermaidRenderer
 import io.github.szymonrychu.booxsketch.documents.SourcesViewModel
+import io.github.szymonrychu.booxsketch.documents.SpecImageCache
 import io.github.szymonrychu.booxsketch.documents.SpecSync
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
@@ -229,8 +231,12 @@ class AppContainer(
             },
             annotations = annotationStore,
             notebooks = notebookFiles,
+            specImages = specImages,
         )
     }
+
+    /** Region images of specs, per conversation, under `files/spec-images/`. */
+    val specImages: SpecImageCache by lazy { SpecImageCache(File(dir, "spec-images"), ::connector) }
 
     /** The document the user opened from the Documents tab; null shows the board and panel. */
     val openDocument = MutableStateFlow<DocumentRow?>(null)
@@ -248,10 +254,16 @@ class AppContainer(
             conversationLocalId = row.conversationLocalId,
             serverId = row.serverId,
             db = database,
-            paginate = { markdown -> withContext(Dispatchers.Default) { MarkdownPaginator(documentLayout, mermaid).paginate(markdown) } },
+            paginate = { markdown ->
+                withContext(Dispatchers.Default) {
+                    val images = { id: String -> specImages.cached(row.serverId, id)?.let { BitmapFactory.decodeFile(it.path) } }
+                    MarkdownPaginator(documentLayout, mermaid, images = images).paginate(markdown)
+                }
+            },
             store = annotationStore,
             layout = documentLayout,
             scope = appScope,
+            prefetch = { markdown -> SpecImageCache.ids(markdown).forEach { specImages.get(row.serverId, it) } },
         ).also { vm ->
             vm.revertTo = { version, latest ->
                 _sendMessage.value = sendOutcomeText(sendUseCase.revert(vm.conversationLocalId, version, latest))

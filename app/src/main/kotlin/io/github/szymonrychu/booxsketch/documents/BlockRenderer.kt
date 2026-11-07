@@ -79,6 +79,21 @@ class ImageBlock(
     }
 }
 
+/**
+ * [bitmap] scaled to [width] with its aspect kept (a region image fills the text column, spec 3.6), or less when that
+ * would be taller than [maxHeight].
+ */
+fun scaleToWidth(
+    bitmap: Bitmap,
+    width: Int,
+    maxHeight: Int,
+): Bitmap {
+    val scale = minOf(width.toFloat() / bitmap.width, maxHeight.toFloat() / bitmap.height)
+    val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+    val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+    return if (w == bitmap.width && h == bitmap.height) bitmap else Bitmap.createScaledBitmap(bitmap, w, h, true)
+}
+
 /** A thin horizontal rule. */
 class RuleBlock(
     private val width: Int,

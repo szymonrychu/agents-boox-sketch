@@ -123,6 +123,31 @@ class DocumentScreenshotTest {
         content(readOnly = true, version = 1)
         compose.onRoot().captureRoboImage("src/test/screenshots/document_older_version_read_only.png")
     }
+
+    @Test
+    fun document_with_inline_image() {
+        val sketch =
+            Bitmap.createBitmap(600, 400, Bitmap.Config.ARGB_8888).apply {
+                eraseColor(Color.WHITE)
+                val c = android.graphics.Canvas(this)
+                val ink =
+                    android.graphics.Paint().apply {
+                        color = Color.BLACK
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = 6f
+                    }
+                c.drawRect(100f, 150f, 500f, 380f, ink)
+                c.drawLine(100f, 150f, 300f, 30f, ink)
+                c.drawLine(300f, 30f, 500f, 150f, ink)
+            }
+        val md = "# House\n\nThe front view:\n\n![image](images/r1.png)\n\nTwo floors, one door."
+        val rendered = MarkdownPaginator(layout, images = { id -> sketch.takeIf { id == "r1" } }).paginate(md).first()
+        val file = File(tmp.root, "image.0.png")
+        file.outputStream().use { rendered.bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val state = DocumentViewState(3, 3, listOf(FrozenPage(file, rendered.sourceLines)), 0, true, loaded = true)
+        compose.setContent { EinkTheme { DocumentScreen("House", state, listOf(1, 2, 3), {}, {}, {}, {}, {}, {}) } }
+        compose.onRoot().captureRoboImage("src/test/screenshots/document_with_inline_image.png")
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)
