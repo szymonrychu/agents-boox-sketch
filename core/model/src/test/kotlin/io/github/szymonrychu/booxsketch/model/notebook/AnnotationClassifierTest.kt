@@ -347,11 +347,11 @@ class AnnotationClassifierTest {
                     listOf(milk),
                     circle("L", 600f, 800f, 100f),
                     word("n1", 530f, 670f, 800f),
-                    *penArrow("A", 500f, 800f, 240f, textY(4)).toTypedArray(),
+                    arrow("A", 500f, 800f, 240f, textY(4)),
                 ),
             )
-        // The arrow head arm may read as a strike over the words; only the insert is under test.
-        assertThat(r.ops.map { it.kind }).doesNotContain(OpKind.INSERT)
+        assertThat(r.ops).isEmpty()
+        assertThat(r.opStrokeIds).isEmpty()
     }
 
     @Test
@@ -362,10 +362,10 @@ class AnnotationClassifierTest {
                     listOf(milk),
                     circle("L", 1150f, 450f, 100f),
                     word("n1", 1080f, 1220f, 450f),
-                    *penArrow("A", 1050f, 800f, 240f, textY(4)).toTypedArray(),
+                    arrow("A", 1050f, 800f, 240f, textY(4)),
                 ),
             )
-        // The arrow head arm may read as a strike over the words; only the insert is under test.
-        assertThat(r.ops.map { it.kind }).doesNotContain(OpKind.INSERT)
+        assertThat(r.ops).isEmpty()
+        assertThat(r.opStrokeIds).isEmpty()
     }
 }
