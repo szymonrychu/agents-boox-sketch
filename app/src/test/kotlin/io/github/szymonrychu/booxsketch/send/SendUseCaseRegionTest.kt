@@ -54,6 +54,7 @@ class SendUseCaseRegionTest {
     private val requests = mutableListOf<RecordedRequest>()
     private val crops = mutableListOf<String>()
     private var ids = 0
+    private var cfg = ConfigCache.DEFAULT
 
     private fun writing(
         id: String,
@@ -119,7 +120,7 @@ class SendUseCaseRegionTest {
                 conversations = repo,
                 board = board,
                 export = { _, _, _ -> ExportResult.Exported(ByteArray(64) { 1 }, 300, 400) },
-                limits = { ConfigCache.DEFAULT },
+                limits = { cfg },
                 outboxRoot = outboxRoot,
                 kick = {},
                 worker = Dispatchers.Unconfined,
@@ -132,17 +133,14 @@ class SendUseCaseRegionTest {
         runBlocking {
             db.conversationDao().upsert(ConversationEntity("local-1", "srv-1", "t", 0, 1))
             repo.select("local-1")
-            db.specDao().upsert(
-                SpecEntity(
-                    "srv-1",
-                    3,
-                    "x",
-                    "2026-11-07T00:00:00Z",
-                    layout = """{"lines":[{"line_id":"L1","source_line":1,"origin":null}]}""",
-                ),
-            )
+            spec(3, """{"lines":[{"line_id":"L1","source_line":1,"origin":null}]}""")
         }
     }
+
+    private suspend fun spec(
+        version: Int,
+        layout: String,
+    ) = db.specDao().upsert(SpecEntity("srv-1", version, "x", "2026-11-07T00:00:00Z", layout = layout))
 
     @After
     fun tearDown() {
@@ -252,6 +250,76 @@ class SendUseCaseRegionTest {
             val layout = layoutOf(clientId)
             assertThat(layout.ops).isEmpty()
             assertThat(layout.segments.flatMap { it.strokes }).containsExactly(2)
+            assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
+            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+        }
+
+    @Test
+    fun region_sent_as_op_after_first_version_without_other_changes() =
+        runBlocking<Unit> {
+            db.specDao().deleteFor("srv-1")
+            board.notebook = Notebook(CANVAS, listOf(Page(listOf(region("r", 4, 9), writing("in", 6, 200f, 400f)), true)), 0)
+            useCase.send(all = false, caption = null)
+            assertThat(board.notebook.pages[0].changedSinceSend).isFalse()
+            // A version now exists: the region waiting as plain drawing is sent as its image op, though nothing else changed.
+            spec(1, """{"lines":[{"line_id":"L1","source_line":1,"origin":null}]}""")
+            val second = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(layoutOf(second).ops.single().kind).isEqualTo("image")
+            // And once the op is pending, nothing is left to send.
+            assertThat(useCase.send(all = false, caption = null)).isEqualTo(SendOutcome.NothingToSend)
+        }
+
+    @Test
+    fun five_regions_without_a_spec_version_are_not_refused() =
+        runBlocking<Unit> {
+            db.specDao().deleteFor("srv-1")
+            val regions = (0 until 5).map { region("r$it", it * 3, it * 3 + 2) }
+            board.notebook = Notebook(CANVAS, listOf(Page(regions + writing("w", 20), true)), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
+            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+        }
+
+    @Test
+    fun after_line_is_the_base_line_ending_nearest_above_the_region() =
+        runBlocking<Unit> {
+            spec(
+                4,
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":null},{"line_id":"L2","source_line":2,"origin":null}]}""",
+            )
+            val page = Page(listOf(region("r", 5, 9)), true, text = listOf(run("L1", 1), run("L2", 3), run("L9", 4), run("L2b", 7)))
+            board.notebook = Notebook(CANVAS, listOf(page), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            // L9 is not in the base version and L2b lies inside the region: the nearest base line above is L2.
+            assertThat(
+                layoutOf(clientId)
+                    .ops
+                    .single()
+                    .region!!
+                    .afterLine,
+            ).isEqualTo("L2")
+        }
+
+    @Test
+    fun after_line_is_null_when_no_base_line_is_above() =
+        runBlocking<Unit> {
+            board.notebook = Notebook(CANVAS, listOf(Page(listOf(region("r", 1, 3)), true, text = listOf(run("L1", 6)))), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(
+                layoutOf(clientId)
+                    .ops
+                    .single()
+                    .region!!
+                    .afterLine,
+            ).isNull()
+        }
+
+    @Test
+    fun strokes_over_the_cap_send_the_region_as_drawing_without_an_op() =
+        runBlocking<Unit> {
+            cfg = ConfigCache.DEFAULT.copy(maxStrokesBytes = 1)
+            board.notebook = Notebook(CANVAS, listOf(Page(listOf(region("r", 4, 9), writing("in", 6, 200f, 400f)), true)), 0)
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
             assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
             assertThat(board.notebook.pages[0].pendingOps).isEmpty()
         }

@@ -150,15 +150,15 @@ class SendUseCase(
         mutex.withLock {
             val cfg = limits()
             val notebook = board.notebook()
+            // Read without creating a conversation: a refused send must leave none behind.
+            val base = base(conversations.peekCurrent()?.serverId)
             val indices =
-                when (val sel = selectPagesForSend(notebook, all, cfg.maxPages)) {
+                when (val sel = selectPagesForSend(notebook, all, cfg.maxPages, regionsSendable = base != null)) {
                     SendSelection.NothingToSend -> return@withLock SendOutcome.NothingToSend
                     is SendSelection.TooManyPages -> return@withLock SendOutcome.TooManyPages(sel.count, sel.max)
                     is SendSelection.Pages -> sel.indices
                 }
             val clientId = newId()
-            // Read without creating a conversation: a refused send must leave none behind.
-            val base = base(conversations.peekCurrent()?.serverId)
             val parts =
                 when (val r = exportBoard(notebook, indices, cfg, clientId, base)) {
                     is Prepared.Failed -> return@withLock r.outcome
@@ -266,9 +266,12 @@ class SendUseCase(
         base: Base?,
     ): Prepared {
         val geometry = NotebookGeometry(notebook.canvas.w, notebook.canvas.h)
-        for (i in indices) {
-            if (ImageRegions.unsent(notebook.pages[i]).size > MAX_REGIONS_PER_PAGE) {
-                return Prepared.Failed(SendOutcome.TooManyRegions(i, MAX_REGIONS_PER_PAGE))
+        // The cap only matters when ops will be built: without a base version the regions go as plain drawing.
+        if (base != null) {
+            for (i in indices) {
+                if (ImageRegions.unsent(notebook.pages[i]).size > MAX_REGIONS_PER_PAGE) {
+                    return Prepared.Failed(SendOutcome.TooManyRegions(i, MAX_REGIONS_PER_PAGE))
+                }
             }
         }
         val parts = mutableListOf<PagePart>()
