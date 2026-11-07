@@ -160,19 +160,6 @@ internal fun BoardScreenWith(
         }
     val dockVisible = chrome?.visible ?: true
     val control = OverlayControl(chrome, holds, toolbox, hasPanel = panel != null)
-    // Auto-hide goes through the same hold and full refresh as a tap; it is refused while a stroke is in progress
-    // (the hold restarts the input and would drop that stroke), and the shell retries after the next quiet gap.
-    DisposableEffect(chrome, input, ui) {
-        chrome?.autoHideHandler = {
-            if (input.strokeInProgress) {
-                false
-            } else {
-                control.dismissAll(ui)
-                true
-            }
-        }
-        onDispose { chrome?.autoHideHandler = null }
-    }
     val boardSurface = remember { arrayOfNulls<TextLayerSurface>(1) }
     DisposableEffect(input, vm) {
         vm.textHolds.input = input
@@ -195,10 +182,7 @@ internal fun BoardScreenWith(
         BoardView(
             notebook = notebook,
             input = input,
-            onStroke = {
-                vm.onStroke(it)
-                chrome?.onStrokeCommitted()
-            },
+            onStroke = vm::onStroke,
             onErase = vm::onErase,
             modifier = Modifier.fillMaxSize(),
             exclude = exclude,
@@ -213,10 +197,11 @@ internal fun BoardScreenWith(
                 vm.textHolds.surface = it
             },
             onPenActivity = vm.textHolds::onPenActivity,
-            // A finger tap on the board dismisses every overlay in one burst.
+            // A finger tap on the board closes the popup and the panel in one burst; the strip stays.
             onBoardTap = { control.dismissAll(ui) },
-            // Strip, popup or panel open: raw drawing is held off and a pen or finger down on the board dismisses them.
-            dismissMode = control.anyVisible,
+            // Popup or panel open: raw drawing is held off and a pen or finger down on the board closes them. The strip
+            // never counts: it stays open and never hides on its own (user decision 2026-11-07), and the board is free.
+            dismissMode = control.anyDismissable,
             onDismiss = { control.dismissAll(ui) },
         )
         // The board ignores system bars; the dock and the panel keep clear of them. The strip also starts below
@@ -363,7 +348,8 @@ private class OverlayControl(
     private val toolbox: ToolboxState,
     private val hasPanel: Boolean,
 ) {
-    val anyVisible: Boolean get() = chrome != null && (chrome.visible || chrome.panelVisible)
+    /** A popup or the panel is open: what a touch on the board closes. The strip is not one of them. */
+    val anyDismissable: Boolean get() = chrome != null && (toolbox.popup != null || chrome.panelVisible)
 
     private fun change(
         key: String,
@@ -378,11 +364,15 @@ private class OverlayControl(
 
     fun hidePanel() = change(PANEL_KEY, chrome != null && hasPanel, false) { chrome?.hidePanel() }
 
-    /** Full refresh plus [hideAll] when anything is shown; with everything hidden it does nothing (no refresh). */
+    /**
+     * Full refresh, then the popup and the panel close in one burst; the strip stays. With neither open it does nothing
+     * (no refresh).
+     */
     fun dismissAll(ui: UiRefresh) {
-        if (!anyVisible) return
+        if (!anyDismissable) return
         ui.chromeChanged()
-        hideAll()
+        toolbox.close()
+        if (chrome?.panelVisible == true) hidePanel()
     }
 
     /** Hides the dock and the panel in one burst: one hold, released once both report their hidden state. */

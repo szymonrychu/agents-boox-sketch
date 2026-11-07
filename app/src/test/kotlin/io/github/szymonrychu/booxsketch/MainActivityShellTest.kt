@@ -18,7 +18,6 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.tasks.TASKS_TAB_ID
 import io.github.szymonrychu.booxsketch.ui.BOARD_TAB_ID
-import io.github.szymonrychu.booxsketch.ui.ShellState
 import io.github.szymonrychu.booxsketch.ui.TAG_TAB_BAR
 import io.github.szymonrychu.booxsketch.ui.TAG_TAB_PREFIX
 import org.junit.Rule
@@ -26,6 +25,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+
+/** Well past the 600 ms stroke auto-hide gap the shell had before 0.17.1. */
+private const val NEVER_HIDES_AFTER_MS = 2_000L
 
 /** MainActivity hosts the tabbed AppShell with the board as the Drawing tab and the side panel over it. */
 @RunWith(RobolectricTestRunner::class)
@@ -53,16 +55,17 @@ class MainActivityShellTest {
     }
 
     @Test
-    fun chrome_is_wired_so_auto_hide_works() {
+    fun a_committed_stroke_never_hides_the_strip() {
+        // User decision 2026-11-07: the left strip stays open from launch and never hides on its own.
         waitFor(TAG_DOCK)
         compose.mainClock.autoAdvance = false
         FreezingInputApp.strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        compose.mainClock.advanceTimeBy(NEVER_HIDES_AFTER_MS)
         compose.mainClock.autoAdvance = true
         compose.waitForIdle()
 
-        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
-        compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_INDICATOR).assertDoesNotExist()
     }
 
     @Test

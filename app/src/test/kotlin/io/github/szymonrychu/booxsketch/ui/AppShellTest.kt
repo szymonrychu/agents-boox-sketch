@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -133,62 +132,6 @@ abstract class AppShellTestBase {
         compose.runOnIdle { assertThat(boardEntered).isEqualTo(2) }
     }
 
-    /** Commits a stroke and applies the snapshot write, which the paused test clock would defer. */
-    private fun strokeCommitted() {
-        compose.runOnIdle {
-            chrome!!.onStrokeCommitted()
-            Snapshot.sendApplyNotifications()
-        }
-    }
-
-    @Test
-    fun auto_hide_after_quiet_gap() {
-        show()
-        compose.mainClock.autoAdvance = false
-        strokeCommitted()
-        compose.mainClock.advanceTimeBy(599)
-        assertThat(state.chromeVisible).isTrue()
-        compose.mainClock.advanceTimeBy(2)
-        assertThat(state.chromeVisible).isFalse()
-    }
-
-    @Test
-    fun refused_auto_hide_is_retried_after_another_quiet_gap() {
-        show()
-        var allow = false
-        var calls = 0
-        compose.runOnIdle {
-            chrome!!.autoHideHandler = {
-                calls++
-                if (allow) state.hide()
-                allow
-            }
-        }
-        compose.mainClock.autoAdvance = false
-        strokeCommitted()
-        compose.mainClock.advanceTimeBy(100)
-        compose.mainClock.advanceTimeBy(601)
-        assertThat(calls).isEqualTo(1)
-        assertThat(state.chromeVisible).isTrue()
-        allow = true
-        compose.mainClock.advanceTimeBy(600)
-        assertThat(calls).isEqualTo(2)
-        assertThat(state.chromeVisible).isFalse()
-    }
-
-    @Test
-    fun second_stroke_restarts_quiet_gap() {
-        show()
-        compose.mainClock.autoAdvance = false
-        strokeCommitted()
-        compose.mainClock.advanceTimeBy(400)
-        strokeCommitted()
-        compose.mainClock.advanceTimeBy(400)
-        assertThat(state.chromeVisible).isTrue()
-        compose.mainClock.advanceTimeBy(300)
-        assertThat(state.chromeVisible).isFalse()
-    }
-
     @Test
     fun tab_change_calls_refresh_except_into_board() {
         show()
@@ -230,22 +173,6 @@ abstract class AppShellTestBase {
         compose.onNodeWithTag(TAG_FAKE_BOARD).assertIsDisplayed()
         compose.onNodeWithTag(TAG_TAB_BAR).assertDoesNotExist()
         compose.runOnIdle { assertThat(chrome!!.overlays).isEmpty() }
-    }
-
-    @Test
-    fun auto_hide_also_hides_panel() {
-        show()
-        // Only the panel is visible: it alone arms the auto-hide.
-        compose.runOnIdle {
-            chrome!!.hide()
-            chrome!!.showPanel()
-        }
-        compose.mainClock.autoAdvance = false
-        strokeCommitted()
-        // advanceTimeBy rounds up to whole frames and the timer starts on the first frame after the commit.
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
-        assertThat(chrome!!.panelVisible).isFalse()
-        assertThat(state.chromeVisible).isFalse()
     }
 
     @Test

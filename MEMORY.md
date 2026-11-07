@@ -2,6 +2,40 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 The left strip never hides on its own (fix/live-ink-toolbar, 0.17.0 report)
+
+- User, verbatim: "I liked that left toolbar stayed open initially. Keep it like this. Never autohide". This
+  supersedes part of Q18 A (2026-11-05 dismiss mode) and the board wave A stroke auto-hide.
+- The stroke auto-hide is gone (ShellState tick, `BoardChrome.onStrokeCommitted`/`autoHideHandler`, the AppShell
+  timer): it only ever hid the strip in practice, since an open popup or panel holds raw drawing (no strokes).
+- Dismiss mode is now a popup or the panel open (`OverlayControl.anyDismissable`), not the strip. A tap or pen down on
+  the board closes the popup and the panel in one burst and leaves the strip. With only the strip open, raw drawing
+  runs with the strip rect excluded (the v0.13.2 setup), so writing with the strip open draws normally. The strip's
+  hide chevron still hides it (a user action, not an auto-hide).
+- Tests: the auto-hide tests in `AppShellTest`, `ShellStateTest`, `BoardChromeWiringTest` and
+  `MainActivityShellTest.chrome_is_wired_so_auto_hide_works` pinned the removed behaviour; the last two now assert
+  the strip stays. `BoardDismissModeTest` used the open strip as its dismiss overlay and now opens the panel. Closing
+  only the panel relayouts nothing else in the Robolectric window, so those tests ask for a frame (`drawFrames`)
+  before counting the refresher's hold.
+
+## 2026-11-07 Live ink brush right after every open (fix/live-ink-toolbar, 0.17.0 report)
+
+- Device report on v0.17.0: live ink red and ballpoint-like until a full redraw, which shows the right tool and colour.
+- Root cause: `openRawDrawing` resets the firmware style to 0, starts the reader and puts the firmware pen in START,
+  and clears the SDK's cached render flag, so `setRawDrawingEnabled(false)` right after it is a no-op (javap of
+  TouchHelper/SFTouchRender 1.5.8). The brush was applied only on enable, so every open under an outstanding hold
+  (first start at launch with the strip up, a rect change while an overlay is open) left the firmware pen live with
+  the reset style and the firmware colour until the hold ended. The app still read the strokes with the selected
+  tool and colour, hence the right redraw. v0.14.3..v0.17.0 adds no open or enable path (`ink/` unchanged; the text
+  layer swaps are plain hold/release pairs); the exposure was the dismiss hold of the always-open strip, under which
+  the user wrote (pen events do not reach the window while the firmware owns the pen, so the dismiss never fired)
+  until the stroke auto-hide released it.
+- Fix: `OnyxStrokeInput.open` applies the brush right after every open (first start and reopen), on top of the
+  brush on every enable. No new firmware call kinds (no force-disable): the brush calls are the ones v0.13.2 made.
+- Tests: `OnyxBrushAfterOpenTest` reopen and first start under an outstanding hold (the SDK-like fake keeps the pen
+  live after an open). `OnyxRawSessionTest` golden orders now expect `brush` right after `open`: they pinned
+  "no brush after the open", which is the bug.
+
 ## 2026-11-07 Handwritten edit ops (T-46 P5a, Tasks 5.1-5.4, v0.16.0)
 
 - Word boxes (`WordBoxes`) measure each word with the text layer's own `TextMeasure`; `WordBoxes.rows` is now the one

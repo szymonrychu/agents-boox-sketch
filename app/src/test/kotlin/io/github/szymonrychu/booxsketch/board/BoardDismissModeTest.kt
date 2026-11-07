@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.ink.StrokeEvent
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
@@ -36,7 +38,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
-/** Dismiss mode: with the strip, a popup or the panel open, a touch on the board dismisses them and draws nothing. */
+/**
+ * Dismiss mode: with a popup or the panel open, a touch on the board closes them and draws nothing. The strip is not a
+ * dismiss overlay (user decision 2026-11-07): it stays open, never hides on its own and leaves the board free.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class BoardDismissModeTest {
@@ -51,7 +56,14 @@ class BoardDismissModeTest {
     private var shown by mutableStateOf(true)
     private var current by mutableStateOf<StrokeInput?>(null)
 
-    private fun show(input: StrokeInput) {
+    /** The excludes the board ran with before the panel opened (strip, tab bar, panel indicator). */
+    private var beforePanel: String? = null
+
+    /** Shows the board with the strip open, then opens the side panel ([openPanel] false: the strip alone). */
+    private fun show(
+        input: StrokeInput,
+        openPanel: Boolean = true,
+    ) {
         current = input
         val registry = TabRegistry()
         registry.register(TabSpec(BOARD_TAB_ID, "Drawings", 10) { })
@@ -61,7 +73,7 @@ class BoardDismissModeTest {
             host = LocalView.current
             AppShell(
                 tabs = registry,
-                board = { chrome -> if (shown) current?.let { BoardScreen(vm, it, chrome = chrome) } },
+                board = { chrome -> if (shown) current?.let { BoardScreen(vm, it, chrome = chrome, panel = { Text("panel") }) } },
                 state = state,
                 insets = WindowInsets(0, 0, 0, 0),
             )
@@ -69,6 +81,11 @@ class BoardDismissModeTest {
         val v = surface()
         compose.runOnUiThread { v.surfaceCreated(v.holder) }
         compose.waitForIdle()
+        beforePanel = (input as? FreezingInput)?.let { lastStart(it) }
+        if (!openPanel) return
+        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
+        compose.waitForIdle()
+        assertThat(state.panelVisible).isTrue()
     }
 
     private fun surface(): BoardSurfaceView {
@@ -122,6 +139,16 @@ class BoardDismissModeTest {
 
     private fun up(type: Int) {
         compose.runOnUiThread { surface().dispatchTouchEvent(ev(MotionEvent.ACTION_UP, type, DOWN_AT + 50, X - 30f, Y - 30f)) }
+        drawFrames()
+    }
+
+    /**
+     * The harness traverses the view tree only on a layout request: ask for one so the dismiss refresh's wait for the
+     * next draw ends (closing the panel alone relayouts nothing else in the window).
+     */
+    private fun drawFrames() {
+        compose.waitForIdle()
+        compose.runOnUiThread { host!!.rootView.requestLayout() }
         compose.waitForIdle()
     }
 
@@ -133,11 +160,11 @@ class BoardDismissModeTest {
     private fun starts(input: FreezingInput) = input.log.filter { it.startsWith("start:") }
 
     @Test
-    fun open_strip_holds_raw_drawing_without_excluding_the_board() {
+    fun open_panel_holds_raw_drawing_without_excluding_the_board() {
         val input = FreezingInput()
         show(input)
 
-        assertThat(state.chromeVisible).isTrue()
+        assertThat(state.panelVisible).isTrue()
         assertThat(starts(input)).isNotEmpty()
         // An exclude equal to the limit leaves the firmware an empty drawable region: never sent.
         assertThat(input.limits.distinct()).containsExactly(boardRect())
@@ -146,14 +173,34 @@ class BoardDismissModeTest {
     }
 
     @Test
-    fun hidden_strip_leaves_the_board_free() {
+    fun closed_panel_leaves_the_board_free_with_the_strip_still_open() {
         val input = FreezingInput()
         show(input)
         down(MotionEvent.TOOL_TYPE_STYLUS)
         up(MotionEvent.TOOL_TYPE_STYLUS)
 
-        assertThat(state.chromeVisible).isFalse()
-        assertThat(lastStart(input)).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        assertThat(state.panelVisible).isFalse()
+        assertThat(state.chromeVisible).isTrue()
+        assertThat(lastStart(input)).isEqualTo(beforePanel)
+        assertThat(outstanding(input)).isEqualTo(0)
+    }
+
+    /** 0.17.0 report: the strip stays open; with only the strip open the pen writes and nothing is dismissed. */
+    @Test
+    fun open_strip_alone_leaves_raw_drawing_on_and_a_pen_stroke_dismisses_nothing() {
+        val events = MutableSharedFlow<StrokeEvent>(extraBufferCapacity = 4)
+        val input = FreezingInput(events)
+        show(input, openPanel = false)
+
+        assertThat(outstanding(input)).isEqualTo(0)
+        input.log.clear()
+        down(MotionEvent.TOOL_TYPE_STYLUS)
+        emitCommitted(events)
+        up(MotionEvent.TOOL_TYPE_STYLUS)
+
+        assertThat(state.chromeVisible).isTrue()
+        assertThat(input.log).doesNotContain("hold")
+        assertThat(strokes()).hasSize(1)
     }
 
     @Test
@@ -163,7 +210,7 @@ class BoardDismissModeTest {
 
         down(MotionEvent.TOOL_TYPE_STYLUS)
 
-        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
     }
 
     @Test
@@ -174,13 +221,13 @@ class BoardDismissModeTest {
 
         down(MotionEvent.TOOL_TYPE_STYLUS)
         drag(MotionEvent.TOOL_TYPE_STYLUS)
-        // The strip is gone, but the pen is still on the board: raw drawing stays off and is not reopened under it.
-        assertThat(state.chromeVisible).isFalse()
+        // The panel is gone, but the pen is still on the board: raw drawing stays off and is not reopened under it.
+        assertThat(state.panelVisible).isFalse()
         assertThat(starts(input)).isEmpty()
         assertThat(input.log.count { it == "hold" }).isAtMost(input.log.count { it == "release" } + 1)
 
         up(MotionEvent.TOOL_TYPE_STYLUS)
-        assertThat(lastStart(input)).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        assertThat(lastStart(input)).isEqualTo(beforePanel)
         // The reopen with the new rects runs under the hold; the lift releases it last.
         assertThat(input.log.lastIndexOf(lastStart(input))).isLessThan(input.log.lastIndexOf("release"))
         assertThat(input.log.count { it == "release" } - input.log.count { it == "hold" }).isEqualTo(1)
@@ -288,13 +335,13 @@ class BoardDismissModeTest {
 
         val v = surface()
         compose.runOnUiThread { v.surfaceDestroyed(v.holder) }
-        compose.waitForIdle()
+        drawFrames()
         assertThat(outstanding(input)).isEqualTo(0)
 
         input.log.clear()
         compose.runOnUiThread { v.surfaceCreated(v.holder) }
         compose.waitForIdle()
-        assertThat(lastStart(input)).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        assertThat(lastStart(input)).isEqualTo(beforePanel)
         assertThat(outstanding(input)).isEqualTo(0)
     }
 
@@ -310,7 +357,7 @@ class BoardDismissModeTest {
         drag(MotionEvent.TOOL_TYPE_STYLUS)
         up(MotionEvent.TOOL_TYPE_STYLUS)
 
-        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
         assertThat(
             vm.notebook.value.pages[vm.notebook.value.current]
                 .strokes,
@@ -344,7 +391,8 @@ class BoardDismissModeTest {
         drag(MotionEvent.TOOL_TYPE_FINGER)
         up(MotionEvent.TOOL_TYPE_FINGER)
 
-        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
+        assertThat(state.chromeVisible).isTrue()
     }
 
     @Test
@@ -352,13 +400,15 @@ class BoardDismissModeTest {
         val input = FreezingInput()
         show(input)
 
-        compose.runOnUiThread { surface().onWindowTouch(ev(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_FINGER, DOWN_AT)) }
+        // A board point clear of the strip and the open panel (the window callback ignores downs on overlays).
+        val x = (rectOf(TAG_DOCK).right + rectOf(TAG_PANEL_HOST).left) / 2f
+        compose.runOnUiThread { surface().onWindowTouch(ev(MotionEvent.ACTION_DOWN, MotionEvent.TOOL_TYPE_FINGER, DOWN_AT, x)) }
         compose.waitForIdle()
-        assertThat(state.chromeVisible).isFalse()
+        assertThat(state.panelVisible).isFalse()
 
-        compose.runOnUiThread { surface().onWindowTouch(ev(MotionEvent.ACTION_UP, MotionEvent.TOOL_TYPE_FINGER, DOWN_AT + 50)) }
-        compose.waitForIdle()
-        assertThat(lastStart(input)).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        compose.runOnUiThread { surface().onWindowTouch(ev(MotionEvent.ACTION_UP, MotionEvent.TOOL_TYPE_FINGER, DOWN_AT + 50, x)) }
+        drawFrames()
+        assertThat(lastStart(input)).isEqualTo(beforePanel)
     }
 
     @Test
@@ -374,6 +424,7 @@ class BoardDismissModeTest {
         }
         compose.waitForIdle()
 
+        assertThat(state.panelVisible).isTrue()
         assertThat(state.chromeVisible).isTrue()
     }
 

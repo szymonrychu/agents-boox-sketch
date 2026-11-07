@@ -18,8 +18,8 @@ interface RawDrawing {
     fun setEnabled(enabled: Boolean)
 
     /**
-     * Live ink style, width and ARGB [color]. An open resets the firmware style, so callers apply the brush on
-     * the enable that follows it; never while a stroke is in progress.
+     * Live ink style, width and ARGB [color]. An open resets the firmware style and starts the pen, so callers
+     * apply the brush right after every open and on every enable; never while a stroke is in progress.
      */
     fun setBrush(
         style: Int,

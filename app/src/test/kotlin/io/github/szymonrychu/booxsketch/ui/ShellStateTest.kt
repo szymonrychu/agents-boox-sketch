@@ -9,7 +9,6 @@ class ShellStateTest {
         val state = ShellState()
         assertThat(state.selected).isEqualTo(BOARD_TAB_ID)
         assertThat(state.chromeVisible).isTrue()
-        assertThat(state.strokeTick).isEqualTo(0)
         assertThat(state.dockSize).isNull()
     }
 
@@ -20,21 +19,6 @@ class ShellStateTest {
         assertThat(state.chromeVisible).isFalse()
         state.show()
         assertThat(state.chromeVisible).isTrue()
-    }
-
-    @Test
-    fun stroke_while_hidden_does_not_arm() {
-        val state = ShellState()
-        state.hide()
-        state.onStrokeCommitted()
-        assertThat(state.strokeTick).isEqualTo(0)
-    }
-
-    @Test
-    fun stroke_while_visible_arms() {
-        val state = ShellState()
-        state.onStrokeCommitted()
-        assertThat(state.strokeTick).isEqualTo(1)
     }
 
     @Test
@@ -75,13 +59,5 @@ class ShellStateTest {
         assertThat(state.chromeVisible).isFalse()
         state.hidePanel()
         assertThat(state.panelVisible).isFalse()
-    }
-
-    @Test
-    fun stroke_while_only_the_panel_is_visible_arms() {
-        val state = ShellState(chromeVisible = false)
-        state.showPanel()
-        state.onStrokeCommitted()
-        assertThat(state.strokeTick).isEqualTo(1)
     }
 }

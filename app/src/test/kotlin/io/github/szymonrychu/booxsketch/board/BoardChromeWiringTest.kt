@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -54,6 +55,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+
+/** Well past the 600 ms stroke auto-hide gap the shell had before 0.17.1. */
+private const val NEVER_HIDES_AFTER_MS = 2_000L
 
 // One class: the tests share the shell, dock and input fixtures (LargeClass).
 @Suppress("LargeClass")
@@ -143,8 +147,10 @@ class BoardChromeWiringTest {
     /** Holds not yet released, counting the ones outstanding when the log was cleared (the dismiss mode hold). */
     private fun outstanding() = input.heldAtClear + holds() - releases()
 
-    /** Every overlay hold is released once settled; only dismiss mode (strip or panel open) keeps one hold. */
-    private fun dismissHold() = if (state.chromeVisible || state.panelVisible) 1 else 0
+    /** Every overlay hold is released once settled; only dismiss mode (a popup or the panel open) keeps one hold. */
+    private fun dismissHold() = if (popupOpen() || state.panelVisible) 1 else 0
+
+    private fun popupOpen() = compose.onAllNodesWithTag(TAG_POPUP).fetchSemanticsNodes().isNotEmpty()
 
     private fun surface(): BoardSurfaceView? {
         fun find(v: View): BoardSurfaceView? =
@@ -184,7 +190,7 @@ class BoardChromeWiringTest {
 
     /**
      * Log index at which the overlay holds are released down to the dismiss mode hold, the only one left while
-     * the strip or the panel stays open; -1 if never.
+     * a popup or the panel stays open; -1 if never.
      */
     private fun overlaysSettledAt(): Int {
         var held = input.heldAtClear
@@ -214,6 +220,8 @@ class BoardChromeWiringTest {
     private fun boardRect() = surface()!!.let { Rect(0, 0, it.width, it.height) }
 
     private fun lastStart(): String = input.log.last { it.startsWith("start:") }
+
+    private fun lastStartOrNull(): String? = input.log.lastOrNull { it.startsWith("start:") }
 
     @Test
     fun board_view_fills_screen_with_dock_overlaid() {
@@ -295,58 +303,16 @@ class BoardChromeWiringTest {
     }
 
     @Test
-    fun auto_hide_takes_the_hold_until_the_indicator_rect_is_applied() {
-        show()
-        createSurface()
-        input.log.clear()
-        compose.mainClock.autoAdvance = false
-        strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-
-        val want = "start:${listOf(rectOf(TAG_INDICATOR))}"
-        assertThat(input.log).contains("hold")
-        assertThat(input.log.indexOf("hold")).isLessThan(input.log.indexOf(want))
-        assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(enabledAt()).isGreaterThan(input.log.lastIndexOf(want))
-    }
-
-    @Test
-    fun auto_hide_waits_while_a_stroke_is_in_progress_and_drops_nothing() {
-        show()
-        createSurface()
-        input.log.clear()
-        compose.mainClock.autoAdvance = false
-        strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
-        compose.mainClock.advanceTimeBy(100)
-        input.strokeInProgress = true
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS * 3)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-
-        assertThat(state.chromeVisible).isTrue()
-        assertThat(input.log).isEmpty()
-
-        input.strokeInProgress = false
-        compose.mainClock.autoAdvance = false
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        assertThat(state.chromeVisible).isFalse()
-        assertThat(input.log.first()).isEqualTo("hold")
-    }
-
-    @Test
     fun hide_updates_exclude_while_held() {
         show()
         createSurface()
         val dock = rectOf(TAG_DOCK)
         val bar = rectOf(TAG_TAB_BAR)
-        // The open strip holds raw drawing off (dismiss mode); the board itself is never an exclude.
+        // The open strip is an exclude and leaves raw drawing on; the board itself is never an exclude.
         val open = "start:${listOf(dock, bar)}"
         assertThat(lastStart()).isEqualTo(open)
         assertThat(input.log.none { it.contains(boardRect().toString()) }).isTrue()
+        assertThat(outstanding()).isEqualTo(0)
         input.log.clear()
 
         compose.onNodeWithTag(TAG_HIDE).performClick()
@@ -410,27 +376,46 @@ class BoardChromeWiringTest {
         compose.onNodeWithTag(TAG_INDICATOR).performClick()
         compose.waitForIdle()
 
-        // The board itself is never an exclude: the open strip keeps raw drawing held off instead (dismiss mode).
+        // The board itself is never an exclude, and the open strip does not hold raw drawing off (not a dismiss overlay).
         val want = "start:${listOf(dock, bar)}"
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(input.log).contains(want)
-        assertThat(input.log.lastIndexOf("release")).isGreaterThan(input.log.indexOf(want))
-        assertThat(outstanding()).isEqualTo(1)
+        assertThat(enabledAt()).isGreaterThan(input.log.indexOf(want))
+        assertThat(outstanding()).isEqualTo(0)
     }
 
+    /** User decision 2026-11-07 (0.17.0 report): the left strip stays open from launch and never hides on its own. */
     @Test
-    fun committed_stroke_arms_auto_hide_and_hides_after_gap() {
+    fun committed_strokes_never_hide_the_strip() {
         show()
         createSurface()
+        val open = lastStart()
+        input.log.clear()
         compose.mainClock.autoAdvance = false
-        strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
+        repeat(3) {
+            strokes.trySend(StrokeEvent.Committed(Stroke("s$it", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
+            compose.mainClock.advanceTimeBy(NEVER_HIDES_AFTER_MS)
+        }
         compose.mainClock.autoAdvance = true
         compose.waitForIdle()
 
-        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
-        compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
-        assertThat(lastStart()).isEqualTo("start:${listOf(rectOf(TAG_INDICATOR))}")
+        compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_INDICATOR).assertDoesNotExist()
+        assertThat(state.chromeVisible).isTrue()
+        assertThat(input.log.none { it.startsWith("start:") }).isTrue()
+        assertThat(lastStartOrNull() ?: open).isEqualTo(open)
+        assertThat(outstanding()).isEqualTo(0)
+    }
+
+    /** The strip open at launch leaves raw drawing on (only its rect is excluded): the pen draws with the strip open. */
+    @Test
+    fun strip_open_at_launch_leaves_raw_drawing_on() {
+        show()
+        createSurface()
+
+        assertThat(state.chromeVisible).isTrue()
+        assertThat(lastStart()).isEqualTo("start:${listOf(rectOf(TAG_DOCK), rectOf(TAG_TAB_BAR))}")
+        assertThat(outstanding()).isEqualTo(0)
     }
 
     @Test
@@ -521,10 +506,6 @@ class BoardChromeWiringTest {
 
     private val testPanel: @Composable () -> Unit = { Text("panel") }
 
-    private fun commitStroke() {
-        strokes.trySend(StrokeEvent.Committed(Stroke("s", Tool.BALLPOINT, 4f, listOf(Point(1f, 1f, 0.5f, 0L)))))
-    }
-
     private fun lastStartWith(rect: Rect): Int = input.log.indexOfLast { it.startsWith("start:") && it.contains(rect.toString()) }
 
     @Test
@@ -543,64 +524,6 @@ class BoardChromeWiringTest {
         assertThat(started).isAtLeast(0)
         assertThat(overlaysSettledAt()).isGreaterThan(started)
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(outstanding()).isEqualTo(dismissHold())
-    }
-
-    @Test
-    fun panel_hide_via_auto_hide_releases_hold_once() {
-        show(panel = testPanel)
-        createSurface()
-        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
-        compose.waitForIdle()
-        input.log.clear()
-
-        compose.mainClock.autoAdvance = false
-        commitStroke()
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-
-        compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
-        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
-        val indicator = rectOf(TAG_PANEL_INDICATOR)
-        assertThat(state.panelVisible).isFalse()
-        assertThat(input.log.first()).isEqualTo("hold")
-        // Dock and panel hide in one burst: the start that carries both indicators comes before raw drawing is back on.
-        val dockIndicator = rectOf(TAG_INDICATOR).toString()
-        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(indicator.toString()) && it.contains(dockIndicator) }
-        assertThat(started).isAtLeast(0)
-        assertThat(enabledAt()).isGreaterThan(started)
-        assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(outstanding()).isEqualTo(dismissHold())
-    }
-
-    @Test
-    fun auto_hide_refused_during_stroke_keeps_panel_until_quiet() {
-        show(panel = testPanel)
-        createSurface()
-        compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
-        compose.waitForIdle()
-        input.log.clear()
-
-        compose.mainClock.autoAdvance = false
-        commitStroke()
-        compose.mainClock.advanceTimeBy(100)
-        input.strokeInProgress = true
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS * 3)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-
-        assertThat(state.panelVisible).isTrue()
-        compose.onNodeWithTag(TAG_PANEL_HOST).assertIsDisplayed()
-        assertThat(input.log).isEmpty()
-
-        input.strokeInProgress = false
-        compose.mainClock.autoAdvance = false
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        assertThat(state.panelVisible).isFalse()
-        assertThat(input.log.first()).isEqualTo("hold")
         assertThat(outstanding()).isEqualTo(dismissHold())
     }
 
@@ -626,11 +549,12 @@ class BoardChromeWiringTest {
             v.dispatchTouchEvent(ev(MotionEvent.ACTION_DOWN, 1_000L))
             v.dispatchTouchEvent(ev(MotionEvent.ACTION_UP, 1_050L))
         }
-        compose.waitForIdle()
+        // The dismiss refresh waits for the next draw; with the strip staying no relayout of the window asks for one.
+        drawFrames()
     }
 
     @Test
-    fun tap_on_board_hides_dock_and_panel_with_one_hold_release_pair() {
+    fun tap_on_board_hides_the_panel_and_keeps_the_strip_with_one_hold_release_pair() {
         show(panel = testPanel)
         createSurface()
         compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
@@ -640,19 +564,32 @@ class BoardChromeWiringTest {
         fingerTap()
 
         compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
-        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
-        assertThat(state.chromeVisible).isFalse()
+        compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
+        assertThat(state.chromeVisible).isTrue()
         assertThat(state.panelVisible).isFalse()
         val panelIndicator = rectOf(TAG_PANEL_INDICATOR).toString()
-        val dockIndicator = rectOf(TAG_INDICATOR).toString()
-        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(panelIndicator) && it.contains(dockIndicator) }
+        val dock = rectOf(TAG_DOCK).toString()
+        val started = input.log.indexOfLast { it.startsWith("start:") && it.contains(panelIndicator) && it.contains(dock) }
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(started).isAtLeast(0)
         assertThat(enabledAt()).isGreaterThan(started)
         assertThat(emptyStartsWhileEnabled()).isEmpty()
-        // One board hold for both overlays, plus at most the refresher's own hold for the full refresh.
+        // One board hold for the panel, plus at most the refresher's own hold for the full refresh.
         assertThat(holds()).isAtMost(2)
         assertThat(outstanding()).isEqualTo(dismissHold())
+    }
+
+    @Test
+    fun tap_with_only_the_strip_open_changes_nothing() {
+        show(panel = testPanel)
+        createSurface()
+        input.log.clear()
+
+        fingerTap()
+
+        assertThat(input.log).isEmpty()
+        assertThat(state.chromeVisible).isTrue()
+        compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
     }
 
     @Test
@@ -915,7 +852,7 @@ class BoardChromeWiringTest {
     }
 
     @Test
-    fun tap_on_board_closes_popup_panel_and_strip_in_one_burst() {
+    fun tap_on_board_closes_popup_and_panel_in_one_burst_and_keeps_the_strip() {
         show(panel = testPanel)
         createSurface()
         compose.onNodeWithTag(TAG_PANEL_INDICATOR).performClick()
@@ -926,52 +863,14 @@ class BoardChromeWiringTest {
         fingerTap()
 
         compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
-        compose.onNodeWithTag(TAG_DOCK).assertDoesNotExist()
+        compose.onNodeWithTag(TAG_DOCK).assertIsDisplayed()
         compose.onNodeWithTag(TAG_PANEL_HOST).assertDoesNotExist()
         assertThat(input.log.first()).isEqualTo("hold")
         assertThat(emptyStartsWhileEnabled()).isEmpty()
         assertThat(holds()).isAtMost(2)
-        assertThat(outstanding()).isEqualTo(dismissHold())
-        assertThat(lastStart()).contains(rectOf(TAG_INDICATOR).toString())
+        assertThat(outstanding()).isEqualTo(0)
+        assertThat(lastStart()).contains(rectOf(TAG_DOCK).toString())
         assertThat(lastStart()).contains(rectOf(TAG_PANEL_INDICATOR).toString())
-    }
-
-    @Test
-    fun auto_hide_closes_open_popup() {
-        show()
-        createSurface()
-        openPenPopup()
-        input.log.clear()
-
-        compose.mainClock.autoAdvance = false
-        commitStroke()
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS + 100)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-
-        compose.onNodeWithTag(TAG_POPUP).assertDoesNotExist()
-        compose.onNodeWithTag(TAG_INDICATOR).assertIsDisplayed()
-        assertThat(emptyStartsWhileEnabled()).isEmpty()
-        assertThat(outstanding()).isEqualTo(dismissHold())
-    }
-
-    @Test
-    fun auto_hide_refused_during_stroke_keeps_popup() {
-        show()
-        createSurface()
-        openPenPopup()
-        input.log.clear()
-
-        compose.mainClock.autoAdvance = false
-        commitStroke()
-        compose.mainClock.advanceTimeBy(100)
-        input.strokeInProgress = true
-        compose.mainClock.advanceTimeBy(ShellState.AUTO_HIDE_AFTER_STROKE_MS * 3)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-
-        compose.onNodeWithTag(TAG_POPUP).assertIsDisplayed()
-        assertThat(input.log).isEmpty()
     }
 
     @Test
