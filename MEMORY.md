@@ -2,6 +2,24 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 Live ink brush right after every open (fix/live-ink-toolbar, 0.17.0 report)
+
+- Device report on v0.17.0: live ink red and ballpoint-like until a full redraw, which shows the right tool and colour.
+- Root cause: `openRawDrawing` resets the firmware style to 0, starts the reader and puts the firmware pen in START,
+  and clears the SDK's cached render flag, so `setRawDrawingEnabled(false)` right after it is a no-op (javap of
+  TouchHelper/SFTouchRender 1.5.8). The brush was applied only on enable, so every open under an outstanding hold
+  (first start at launch with the strip up, a rect change while an overlay is open) left the firmware pen live with
+  the reset style and the firmware colour until the hold ended. The app still read the strokes with the selected
+  tool and colour, hence the right redraw. v0.14.3..v0.17.0 adds no open or enable path (`ink/` unchanged; the text
+  layer swaps are plain hold/release pairs); the exposure was the dismiss hold of the always-open strip, under which
+  the user wrote (pen events do not reach the window while the firmware owns the pen, so the dismiss never fired)
+  until the stroke auto-hide released it.
+- Fix: `OnyxStrokeInput.open` applies the brush right after every open (first start and reopen), on top of the
+  brush on every enable. No new firmware call kinds (no force-disable): the brush calls are the ones v0.13.2 made.
+- Tests: `OnyxBrushAfterOpenTest` reopen and first start under an outstanding hold (the SDK-like fake keeps the pen
+  live after an open). `OnyxRawSessionTest` golden orders now expect `brush` right after `open`: they pinned
+  "no brush after the open", which is the bug.
+
 ## 2026-11-07 Handwritten edit ops (T-46 P5a, Tasks 5.1-5.4, v0.16.0)
 
 - Word boxes (`WordBoxes`) measure each word with the text layer's own `TextMeasure`; `WordBoxes.rows` is now the one

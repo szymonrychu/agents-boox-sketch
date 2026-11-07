@@ -42,12 +42,12 @@ import java.util.UUID
  * the same way: the pen tip then erases through plain touch events. The selected colour is part of
  * the raw brush.
  *
- * The brush (style, width, colour) is applied only while no stroke is in progress: before the first open,
- * on every enable (every open resets the firmware stroke style to 0, the SDK's `resetStrokeStyle`, and raw
- * drawing is always enabled again before any ink), and on a tool or colour change. Never from a stroke
- * callback: those run after the firmware has started the stroke, and a brush write then corrupts its live
- * ink (v0.14.2). These are the v0.13.2 semantics, the version proven on the device. Opens, enables and
- * brushes are logged under [InkDiag].
+ * The brush (style, width, colour) is applied only while no stroke is in progress: right after every open
+ * (it resets the firmware stroke style to 0, the SDK's `resetStrokeStyle`, and starts the firmware pen; a
+ * disable right after it is a no-op in the SDK, so under a hold the pen stays live with that reset style),
+ * on every enable, and on a tool or colour change. Never from a stroke callback: those run after the firmware
+ * has started the stroke, and a brush write then corrupts its live ink (v0.14.2). Opens, enables and brushes
+ * are logged under [InkDiag].
  */
 @Suppress("TooManyFunctions") // every StrokeInput member plus the raw session steps (open, enable, disable, brush)
 class OnyxStrokeInput(
@@ -201,7 +201,6 @@ class OnyxStrokeInput(
         drawing = d
         host = view
         applyRects(d, limit, exclude)
-        applyBrush(d)
         open(d)
         // A new session (first start, or after the surface was re-created) must not freeze the
         // panel before the window has drawn: enable only after the next frame, then full refresh.
@@ -224,13 +223,16 @@ class OnyxStrokeInput(
     }
 
     /**
-     * Opens raw drawing; the pen idle timeout is set after every open, as the SDK may reset it. The open
-     * resets the firmware stroke style, which the enable that always follows before any ink applies again.
+     * Opens raw drawing; the pen idle timeout is set after every open, as the SDK may reset it. The open resets the
+     * firmware stroke style and starts the firmware pen, which a disable right after it does not stop (the SDK's
+     * cached render flag is already off): under an outstanding hold the pen draws before any enable, so the brush
+     * goes right after the open (v0.17.0: red ballpoint live ink while an overlay was open).
      */
     private fun open(d: RawDrawing) {
         d.open()
         d.setPenUpRefreshTimeMs(PEN_IDLE_MS)
         InkDiag.info("raw open")
+        applyBrush(d)
     }
 
     /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool, no eraser. */

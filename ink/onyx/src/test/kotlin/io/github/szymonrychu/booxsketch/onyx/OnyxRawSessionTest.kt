@@ -92,10 +92,12 @@ class OnyxRawSessionTest {
             .containsExactly(
                 "limit1:1",
                 "open1",
+                "brush1",
                 "enabled1:true",
                 "brush1",
                 "limit1:2",
                 "open1",
+                "brush1",
                 "enabled1:true",
                 "brush1",
             ).inOrder()
@@ -152,9 +154,10 @@ class OnyxRawSessionTest {
         }
 
     @Test
-    fun first_start_sets_rects_brush_opens_and_enables_only_after_the_next_draw_with_a_full_refresh() {
+    fun first_start_sets_rects_opens_brushes_and_enables_only_after_the_next_draw_with_a_full_refresh() {
         input.start(view, limit(), emptyList())
-        assertThat(log).containsExactly("limit1:1", "brush1", "open1", "enabled1:false").inOrder()
+        // The open resets the firmware style and starts the pen (the disable after it is a no-op in the SDK): brush right after it.
+        assertThat(log).containsExactly("limit1:1", "open1", "brush1", "enabled1:false").inOrder()
         log.clear()
         drawFrame()
         assertThat(log).containsExactly("full", "enabled1:true", "brush1").inOrder()
