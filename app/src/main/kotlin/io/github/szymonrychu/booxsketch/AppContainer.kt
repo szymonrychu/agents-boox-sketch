@@ -271,6 +271,8 @@ class AppContainer(
             outboxRoot = outboxRoot,
             kick = ::kickOutbox,
             annotations = annotationStore,
+            // The export shows what the user saw: text and visible ink, without the pending ticks.
+            boardPage = { page -> boardViewModel.textLayers.layer.render(page.copy(pendingSegments = emptyList()), null) },
         )
     }
 

@@ -5,11 +5,15 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.api.ConfigDto
+import io.github.szymonrychu.booxsketch.board.TextLayer
 import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
+import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -80,5 +84,38 @@ class PageRasterExporterTest {
         val canvas = Canvas(400, 800, 300f)
         val result = exporter.export(background(400, 800), inked(canvas), canvas, cfg(maxBytes = 10))
         assertThat(result).isInstanceOf(ExportResult.TooBig::class.java)
+    }
+
+    @Test
+    fun notebook_page_png_has_text_and_no_grid() {
+        val canvas = Canvas(1404, 1872, 300f)
+        val g = NotebookGeometry(canvas.w, canvas.h)
+        val stripped = SourceMap.stripWithColours("Hello notebook")
+        val run =
+            TextRun(
+                "L1",
+                1,
+                1,
+                2,
+                53f,
+                display = stripped.display,
+                colourSpans = stripped.spans,
+                sourceMap = stripped.map,
+                sourceStrokeIds = listOf("gone"),
+            )
+        val ink = Stroke("s", Tool.BALLPOINT, 8f, listOf(Point(200f, 1200f, 0.5f, 0), Point(900f, 1200f, 0.5f, 10)))
+        val consumed = Stroke("gone", Tool.BALLPOINT, 8f, listOf(Point(200f, 600f, 0.5f, 0), Point(900f, 600f, 0.5f, 10)))
+        val page = Page(listOf(ink, consumed), true, text = listOf(run), consumed = setOf("gone"))
+        val layer = TextLayer(g).render(page, null)
+        val r = exporter.export(layer, page, canvas, cfg(maxLong = 1872)) as ExportResult.Exported
+        val png = BitmapFactory.decodeByteArray(r.png, 0, r.png.size)
+        assertThat(png.width).isEqualTo(1404)
+        // Text in row 2's text band, ink at y 1200, the consumed stroke at y 600 absent.
+        val textBand = (g.textBandTop(2) until g.rowLineY(2)).any { y -> (60 until 400).any { x -> png.getPixel(x, y) != Color.WHITE } }
+        assertThat(textBand).isTrue()
+        assertThat(png.getPixel(500, 1200)).isNotEqualTo(Color.WHITE)
+        assertThat(png.getPixel(500, 600)).isEqualTo(Color.WHITE)
+        // No grid: a row line of the text column would be grey at x 700.
+        assertThat(png.getPixel(700, g.rowLineY(5))).isEqualTo(Color.WHITE)
     }
 }

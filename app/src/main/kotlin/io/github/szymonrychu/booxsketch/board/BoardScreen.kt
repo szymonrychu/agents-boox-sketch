@@ -174,6 +174,10 @@ internal fun BoardScreenWith(
         onDispose { chrome?.autoHideHandler = null }
     }
     val popup = toolbox.popup
+    val shownPage = notebook.pages[notebook.current]
+    // Rendered on the main thread only when the page's text or pending rows changed (page switch, send); a new
+    // spec version is pre-rendered off the main thread by NotebookSync, so this finds it cached.
+    val textLayer = remember(shownPage.text, shownPage.pendingSegments) { vm.textLayers.bitmapFor(shownPage) }
     val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(
@@ -190,6 +194,7 @@ internal fun BoardScreenWith(
             onShapeDrag = vm::onShapeDrag,
             onShapeCancel = vm::onShapeCancel,
             background = background,
+            textLayer = textLayer,
             // A finger tap on the board dismisses every overlay in one burst.
             onBoardTap = { control.dismissAll(ui) },
             // Strip, popup or panel open: raw drawing is held off and a pen or finger down on the board dismisses them.

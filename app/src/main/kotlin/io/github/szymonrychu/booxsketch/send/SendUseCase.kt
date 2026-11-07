@@ -107,6 +107,11 @@ class SendUseCase(
     /** Frozen pages and sent markers of documents; only [sendAnnotation] needs it. */
     private val annotations: AnnotationStore? = null,
     private val exportPage: (Bitmap, Page, Canvas, ConfigDto) -> ExportResult = PageRasterExporter(CanvasStrokeRenderer())::export,
+    /**
+     * The text layer of a board page. When given, every board page is exported whole (spec 5.1: the text layer and
+     * the visible ink, no grid) through [exportPage], so the PNG matches the page px of its layout; else [export].
+     */
+    private val boardPage: ((Page) -> Bitmap)? = null,
 ) {
     private val mutex = Mutex()
 
@@ -127,7 +132,7 @@ class SendUseCase(
             val parts = mutableListOf<PagePart>()
             for (i in indices) {
                 val page = notebook.pages[i]
-                when (val r = withContext(worker) { export(page, notebook.canvas, cfg) }) {
+                when (val r = withContext(worker) { exportBoardPage(page, notebook.canvas, cfg) }) {
                     ExportResult.Empty -> {
                         Unit
                     }
@@ -224,6 +229,12 @@ class SendUseCase(
             kick()
             SendOutcome.Queued(checkNotNull(first))
         }
+
+    private fun exportBoardPage(
+        page: Page,
+        canvas: Canvas,
+        cfg: ConfigDto,
+    ): ExportResult = boardPage?.let { exportPage(it(page), page, canvas, cfg) } ?: export(page, canvas, cfg)
 
     private fun canvasOf(upload: List<AnnotatedInput>): Canvas {
         val size =

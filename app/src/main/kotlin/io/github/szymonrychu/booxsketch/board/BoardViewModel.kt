@@ -3,6 +3,7 @@ package io.github.szymonrychu.booxsketch.board
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Command
 import io.github.szymonrychu.booxsketch.model.Notebook
+import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
@@ -62,6 +63,9 @@ class BoardViewModel(
 
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    /** The selected page's text bitmap; created on first use (it needs Android graphics). */
+    val textLayers: TextLayerCache by lazy { TextLayerCache(TextLayer(NotebookGeometry(defaultCanvas.w, defaultCanvas.h))) }
 
     private val _saveError = MutableStateFlow<String?>(null)
 
