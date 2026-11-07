@@ -2,6 +2,37 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 Handwritten edit ops (T-46 P5a, Tasks 5.1-5.4, v0.16.0)
+
+- Word boxes (`WordBoxes`) measure each word with the text layer's own `TextMeasure`; `WordBoxes.rows` is now the one
+  source of a run's wrapped rows for both `TextLayer` and the classifier, so a hit box never drifts from the drawing.
+- `TextRun.source` keeps the markdown source line (set by `RunPlacer`): an op's quote must equal the base version's
+  source text at `[from, to)` (422 `stale_target`), and the display text has no markup. It defaults to `display`
+  (plain lines in tests). Target `to` is the source offset after the last display char, so `**buy**` quotes `buy`.
+- Classifier choices the plan left open (Global Constraints thresholds otherwise): a strike also needs width >= 0.3
+  cell (no dots) and at least half its height in the text band; a scribble stays within the band +-10 percent and
+  turns back at least 3 times (x and y reversals, 0.15 band hysteresis). Strikes over overlapping words of one run are
+  one delete. A replace group overlapping two runs on a row goes to the one with the most covered word width.
+- Inserts (`ToolInsertMarks`): the box counts as in the margin when >= 80 percent of its width is right of the margin
+  line (the P5b loop rule); it needs pen strokes centred inside; the first snapped arrow wins. A tip on a text band
+  with words inserts inline at the nearest boundary; anywhere else after the run whose last row is above the tip's row.
+  No run above: no insert, the marks stay ink. `InsertMark` uses the model `RectF`/`Vec` (P5b uses them too), and
+  `InsertMarkFinder.find` gets the candidate strokes (not consumed, not pending) besides the page.
+- Send classifies only the runs whose line is in the base layout (the same filter as the runs), so ops cannot exist
+  without `base_version`; `SendOutcome.NoBaseVersion` guards it anyway. Without a `measure` (plain tests) nothing is
+  classified. Pending ops' strokes are skipped by the classifier and the `Segmenter`; the pending poll also waits on
+  pending ops (an edit-only upload has no segments).
+- `RunPlacer` needed no op logic beyond P4: applied ops consume their strokes, rejected ones only leave the pending
+  list, an op line with a new id is placed after the previous line (insert after_line shifts rows below), a replaced or
+  partly deleted line is `kept` and updated in place. The tests pin it.
+- Strike preview: computed from page state (`StrikePreview.rects`, visible strokes only, so undo, erase, an applied
+  delete and a stale base all agree), shown only through `StrikePreviewSync` at pen idle under one hold, or by
+  `NotebookSync` inside its version swap; `BoardViewModel.strikeOverlay` is keyed by page index and never saved. The
+  exported PNG has no overlay (the translator sees the strike itself). A rejected strike keeps its grey preview while
+  its ink is on the page (it is still a strike the user may re-send or erase).
+- Notes of rejected ops go to the Documents feedback strip as local `FeedbackEntity` rows with negative ids:
+  `maxId` (the connector cursor) ignores them and `observe` orders by `createdAt` then id, so the note is the latest.
+
 ## 2026-11-07 P4 review fixes (T-46)
 
 - `base_version` (connector 2.1.0 `_check_base`): it must be the latest stored version, and EVERY run line id must
