@@ -421,7 +421,7 @@ class AppContainer(
 
     /**
      * Reverts the open document to its shown older version (Q15 B); a refusal shows in the send dialog.
-     * T-46 OQ7 pending: the revert is triggered from the Documents version picker only.
+     * The revert is triggered from the Documents version picker only (T-46 OQ7 A).
      */
     @Suppress("TooGenericExceptionCaught")
     fun onRevert(vm: DocumentViewModel) {

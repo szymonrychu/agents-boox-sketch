@@ -23,7 +23,7 @@ data class DocumentViewState(
     val readOnly: Boolean = true,
     val loaded: Boolean = false,
 ) {
-    /** True on an older version: it can be made the newest again (Q15 B, T-46 OQ7 pending). */
+    /** True on an older version: it can be made the newest again (Q15 B, T-46 OQ7 A). */
     val canRevert: Boolean get() = loaded && version in 1 until latestVersion
 }
 

@@ -124,7 +124,7 @@ fun DocumentScreen(
                     }
                 }
             }
-            // T-46 OQ7 pending: revert lives next to the version picker, on an older version, behind a confirm dialog.
+            // Revert (T-46 OQ7 A) lives next to the version picker, on an older version, behind a confirm dialog.
             if (onRevert != null && state.canRevert) RevertAction(state, onRevert)
             TextButton(
                 onClick = onShare,

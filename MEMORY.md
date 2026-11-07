@@ -2,6 +2,32 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 P4 review fixes (T-46)
+
+- `base_version` (connector 2.1.0 `_check_base`): it must be the latest stored version, and EVERY run line id must
+  be in that version's layout, else 422 "line id Lx is not in the base version". Send now uses the latest stored
+  version and sends only runs whose line id its layout has (none when it has no layout). Omitting base_version was
+  rejected: without it the translator gets no base, so no line can be `kept` and every run's line would be replaced.
+  Text follow-ups carry the previous layout's line ids (`_carried_layout`), so after the first notebook version every
+  version normally has a layout; the filter covers a revert to a layout-less version and a board not yet synced.
+- Revert replay: the connector answers a revert replayed after success with 409 `stale_base`. On that answer the
+  outbox fetches version base + 1; when its layout says `reverted_from` = the target (or, without layouts, it has the
+  target's markdown and sketch ids) the item is accepted.
+- Row shifts are not undo steps any more (`Command.ShiftRows` removed): `UndoStack.shiftRows` moves the page's ink
+  and shifts every history entry the same way, so Undo takes back the user's last stroke and stays aligned with the
+  text. Rows sent to an overflow page drop that page's history (`UndoStack.forget`).
+- Column floor: a run's column is at least 6 cells (`RunPlacer.MIN_COLUMN_CELLS`); near the margin x0 moves left.
+  The column is stored on the run (`TextRun.column`, 0 = to the margin) so `TextLayer` wraps at the placer's offsets.
+- A second overflow of the same page in one placement pushes the overflow page's content down first: those rows came
+  before the first batch. A revert ignores its lines' segment origins. A first origin-less line goes just above the
+  next shown line's run or segment (the free row above, else its row pushing it down) instead of page 0 row 0.
+- Board races: `bindConversation` loads first, then saves the shown notebook until no change landed during the save,
+  then swaps without suspending (a Send marking pages or a stroke during the bind is no longer lost). A failed upload
+  of a conversation the board does not show edits that conversation's notebook file. A deleted or pruned bound
+  conversation resets the board without saving. `NotebookSync` places a version only while the board shows its
+  conversation (or the unbound notebook it is about to adopt), checked in the same main step as the placement.
+- The pending-segments poll backs off 5 s to 1 min and stops after about 30 min; a new upload restarts it.
+
 ## 2026-11-07 Notebook text rows on the board (T-46 P4, Tasks 4.4-4.8, v0.15.0)
 
 - Placement (`RunPlacer`, pure Kotlin): lines in source order; a line with a run keeps it (refit), a segment line
@@ -15,10 +41,9 @@ Lessons that outlive a session. Newest first.
 - Fit: scale 1, else shrink to fit down to 0.85, else wrap at word boundaries at 0.85. The column ends at the margin
   or at the next run or pending segment on the same row. Rows the line needs that hold runs, visible ink or pending
   segments shift down by whole rows with everything below (all strokes by bounding-box centre, consumed ones too, so
-  a later un-hide lands right). On the selected page the ink move is one `Command.ShiftRows` undo step that does not
-  mark the page changed; text runs are not in the undo history (text never lives in the stroke list). Rows pushed
-  past the last row go to a new page inserted right after (OQ4 A); foot ink moves only when this placement shifted
-  rows. An overflow clears that page's undo history through the UndoStack guard (strokes differ), never corrupts it.
+  a later un-hide lands right). The ink move does not mark the page changed and is not an undo step (see the review
+  fixes above); text runs are not in the undo history (text never lives in the stroke list). Rows pushed past the
+  last row go to a new page inserted right after (OQ4 A); foot ink moves only when this placement shifted rows.
 - Text layer: `TextLayer` draws runs into a transparent 1404 x 1872 ARGB bitmap (sans 40 px x scale, headings bold,
   colour spans, baseline 11 px above the row line, grey tick at x 23 for rows with pending segments, 50 percent grey
   overlay rects for P5). `TextLayerCache` keeps only the selected page's bitmap and returns a NEW instance on every
@@ -39,8 +64,8 @@ Lessons that outlive a session. Newest first.
   none, and the existing payload tests stay accurate). Every board page is exported whole as text layer plus
   visible ink (spec 5.1) so the PNG matches the layout's page px; the cropped `PngExporter` path remains only
   when no text layer function is given (tests). `base_version` is the latest STORED spec version of the
-  conversation, else the newest run version: the plan's "newest run version first" would stay stale forever after
-  a version without a layout and every send would answer 409. Page selection counts visible strokes only.
+  conversation (the plan's "newest run version first" would answer 409 after any newer version), with only the runs
+  its layout knows (see the review fixes above). Page selection counts visible strokes only.
 - Errors (Q17 A, plan wording): 409 `stale_base` and `busy` fail the item with "The document changed; check the
   latest version" / "A translation is running; try again when it finishes" (`OutboxReasons`). A failed upload drops
   its pending segments and marks its pages changed again, so nothing is lost and Send re-sends the ink;
@@ -48,7 +73,7 @@ Lessons that outlive a session. Newest first.
 - One notebook per conversation (OQ1 A): `notebook-<localId>.json` via `NotebookFiles`; `notebook.json` is only the
   board drawn before any conversation exists, adopted by the first selected one. The selection drives the binding
   (`runNotebookSync`), the undo history restarts on a switch, a deleted or pruned conversation deletes its notebook.
-- Revert (Q15 B; OQ7 still open, the recommended Documents option is built and marked `T-46 OQ7 pending`):
+- Revert (Q15 B; OQ7 decided A on 2026-11-07, the Documents version picker with a confirm dialog, as built):
   "Revert to vN" next to the version picker on an older version, confirm dialog, outbox kind `REVERT`
   (`revert.json`, base = latest), accepted revert refreshes the specs and the board re-renders.
 - The instrumented `NotebookSendTest` needs `mockwebserver` as an androidTest dependency (same artifact as the unit
