@@ -159,13 +159,12 @@ class AnnotationClassifier(
         for (s in strokes) {
             val (run, range) = struckWords(s, boxes, geometry) ?: continue
             val list = hits.getOrPut(run) { ArrayList() }
-            val merged = list.firstOrNull { (r, _) -> r.first <= range.last && range.first <= r.last }
-            if (merged == null) {
-                list += range to mutableListOf(s)
-            } else {
-                list.remove(merged)
-                list += (minOf(merged.first.first, range.first)..maxOf(merged.first.last, range.last)) to merged.second.apply { add(s) }
-            }
+            // A stroke may bridge several earlier ranges: fold in every one it overlaps.
+            val overlapping = list.filter { (r, _) -> r.first <= range.last && range.first <= r.last }
+            list.removeAll(overlapping)
+            val first = (overlapping.map { it.first.first } + range.first).min()
+            val last = (overlapping.map { it.first.last } + range.last).max()
+            list += (first..last) to (overlapping.flatMap { it.second } + s).toMutableList()
         }
         return hits.flatMap { (run, list) ->
             list.map { (range, group) ->
