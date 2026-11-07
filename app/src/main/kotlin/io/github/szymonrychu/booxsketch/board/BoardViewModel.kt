@@ -10,6 +10,7 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.hitStrokes
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.Placement
 import io.github.szymonrychu.booxsketch.model.notebook.RunPlacer
@@ -167,7 +168,10 @@ class BoardViewModel(
         update { n -> n.markSent(sent.filter { (i, page) -> n.pages.getOrNull(i) == page }.keys) }
 
     /** Records the segments of an upload: they wait for a spec version (grey tick on their rows). */
-    fun addPending(pending: Map<Int, List<PendingSegment>>) = update { it.addPending(pending) }
+    fun addPending(
+        pending: Map<Int, List<PendingSegment>>,
+        ops: Map<Int, List<PendingOp>> = emptyMap(),
+    ) = update { it.addPending(pending, ops) }
 
     /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
     fun dropPending(clientId: String) = update { it.dropPending(clientId) }

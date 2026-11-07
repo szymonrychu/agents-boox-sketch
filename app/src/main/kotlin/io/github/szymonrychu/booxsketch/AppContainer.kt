@@ -39,6 +39,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
@@ -347,8 +348,10 @@ class AppContainer(
                     override suspend fun markSent(sent: Map<Int, Page>) =
                         withContext(Dispatchers.Main.immediate) { boardViewModel.markSentIfUnchanged(sent) }
 
-                    override suspend fun addPending(pending: Map<Int, List<PendingSegment>>) =
-                        withContext(Dispatchers.Main.immediate) { boardViewModel.addPending(pending) }
+                    override suspend fun addPending(
+                        pending: Map<Int, List<PendingSegment>>,
+                        ops: Map<Int, List<PendingOp>>,
+                    ) = withContext(Dispatchers.Main.immediate) { boardViewModel.addPending(pending, ops) }
                 },
             export = PngExporter(CanvasStrokeRenderer())::export,
             limits = configCache::current,
