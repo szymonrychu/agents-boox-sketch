@@ -1112,3 +1112,11 @@ On the device. Checks: fresh launch with the dock up, pen-tap the board to dismi
 black and in blue; all must be right live. If stroke 2..N are still red and ballpoint-like, the next step is
 the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`), see sdk-research.md (c).
 - Follow-up: the hold is a no-op right after an open, so the firmware pen can stay live under a swallowed gesture, and the SDK delivers the raw stroke at or after pen-up, often after the lift ended the swallow. The board drops Committed and Erase events while `swallowing` (unless a stroke was live at the swallowing down, `swallowedLive`), and afterwards those whose first point lies within touch slop of the swallowed down point (`swallowedAt`, view pixels); a Committed consumes it, the next unswallowed down clears it. No timeouts.
+
+## 2026-11-07 P5a review fixes
+
+- Rejected op strokes are `Page.rejectedStrokes` (persisted): plain ink, no strike preview, not classified or
+  segmented again. Why: the grey preview over words implied a delete the text did not have, and every send re-sent it.
+- `TextMeasure.width(text, scale, bold)` (default: regular width); headings are measured bold in `WordBoxes`, wrap and
+  fit, as `TextLayer` draws them. Strike merges are transitive. Feedback is ordered by `julianday(createdAt)`.
+- Not changed: P4 notebooks saved without `TextRun.source` (review 9) - P4 has not shipped.

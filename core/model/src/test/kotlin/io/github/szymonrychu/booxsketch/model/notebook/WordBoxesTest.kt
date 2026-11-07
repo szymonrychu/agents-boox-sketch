@@ -50,9 +50,16 @@ class WordBoxesTest {
     fun heading_boxes_use_the_bold_width() {
         val bold =
             object : TextMeasure {
-                override fun width(text: String, scale: Float) = text.length * 20f * scale
+                override fun width(
+                    text: String,
+                    scale: Float,
+                ) = text.length * 20f * scale
 
-                override fun width(text: String, scale: Float, bold: Boolean) = text.length * (if (bold) 30f else 20f) * scale
+                override fun width(
+                    text: String,
+                    scale: Float,
+                    bold: Boolean,
+                ) = text.length * (if (bold) 30f else 20f) * scale
             }
         val heading = run("buy milk").copy(heading = true)
         assertThat(WordBoxes.of(heading, g, bold))
