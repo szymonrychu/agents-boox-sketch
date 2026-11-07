@@ -185,7 +185,7 @@ class OnyxPenRenderer internal constructor(
             Tool.BRUSH -> SdkPen.BRUSH
             Tool.CHARCOAL -> SdkPen.CHARCOAL
             Tool.CHARCOAL_V2 -> SdkPen.CHARCOAL_V2
-            Tool.BALLPOINT, Tool.MARKER, Tool.RECTANGLE, Tool.ARROW -> null
+            Tool.BALLPOINT, Tool.MARKER, Tool.RECTANGLE, Tool.ARROW, Tool.IMAGE_REGION -> null
         }
 
     companion object {
