@@ -63,12 +63,11 @@ Then:
 - [ ] Back to "ballpoint": live ink appears immediately again, Diagnostics shows "Raw drawing
       enabled: yes". Repeat the switch a few times; the pen must never stay dead.
 
-## Auto-hide dock
+## Strip stays open (never auto-hides)
 
-- [ ] Draw a stroke with the dock visible: about 0.6 s after lifting, the dock hides and the
-      small "Show tools" indicator remains.
-- [ ] The same after a rectangle or an arrow.
-- [ ] Tap the indicator: the dock comes back, readable, without animation.
+- [ ] Launch: the strip is open. Write 10 strokes and wait 5 s: the strip stays open the whole time.
+- [ ] The same after a rectangle or an arrow, and after a finger tap on the board.
+- [ ] Hide it with the chevron, then tap the indicator: the dock comes back, readable, without animation.
 - [ ] Right after a show or hide, draw over the area where the dock was: ink appears where the
       dock is gone, never over a visible dock.
 - [ ] With the dock visible, pen taps on swatches and tool chips change the selection and never
@@ -111,7 +110,7 @@ Then:
 - [ ] Open and close a popup: one GC flash, no popup residue left on the board, the pen draws right after.
 - [ ] Pen strokes started over the strip or over an open popup draw nothing and the popup keeps working.
 - [ ] Hide chevron: the strip collapses to a small "Show tools" tab on the left edge; tap it to bring the
-      strip back. A finger tap on the board closes popup, strip and panel in one flash.
+      strip back. A finger tap on the board closes popup and panel in one flash; the strip stays.
 - [ ] Pages popup: previous, next, add and delete work and the strip counter follows. Eraser popup: Clear
       page clears the page and undo brings it back. Send popup: caption, Send, Send all pages.
 - [ ] Rotate with a popup open: the popup closes, the strip stays on the left edge, the pen draws right after.
@@ -120,12 +119,12 @@ Then:
 
 - [ ] Launch: no panel, a small "Show panel" indicator at the right centre; tap it: the panel
       covers the right edge (about half the width in landscape), the board is not resized.
-- [ ] With raw drawing on (ballpoint selected), a finger tap on the board hides the dock and the
-      panel at once with one GC flash; the pen draws right after. If nothing happens, finger
+- [ ] With raw drawing on (ballpoint selected), a finger tap on the board hides the panel with one
+      GC flash and keeps the dock; the pen draws right after. If nothing happens, finger
       events do not reach the board view in raw mode (see MEMORY "tap to dismiss").
 - [ ] A finger tap on the panel or between toolbar buttons does not hide anything.
-- [ ] Dismiss mode: with the strip, a popup or the side panel open, a pen tap on the board
-      hides all of them at once and leaves no ink, also for a pen drag (nothing is drawn up to
+- [ ] Dismiss mode: with a popup or the side panel open, a pen tap on the board closes them at
+      once (the strip stays) and leaves no ink, also for a pen drag (nothing is drawn up to
       the lift, no stroke is added: undo does not remove anything). A finger tap and a finger
       drag do the same. Try it with ballpoint, with a shape tool and with the eraser selected.
       If a pen tap does nothing, stylus events do not reach the board view or the window
@@ -369,3 +368,16 @@ Needs the notebook preset and a page with text rows. Note Air 6C.
 - [ ] Letters are not loops: write an "o", "d" and "0" in the margin and in the text column; none of
       them is taken as an insert or lost.
 - [ ] A pen underline or a short flick at the end of a line is not taken as an arrow.
+
+## Live ink and the open strip (after 0.17.0)
+
+0.17.0 report: live ink red ballpoint until a full redraw; the strip should stay open and never auto-hide.
+Run with `adb logcat -s InkDiag`.
+
+- [ ] Fresh launch, strip open: select fountain and blue, write 5 lines without touching the strip. Each line
+      is blue fountain while the pen moves (never red, never ballpoint), and the strip stays open.
+- [ ] Repeat for brush, charcoal, marker and ballpoint, in black and in blue: live ink matches the redraw.
+- [ ] Open a popup, then pen-tap the board: the popup closes, the strip stays, no ink from the tap; the next
+      5 lines are right live. The same with the side panel.
+- [ ] Rotate with the strip open, then write: right live ink. In the log every `raw open` is followed by a
+      `setBrush style=<n> width=<w> color=#<argb>` line with the selected tool before any stroke.
