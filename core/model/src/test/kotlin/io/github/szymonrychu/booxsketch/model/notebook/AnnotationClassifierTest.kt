@@ -2,21 +2,27 @@ package io.github.szymonrychu.booxsketch.model.notebook
 
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.annotationY
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.arrow
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.g
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.line
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.measure
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.page
+import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.pen
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.rect
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.run
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.textY
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.word
 import org.junit.Test
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 class AnnotationClassifierTest {
     private var ids = 0
-    private val classifier = AnnotationClassifier(listOf(ToolInsertMarks))
+    private val classifier = AnnotationClassifier(listOf(ToolInsertMarks, FreehandInsertMarks))
 
     private fun classify(page: Page) = classifier.classify(page, g, measure) { "op-${++ids}" }
 
@@ -241,5 +247,150 @@ class AnnotationClassifierTest {
         val p = page(listOf(milk), strike, line("t", 60f, 100f, textY(4)))
         assertThat(classify(p.copy(pendingOps = listOf(PendingOp("c0", sent)))).ops.map { it.strokeIds }).containsExactly(listOf("t"))
         assertThat(classify(p.copy(consumed = setOf("s", "t"))).ops).isEmpty()
+    }
+
+    /** A pen circle of radius [r] around ([cx], [cy]), one turn, closing on its start. */
+    private fun circle(
+        id: String,
+        cx: Float,
+        cy: Float,
+        r: Float,
+    ): Stroke {
+        val n = 48
+        return pen(
+            id,
+            *(0..n)
+                .flatMap {
+                    listOf(cx + r * cos(2.0 * PI * it / n).toFloat(), cy + r * sin(2.0 * PI * it / n).toFloat())
+                }.toFloatArray(),
+        )
+    }
+
+    /** A straight pen shaft with a V head of two short arm strokes at its tip: ids "<id>", "<id>-a", "<id>-b". */
+    private fun penArrow(
+        id: String,
+        tailX: Float,
+        tailY: Float,
+        tipX: Float,
+        tipY: Float,
+    ): List<Stroke> {
+        val n = 20
+        val shaft = pen(id, *(0..n).flatMap { listOf(tailX + (tipX - tailX) * it / n, tailY + (tipY - tailY) * it / n) }.toFloatArray())
+        val back = atan2(tailY - tipY, tailX - tipX)
+
+        fun arm(
+            suffix: String,
+            da: Double,
+        ) = pen(
+            "$id-$suffix",
+            tipX,
+            tipY,
+            tipX + 30f * cos(back + da).toFloat(),
+            tipY + 30f * sin(back + da).toFloat(),
+        )
+        return listOf(shaft, arm("a", 0.45), arm("b", -0.45))
+    }
+
+    @Test
+    fun freehand_loop_and_arrow_make_insert() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    *penArrow("A", 1050f, 450f, 240f, textY(4)).toTypedArray(),
+                ),
+            )
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.INSERT)
+        assertThat(op.at).isEqualTo(OpAt("L1", 9, AtMode.INLINE))
+        assertThat(op.strokeIds).containsExactly("n1", "L", "A", "A-a", "A-b")
+        assertThat(r.opStrokeIds).containsExactly("n1", "L", "A", "A-a", "A-b")
+        assertThat(r.marginInk).isEmpty()
+    }
+
+    @Test
+    fun tool_rect_with_freehand_arrow_makes_insert() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    rect("R", 1000f, 400f, 1300f, 500f),
+                    word("n1", 1050f, 1200f, 450f),
+                    *penArrow("A", 1000f, 450f, 240f, textY(4)).toTypedArray(),
+                ),
+            )
+        assertThat(r.ops.single().kind).isEqualTo(OpKind.INSERT)
+        assertThat(r.ops.single().strokeIds).containsExactly("n1", "R", "A", "A-a", "A-b")
+    }
+
+    @Test
+    fun freehand_loop_with_tool_arrow_makes_insert() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    arrow("A", 1050f, 450f, 240f, textY(4)),
+                ),
+            )
+        assertThat(r.ops.single().strokeIds).containsExactly("n1", "L", "A")
+    }
+
+    @Test
+    fun loop_in_text_column_is_not_insert() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 600f, 800f, 100f),
+                    word("n1", 530f, 670f, 800f),
+                    arrow("A", 500f, 800f, 240f, textY(4)),
+                ),
+            )
+        assertThat(r.ops).isEmpty()
+        assertThat(r.opStrokeIds).isEmpty()
+    }
+
+    @Test
+    fun arrow_tail_far_from_loop_is_not_insert() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    arrow("A", 1050f, 800f, 240f, textY(4)),
+                ),
+            )
+        assertThat(r.ops).isEmpty()
+        assertThat(r.opStrokeIds).isEmpty()
+    }
+
+    @Test
+    fun double_headed_arrow_makes_insert_in_either_drawing_order() {
+        // Shaft from the loop to the text, then the head at the loop end, then the head at the text end.
+        val tip = penArrow("A", 1050f, 450f, 240f, textY(4))
+        val tail = penArrow("T", 240f, textY(4), 1050f, 450f)
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    tip[0],
+                    tail[1],
+                    tail[2],
+                    tip[1],
+                    tip[2],
+                ),
+            )
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.INSERT)
+        assertThat(op.at).isEqualTo(OpAt("L1", 9, AtMode.INLINE))
+        assertThat(op.strokeIds).containsExactly("n1", "L", "A", "A-a", "A-b", "T-a", "T-b")
+        assertThat(r.marginInk).isEmpty()
     }
 }
