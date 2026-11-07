@@ -43,6 +43,8 @@ class OutboxRunner(
     private val onFailed: suspend (OutboxItem) -> Unit = {},
     /** A 409 `stale_base`: a newer spec version exists, so the specs are synced and the board re-renders (Q17 A). */
     private val onStaleBase: suspend () -> Unit = {},
+    /** Every accepted item; an accepted revert made a new spec version, which is fetched right away. */
+    private val onAccepted: suspend (OutboxItem) -> Unit = {},
 ) {
     private val mutex = Mutex()
     private val core =
@@ -67,6 +69,7 @@ class OutboxRunner(
                     is DrainResult.Accepted -> {
                         accepted++
                         db.threadDao().setStatus(r.item.clientId, ThreadStatus.SENT)
+                        onAccepted(r.item)
                     }
 
                     is DrainResult.Failed -> {
@@ -141,6 +144,12 @@ class OutboxRunner(
                     item.copy(conversationServerId = serverId, conversationMode = meta.conversation)
                 }
 
+                OutboxKind.REVERT -> {
+                    // Only a conversation with a spec has versions to revert to.
+                    val serverId = conversation.serverId ?: throw ApiError.NotFound("no_spec")
+                    item.copy(conversationServerId = serverId, conversationMode = MODE_CURRENT)
+                }
+
                 OutboxKind.MESSAGE, OutboxKind.HANDOFF -> {
                     val serverId =
                         conversation.serverId ?: connector().createConversation().also {
@@ -186,6 +195,11 @@ class OutboxRunner(
                 OutboxKind.MESSAGE -> {
                     val message = withContext(Dispatchers.IO) { Payload.readMessage(dir) }
                     c.postMessage(checkNotNull(item.conversationServerId), item.clientId, message.text)
+                }
+
+                OutboxKind.REVERT -> {
+                    val (version, base) = withContext(Dispatchers.IO) { Payload.readRevert(dir) }
+                    c.revertSpec(checkNotNull(item.conversationServerId), version, base).version.toString()
                 }
 
                 OutboxKind.HANDOFF -> {

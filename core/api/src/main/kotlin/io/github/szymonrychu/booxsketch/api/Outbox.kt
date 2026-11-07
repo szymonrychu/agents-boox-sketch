@@ -3,7 +3,8 @@ package io.github.szymonrychu.booxsketch.api
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-enum class OutboxKind { SKETCH, MESSAGE, HANDOFF }
+/** [REVERT]: copy an older spec version as the newest (Q15 B). */
+enum class OutboxKind { SKETCH, MESSAGE, HANDOFF, REVERT }
 
 enum class OutboxState { PENDING, SENDING, ACCEPTED, FAILED_PERMANENT, PAUSED_AUTH }
 

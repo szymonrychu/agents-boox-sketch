@@ -30,10 +30,12 @@ import java.io.IOException
 /** Board state: the notebook, pen settings and per-page undo. Autosaves 500 ms after the last change. */
 @Suppress("TooManyFunctions") // one small intent method per board action (tools, colours, pages, undo, send)
 class BoardViewModel(
-    private val store: NotebookStore,
+    private var store: NotebookStore,
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher,
     private val defaultCanvas: Canvas = DEFAULT_CANVAS,
+    /** The notebook files per conversation; needed by [bindConversation]. */
+    private val files: NotebookFiles? = null,
 ) {
     private var undoStack = UndoStack()
     private var saveJob: Job? = null
@@ -187,6 +189,32 @@ class BoardViewModel(
 
     private fun geometry() = _notebook.value.canvas.let { NotebookGeometry(it.w, it.h) }
 
+    /**
+     * Shows the notebook of conversation [localId] (T-46 OQ1 A: one notebook per conversation): the current one is
+     * saved first, then the bound one is loaded, or an empty one for a conversation without a notebook. A notebook not
+     * yet bound to any conversation is adopted by the first one instead (what was drawn before belongs to it). The
+     * undo history starts empty.
+     */
+    suspend fun bindConversation(localId: String) {
+        val shelf = checkNotNull(files) { "no notebook files" }
+        val now = _notebook.value
+        if (now.conversationLocalId == localId) return
+        flush()
+        val target = shelf.store(localId)
+        val next =
+            withContext(ioDispatcher) { target.load() }
+                ?: if (now.conversationLocalId == null) now else Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
+        val adopted = now.conversationLocalId == null && next === now
+        store = target
+        undoStack = UndoStack()
+        _preview.value = null
+        _notebook.value = next.copy(conversationLocalId = localId)
+        _canUndo.value = false
+        _canRedo.value = false
+        persist()
+        if (adopted) withContext(ioDispatcher) { shelf.store(null).delete() }
+    }
+
     /** Writes the notebook now, cancelling a pending debounced save. */
     suspend fun flush() {
         saveJob?.cancel()
@@ -207,6 +235,7 @@ class BoardViewModel(
     /** Drops the notebook and its undo history (after Unpair deleted the saved file); nothing is written. */
     fun reset() {
         saveJob?.cancel()
+        files?.let { store = it.store(null) }
         undoStack = UndoStack()
         _notebook.value = Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
         _canUndo.value = false

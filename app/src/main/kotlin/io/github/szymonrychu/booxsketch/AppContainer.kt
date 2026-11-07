@@ -7,9 +7,11 @@ import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.emptyPreferences
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import io.github.szymonrychu.booxsketch.api.OutboxKind
 import io.github.szymonrychu.booxsketch.api.TaskEvents
 import io.github.szymonrychu.booxsketch.api.TasksClient
 import io.github.szymonrychu.booxsketch.board.BoardViewModel
+import io.github.szymonrychu.booxsketch.board.NotebookFiles
 import io.github.szymonrychu.booxsketch.board.NotebookStore
 import io.github.szymonrychu.booxsketch.board.NotebookSync
 import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
@@ -105,7 +107,12 @@ class AppContainer(
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val database: AppDatabase by lazy { AppDatabase.open(app) }
-    val notebookStore: NotebookStore by lazy { NotebookStore(File(dir, "notebook.json")) }
+
+    /** The board notebooks, one per conversation (T-46 OQ1 A). */
+    val notebookFiles: NotebookFiles by lazy { NotebookFiles(dir) }
+
+    /** The board notebook not yet bound to a conversation. */
+    val notebookStore: NotebookStore by lazy { notebookFiles.store(null) }
     val okHttpClient: OkHttpClient by lazy { httpFactory() }
 
     /** Own IO scope, so DataStore file reads and writes never touch the main thread. */
@@ -134,7 +141,7 @@ class AppContainer(
             database.clearAllTables()
             outboxRoot.deleteRecursively()
             annotationStore.deleteAll()
-            notebookStore.delete()
+            notebookFiles.deleteAll()
             tokenStore.clear()
         }
         outboxScheduler.cancelAll()
@@ -145,7 +152,11 @@ class AppContainer(
         tasks.reset()
     }
 
-    val boardViewModel: BoardViewModel by lazy { BoardViewModel(notebookStore, appScope, Dispatchers.IO) }
+    /** Starts on the selected conversation's notebook when it has one, else on the unbound one; see [runNotebookSync]. */
+    val boardViewModel: BoardViewModel by lazy {
+        val selected = conversations.selected.value?.takeIf { notebookFiles.forConversation(it).isFile }
+        BoardViewModel(selected?.let(notebookFiles::store) ?: notebookStore, appScope, Dispatchers.IO, files = notebookFiles)
+    }
 
     /** The plain touch input: the fallback, and the pen path of shape tools and the eraser on the Onyx path. */
     val touchInput: TouchStrokeInput by lazy { TouchStrokeInput(fingerEnabled = ::fingerEnabled) }
@@ -215,6 +226,7 @@ class AppContainer(
                 feedbackSync.sync()
             },
             annotations = annotationStore,
+            notebooks = notebookFiles,
         )
     }
 
@@ -238,7 +250,11 @@ class AppContainer(
             store = annotationStore,
             layout = documentLayout,
             scope = appScope,
-        )
+        ).also { vm ->
+            vm.revertTo = { version, latest ->
+                _sendMessage.value = sendOutcomeText(sendUseCase.revert(vm.conversationLocalId, version, latest))
+            }
+        }
 
     /** The ink of documents, one notebook per conversation and version. */
     val documentInk: DocumentInk by lazy { DocumentInk(annotationStore, appScope) }
@@ -266,6 +282,7 @@ class AppContainer(
             onFailed = { item -> withContext(Dispatchers.Main.immediate) { boardViewModel.dropPending(item.clientId) } },
             // A newer version exists: fetch it, so the board re-renders before the user sends again.
             onStaleBase = { conversations.refresh() },
+            onAccepted = { item -> if (item.kind == OutboxKind.REVERT) conversations.refresh() },
         )
     }
 
@@ -280,6 +297,8 @@ class AppContainer(
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun runNotebookSync() =
         coroutineScope {
+            // The board shows the selected conversation's notebook; the first one adopts an unbound board.
+            launch { conversations.selected.collect { id -> id?.let { boardViewModel.bindConversation(it) } } }
             launch {
                 combine(boardViewModel.notebook.map { it.conversationLocalId }, conversations.selected) { bound, selected ->
                     bound
@@ -386,6 +405,22 @@ class AppContainer(
                     "Not sent: the notes could not be saved (${e.message ?: e.javaClass.simpleName})."
                 }
             vm.refreshReadOnly()
+        }
+    }
+
+    // T-46 OQ7 pending: the revert is triggered from the Documents version picker only.
+    /** Reverts the open document to its shown older version (Q15 B); a refusal shows in the send dialog. */
+    @Suppress("TooGenericExceptionCaught")
+    fun onRevert(vm: DocumentViewModel) {
+        appScope.launch {
+            try {
+                vm.revert()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "revert failed: $e")
+                _sendMessage.value = "Not reverted: ${e.message ?: e.javaClass.simpleName}"
+            }
         }
     }
 

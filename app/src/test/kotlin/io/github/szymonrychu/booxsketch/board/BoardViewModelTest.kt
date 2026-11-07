@@ -335,4 +335,55 @@ class BoardViewModelTest {
             v.onStroke(stroke("a").copy(width = 9f))
             assertThat(v.strokes().single().width).isEqualTo(9f)
         }
+
+    private fun TestScope.bindable(): BoardViewModel {
+        val files = NotebookFiles(tmp.root)
+        return BoardViewModel(files.store(null), this, StandardTestDispatcher(testScheduler), files = files)
+    }
+
+    @Test
+    fun switching_conversation_swaps_notebook() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            v.bindConversation("B")
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("B")
+            assertThat(v.strokes()).isEmpty()
+            v.onStroke(stroke("b1"))
+            assertThat(v.canUndo.value).isTrue()
+            v.bindConversation("A")
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("A")
+            assertThat(v.strokes().map { it.id }).containsExactly("a1")
+            // Undo history belongs to the notebook that made it.
+            assertThat(v.canUndo.value).isFalse()
+            runCurrent()
+            assertThat(File(tmp.root, "notebook-B.json").readText()).contains("b1")
+        }
+
+    @Test
+    fun new_conversation_starts_empty_notebook() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            v.addPage()
+            v.bindConversation("new-1")
+            val n = v.notebook.value
+            assertThat(n.conversationLocalId).isEqualTo("new-1")
+            assertThat(n.pages).hasSize(1)
+            assertThat(n.pages.single().strokes).isEmpty()
+        }
+
+    @Test
+    fun unbound_notebook_is_adopted_by_its_first_conversation() =
+        runTest {
+            val v = bindable()
+            v.onStroke(stroke("before"))
+            v.bindConversation("A")
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("A")
+            assertThat(v.strokes().map { it.id }).containsExactly("before")
+            assertThat(File(tmp.root, "notebook-A.json").exists()).isTrue()
+            assertThat(File(tmp.root, "notebook.json").exists()).isFalse()
+        }
 }

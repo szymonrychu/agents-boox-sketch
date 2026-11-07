@@ -344,6 +344,27 @@ class SendUseCase(
             SendOutcome.Queued(req.clientId)
         }
 
+    /**
+     * Queues a revert of the conversation [conversationLocalId] to spec [version] (Q15 B) with [latest], the newest
+     * version the app shows, as the base: the connector copies it as version latest + 1, or answers 409 `stale_base`
+     * (a newer version exists) or `busy` (a translation runs), which fail the item with a reason. Reverting the latest
+     * version is refused.
+     */
+    suspend fun revert(
+        conversationLocalId: String,
+        version: Int,
+        latest: Int,
+    ): SendOutcome =
+        mutex.withLock {
+            if (version >= latest || version < 1) return@withLock SendOutcome.NothingToSend
+            val clientId = newId()
+            enqueue(clientId, OutboxKind.REVERT, conversationLocalId, ThreadKind.REVERT, "Revert to v$version", 0) {
+                Payload.writeRevert(it, version, latest)
+            }
+            kick()
+            SendOutcome.Queued(clientId)
+        }
+
     @Suppress("LongParameterList")
     private suspend fun enqueue(
         clientId: String,

@@ -62,6 +62,7 @@ fun DocumentHost(
             }
         },
         onSources = { showSources = true },
+        onRevert = { container.onRevert(vm) },
         onPrev = { if (inkable) scope.launch { turner.turn(-1) } else vm.prev() },
         onNext = { if (inkable) scope.launch { turner.turn(1) } else vm.next() },
         pageArea = { modifier ->

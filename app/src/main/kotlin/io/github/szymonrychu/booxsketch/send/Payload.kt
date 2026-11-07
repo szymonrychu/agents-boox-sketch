@@ -45,6 +45,7 @@ object Payload {
     const val META = "meta.json"
     const val MESSAGE = "message.json"
     const val HANDOFF = "handoff.json"
+    const val REVERT = "revert.json"
 
     private val json =
         Json {
@@ -129,6 +130,24 @@ object Payload {
                 put("spec_version", specVersion?.let(::JsonPrimitive) ?: JsonNull)
             }
         File(dir, HANDOFF).writeText(obj.toString())
+    }
+
+    /** A revert payload: spec [version] becomes the newest, if [baseVersion] is still the latest. */
+    fun writeRevert(
+        dir: File,
+        version: Int,
+        baseVersion: Int,
+    ) = File(dir, REVERT).writeText(
+        buildJsonObject {
+            put("version", version)
+            put("base_version", baseVersion)
+        }.toString(),
+    )
+
+    /** (version, base_version) of a revert payload. */
+    fun readRevert(dir: File): Pair<Int, Int> {
+        val obj = json.parseToJsonElement(File(dir, REVERT).readText()).jsonObject
+        return obj.getValue("version").jsonPrimitive.int to obj.getValue("base_version").jsonPrimitive.int
     }
 
     fun readHandoff(dir: File): HandoffFile {
