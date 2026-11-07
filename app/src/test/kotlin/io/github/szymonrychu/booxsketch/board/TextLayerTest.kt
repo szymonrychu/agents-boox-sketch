@@ -206,6 +206,13 @@ class TextLayerTest {
     }
 
     @Test
+    fun export_layer_has_no_applied_region_frame() {
+        val page = regionPage(applied = true)
+        assertThat(box(layer.render(page, null), inked)).isNotNull()
+        assertThat(box(layer.renderForExport(page)) { Color.alpha(it) > 0 }).isNull()
+    }
+
+    @Test
     fun pending_region_is_not_on_the_text_layer() {
         assertThat(box(layer.render(regionPage(applied = false), null)) { Color.alpha(it) > 0 }).isNull()
     }

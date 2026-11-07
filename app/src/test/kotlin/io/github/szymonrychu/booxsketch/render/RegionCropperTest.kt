@@ -83,6 +83,27 @@ class RegionCropperTest {
     }
 
     @Test
+    fun text_layer_at_half_resolution_is_scaled_to_the_canvas() {
+        val half =
+            Bitmap.createBitmap(canvas.w / 2, canvas.h / 2, Bitmap.Config.ARGB_8888).also {
+                Canvas(it).drawRect(150f, 175f, 200f, 200f, Paint().apply { color = PenColor.RED.argb })
+            }
+        val bmp = decode(RegionCropper(CanvasStrokeRenderer()).crop(Page(listOf(region), true), region, half, canvas, cfg)!!)
+        // The layer rect (300, 350) to (400, 400) on the canvas is (100, 50) to (200, 100) of the crop.
+        assertThat(bmp.getPixel(150, 75)).isEqualTo(PenColor.RED.argb)
+        assertThat(bmp.getPixel(50, 75)).isEqualTo(Color.WHITE)
+    }
+
+    @Test
+    fun an_applied_region_frame_is_not_in_the_crop() {
+        val other = Stroke("o", Tool.IMAGE_REGION, 3f, listOf(Point(150f, 250f, 1f, 0), Point(650f, 750f, 1f, 1)))
+        val page = Page(listOf(region, other, inside), true, appliedRegions = mapOf("o" to "reg-o"))
+        val bmp = decode(RegionCropper(CanvasStrokeRenderer()).crop(page, region, null, canvas, cfg)!!)
+        for (x in 0 until bmp.width) assertThat(bmp.getPixel(x, 0)).isEqualTo(Color.WHITE)
+        assertThat(bmp.getPixel(200, 200)).isEqualTo(Color.BLACK)
+    }
+
+    @Test
     fun crop_that_cannot_fit_is_null() {
         val png =
             RegionCropper(

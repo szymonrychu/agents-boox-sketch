@@ -374,7 +374,7 @@ class AppContainer(
             kick = ::kickOutbox,
             annotations = annotationStore,
             // The export shows text and visible ink, without the pending ticks and the region frames.
-            boardPage = { page -> boardViewModel.textLayers.layer.render(page.copy(pendingSegments = emptyList()), null) },
+            boardPage = { page -> boardViewModel.textLayers.layer.renderForExport(page) },
         )
     }
 

@@ -35,6 +35,9 @@ class TextLayer(
             }
         }
 
+    /** The layer an export or a region crop composites: the text only, no pending ticks and no applied region frames. */
+    fun renderForExport(page: Page): Bitmap = render(page.copy(pendingSegments = emptyList(), appliedRegions = emptyMap()), null)
+
     /** Draws [page]'s text into [reuse] (cleared) when it has the page size, else into a new bitmap. */
     fun render(
         page: Page,
