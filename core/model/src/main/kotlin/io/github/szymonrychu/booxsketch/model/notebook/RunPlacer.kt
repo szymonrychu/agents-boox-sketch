@@ -63,6 +63,7 @@ object RunPlacer {
         val revert = layout.revertedFrom != null
         work.dropRuns(shown, unconsume = revert)
         work.applyOps(layout.ops)
+        work.dropUnreferencedRegions(ImageRegions.referencedIds(markdown).toSet())
 
         // A revert copies the old version's origins: its segment ids may match new, unanswered handwriting.
         fun segmentsOf(line: SpecLineModel) = if (revert) emptyList() else (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
@@ -264,7 +265,13 @@ object RunPlacer {
                         .filter { it.tool == Tool.IMAGE_REGION }
                         .map { it.id }
                         .toSet()
-                val regions = images.flatMap { it.op.strokeIds }.filter { it in regionIds }
+                val regions =
+                    images.flatMap { d ->
+                        val regionId = d.op.region?.id
+                        d.op.strokeIds
+                            .filter { it in regionIds && regionId != null }
+                            .map { it to regionId.orEmpty() }
+                    }
                 setPage(
                     i,
                     p.copy(
@@ -274,6 +281,20 @@ object RunPlacer {
                         appliedRegions = p.appliedRegions + regions,
                     ),
                 )
+                markDirty(i, 0 until g.rowCount)
+            }
+        }
+
+        /**
+         * An applied region whose image the shown version does not reference is pending again (OQ2 A): its frame is
+         * dashed, it is exported and sent as an image op once more, and the page counts as changed.
+         */
+        fun dropUnreferencedRegions(referenced: Set<String>) {
+            for (i in n.pages.indices) {
+                val p = page(i)
+                val gone = p.appliedRegions.filterValues { it !in referenced }
+                if (gone.isEmpty()) continue
+                setPage(i, p.copy(appliedRegions = p.appliedRegions - gone.keys, changedSinceSend = true))
                 markDirty(i, 0 until g.rowCount)
             }
         }
@@ -582,7 +603,7 @@ object RunPlacer {
                         strokes = t.strokes + shiftStrokes(strokes, Float.NEGATIVE_INFINITY, dy),
                         pendingSegments = t.pendingSegments + segments.map { it.copy(row = it.row - cut) },
                         consumed = t.consumed + p.consumed.intersect(ids),
-                        appliedRegions = t.appliedRegions + p.appliedRegions.intersect(ids),
+                        appliedRegions = t.appliedRegions + p.appliedRegions.filterKeys { it in ids },
                         changedSinceSend = t.changedSinceSend || strokes.any { it.id !in p.consumed },
                     ),
                 )

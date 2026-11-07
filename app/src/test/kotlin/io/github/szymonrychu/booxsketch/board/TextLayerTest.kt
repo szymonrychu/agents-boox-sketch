@@ -187,7 +187,7 @@ class TextLayerTest {
                 ),
             ),
             false,
-            appliedRegions = if (applied) setOf("r") else emptySet(),
+            appliedRegions = if (applied) mapOf("r" to "reg-1") else emptyMap(),
         )
 
     @Test

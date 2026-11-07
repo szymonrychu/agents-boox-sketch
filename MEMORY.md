@@ -55,8 +55,9 @@ Lessons that outlive a session. Newest first.
   in strokes.json, not erasable) and the text layer draws them as a 2 px solid frame with a 20 px "image" label.
   Done there (not in `CanvasStrokeRenderer`, as the plan said) so the swap rides the text layer's pen-idle hold and
   the renderer interface stays per-stroke. Rejected image ops leave the region pending again. Image-only markdown
-  lines are not placed as text runs. A revert keeps `appliedRegions` (known limit: a revert that drops the image line
-  still shows the solid frame).
+  lines are not placed as text runs. `appliedRegions` maps the region stroke id to its region id; every placement
+  (revert or newer version) drops the entries whose `images/<region id>.png` the shown markdown no longer references
+  (OQ2 A, 2026-11-07 review fix): the frame is dashed again, the page counts as changed and Send re-sends the region.
 - Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
   (region images never change), removed with the conversation (delete and server-side removal). Ids are checked
   against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images before paginating; a

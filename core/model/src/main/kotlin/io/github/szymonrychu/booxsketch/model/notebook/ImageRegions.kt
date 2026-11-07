@@ -11,6 +11,16 @@ import io.github.szymonrychu.booxsketch.model.rectOf
  * region's image op and never segmented as handwriting.
  */
 object ImageRegions {
+    private val REFERENCE = Regex("""!\[[^\]]*]\(images/([A-Za-z0-9-]+)\.png\)""")
+
+    /** The region ids [markdown] references as `images/<region id>.png`, in order, each once. */
+    fun referencedIds(markdown: String): List<String> =
+        REFERENCE
+            .findAll(markdown)
+            .map { it.groupValues[1] }
+            .distinct()
+            .toList()
+
     /** Every region stroke of [page] that is not consumed: new, sent and waiting, or applied. */
     fun regions(page: Page): List<Stroke> =
         page.strokes.filter { it.tool == Tool.IMAGE_REGION && it.points.size >= 2 && it.id !in page.consumed }

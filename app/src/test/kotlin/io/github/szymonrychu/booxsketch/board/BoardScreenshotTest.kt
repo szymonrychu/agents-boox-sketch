@@ -219,7 +219,7 @@ class BoardScreenshotTest {
                 listOf(region, house),
                 false,
                 text = listOf(run),
-                appliedRegions = if (applied) setOf("r") else emptySet(),
+                appliedRegions = if (applied) mapOf("r" to "reg-1") else emptyMap(),
             )
         val layer = TextLayer(g).render(page, null)
         compose.setContent {
