@@ -224,4 +224,16 @@ class CanvasStrokeRendererTest {
         assertThat(pen.offered).isEmpty()
         assertThat(Color.red(bmp.getPixel(200, 200))).isGreaterThan(Color.green(bmp.getPixel(200, 200)))
     }
+
+    @Test
+    fun image_region_is_a_dashed_dark_grey_frame_whatever_the_pen_colour() {
+        val s = Stroke("r", Tool.IMAGE_REGION, 3f, listOf(Point(100f, 100f, 1f, 0), Point(300f, 300f, 1f, 1)), PenColor.RED)
+        val bmp = render(s)
+        val top = (100..300).map { bmp.getPixel(it, 100) }
+        // Dashed: both ink and gaps along the top edge; the ink is the fixed dark grey.
+        assertThat(top.count { it == Color.WHITE }).isAtLeast(40)
+        assertThat(top.count { it == 0xFF555555.toInt() }).isAtLeast(40)
+        assertThat(top.none { Color.red(it) > Color.green(it) + 40 }).isTrue()
+        assertThat(bmp.getPixel(200, 200)).isEqualTo(Color.WHITE)
+    }
 }

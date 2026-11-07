@@ -115,4 +115,15 @@ class StrokesCodecTest {
         assertThat(strokes[1].points).hasSize(2)
         assertThat(strokes[2].tool).isEqualTo(Tool.ARROW)
     }
+
+    @Test
+    fun image_region_round_trip() {
+        val region = Stroke("r", Tool.IMAGE_REGION, 3f, listOf(p(10f, 20f, 1f, 0), p(300f, 400f, 1f, 5)), PenColor.BLACK)
+        val bytes = StrokesCodec.encode(canvas, Page(listOf(region), false))
+        assertThat(String(bytes)).contains("\"tool\":\"image_region\"")
+        val (_, strokes) = StrokesCodec.decode(bytes)
+        assertThat(strokes.single().tool).isEqualTo(Tool.IMAGE_REGION)
+        assertThat(strokes.single().points.map { it.x to it.y }).containsExactly(10f to 20f, 300f to 400f).inOrder()
+        assertThat(Tool.IMAGE_REGION.isShape).isTrue()
+    }
 }

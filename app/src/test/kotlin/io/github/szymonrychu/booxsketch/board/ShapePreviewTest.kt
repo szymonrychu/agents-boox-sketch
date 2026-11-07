@@ -169,6 +169,29 @@ class ShapeDragWiringTest {
     }
 
     @Test
+    fun image_region_drag_preview() {
+        board()
+        compose.runOnIdle { vm.setTool(Tool.IMAGE_REGION) }
+        compose.waitForIdle()
+        assertThat(input.tools.last()).isEqualTo(Tool.IMAGE_REGION)
+        // Dragged from the lower right to the upper left: the preview is normalised like a rectangle.
+        compose.runOnIdle { input.inProgress.value = drag(Tool.IMAGE_REGION, 400f, 300f, 100f, 100f) }
+        compose.waitForIdle()
+        val preview = vm.preview.value!!
+        assertThat(preview.tool).isEqualTo(Tool.IMAGE_REGION)
+        assertThat(preview.points.first().x).isLessThan(preview.points.last().x)
+        assertThat(preview.points.first().y).isLessThan(preview.points.last().y)
+        compose.runOnIdle {
+            input.channel.trySend(StrokeEvent.Committed(drag(Tool.IMAGE_REGION, 400f, 300f, 100f, 100f)))
+            input.inProgress.value = null
+        }
+        compose.waitForIdle()
+        assertThat(vm.preview.value).isNull()
+        assertThat(strokes().single().tool).isEqualTo(Tool.IMAGE_REGION)
+        assertThat(strokes().single().width).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+    }
+
+    @Test
     fun arrow_preview_snaps_to_a_rectangle_anchor() {
         board()
         compose.runOnIdle { vm.setTool(Tool.RECTANGLE) }

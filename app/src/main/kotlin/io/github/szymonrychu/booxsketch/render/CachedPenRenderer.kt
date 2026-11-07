@@ -21,7 +21,7 @@ import io.github.szymonrychu.booxsketch.onyx.PenRenderer
  */
 fun inkWidthFactor(tool: Tool): Float =
     when (tool) {
-        Tool.RECTANGLE, Tool.ARROW -> 1f
+        Tool.RECTANGLE, Tool.ARROW, Tool.IMAGE_REGION -> 1f
         Tool.FOUNTAIN, Tool.BRUSH -> SDK_PEN_INK_FACTOR
         Tool.CHARCOAL, Tool.CHARCOAL_V2 -> CHARCOAL_INK_FACTOR
         Tool.BALLPOINT, Tool.MARKER -> MARKER_INK_FACTOR

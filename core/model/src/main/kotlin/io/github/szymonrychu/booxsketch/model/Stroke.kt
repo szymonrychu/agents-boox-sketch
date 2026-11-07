@@ -26,10 +26,16 @@ enum class Tool(
     MARKER("marker"),
     RECTANGLE("rectangle"),
     ARROW("arrow"),
+
+    /** A dragged rectangle marking a picture: the ink inside it is sent as an image, not transcribed (spec 3.6). */
+    IMAGE_REGION("image_region"),
     ;
 
     /** Shape tools are drawn from two dragged points, not from a free pen path. */
-    val isShape: Boolean get() = this == RECTANGLE || this == ARROW
+    val isShape: Boolean get() = this == RECTANGLE || this == ARROW || this == IMAGE_REGION
+
+    /** Shapes drawn as an axis-aligned box between their two points. */
+    val isBox: Boolean get() = this == RECTANGLE || this == IMAGE_REGION
 }
 
 /** Pen colours; [wire] is the name in strokes.json, [argb] the colour used for drawing. */

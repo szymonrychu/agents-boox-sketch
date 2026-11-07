@@ -63,7 +63,7 @@ fun snapShape(
     val first = drag.points.first()
     val last = drag.points.last()
     val (tail, tip) =
-        if (drag.tool == Tool.RECTANGLE) {
+        if (drag.tool.isBox) {
             val r = rectOf(drag)
             Vec(r.l, r.t) to Vec(r.r, r.b)
         } else {
@@ -120,7 +120,7 @@ fun shapeOutline(s: Stroke): List<List<Vec>> {
     val pts = s.points.map { Vec(it.x, it.y) }
     if (!s.tool.isShape || pts.size < 2) return listOf(pts)
     return when (s.tool) {
-        Tool.RECTANGLE -> {
+        Tool.RECTANGLE, Tool.IMAGE_REGION -> {
             val r = rectOf(s)
             listOf(
                 listOf(Vec(r.l, r.t), Vec(r.r, r.t), Vec(r.r, r.b), Vec(r.l, r.b), Vec(r.l, r.t)),

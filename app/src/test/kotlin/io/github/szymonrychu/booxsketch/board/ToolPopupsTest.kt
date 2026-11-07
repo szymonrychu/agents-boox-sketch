@@ -187,4 +187,24 @@ class ToolPopupsTest {
             compose.onNodeWithText(label).assertHeightIsAtLeast(48.dp)
         }
     }
+
+    @Test
+    fun shape_popup_has_image_region() {
+        val vm = vm()
+        vm.setTool(Tool.RECTANGLE)
+        show(ToolPopup.SHAPE, vm)
+        compose.onNodeWithTag(shapeTag(Tool.RECTANGLE)).assertIsSelected()
+        compose.onNodeWithTag(shapeTag(Tool.ARROW)).assertIsNotSelected()
+        compose
+            .onNodeWithTag(shapeTag(Tool.IMAGE_REGION))
+            .assertWidthIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(48.dp)
+            .assertIsNotSelected()
+            .performClick()
+        assertThat(vm.tool.value).isEqualTo(Tool.IMAGE_REGION)
+        assertThat(vm.effectiveWidth.value).isEqualTo(BoardViewModel.SHAPE_WIDTH)
+        compose.onNodeWithTag(shapeTag(Tool.IMAGE_REGION)).assertIsSelected()
+        // The colour grid stays below the shapes.
+        compose.onNodeWithTag(colorTag(PenColor.RED)).assertExists()
+    }
 }
