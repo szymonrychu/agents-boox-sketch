@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CursorEntity::class,
         FeedbackEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,7 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         /** Every migration, in order. There is no destructive fallback: a missing step must fail loudly. */
-        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
         fun open(context: Context): AppDatabase =
             Room
@@ -64,5 +64,13 @@ val MIGRATION_2_3: Migration =
                     "`kind` TEXT NOT NULL, `text` TEXT NOT NULL, `whereText` TEXT, `specVersion` INTEGER, " +
                     "`createdAt` TEXT NOT NULL, PRIMARY KEY(`conversationServerId`, `id`))",
             )
+        }
+    }
+
+/** Adds the spec layout (line ids and op statuses) of notebook versions. */
+val MIGRATION_3_4: Migration =
+    object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE specs ADD COLUMN layout TEXT")
         }
     }

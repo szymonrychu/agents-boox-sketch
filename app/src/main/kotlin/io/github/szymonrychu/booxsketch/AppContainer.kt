@@ -7,10 +7,13 @@ import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.emptyPreferences
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
+import io.github.szymonrychu.booxsketch.api.OutboxKind
 import io.github.szymonrychu.booxsketch.api.TaskEvents
 import io.github.szymonrychu.booxsketch.api.TasksClient
 import io.github.szymonrychu.booxsketch.board.BoardViewModel
+import io.github.szymonrychu.booxsketch.board.NotebookFiles
 import io.github.szymonrychu.booxsketch.board.NotebookStore
+import io.github.szymonrychu.booxsketch.board.NotebookSync
 import io.github.szymonrychu.booxsketch.conversations.CONVERSATIONS_TAB_ID
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.conversations.ConversationsTab
@@ -36,6 +39,7 @@ import io.github.szymonrychu.booxsketch.ink.StrokeInput
 import io.github.szymonrychu.booxsketch.ink.TouchStrokeInput
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
@@ -65,12 +69,21 @@ import io.github.szymonrychu.booxsketch.ui.TabSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -94,7 +107,12 @@ class AppContainer(
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val database: AppDatabase by lazy { AppDatabase.open(app) }
-    val notebookStore: NotebookStore by lazy { NotebookStore(File(dir, "notebook.json")) }
+
+    /** The board notebooks, one per conversation (T-46 OQ1 A). */
+    val notebookFiles: NotebookFiles by lazy { NotebookFiles(dir) }
+
+    /** The board notebook not yet bound to a conversation. */
+    val notebookStore: NotebookStore by lazy { notebookFiles.store(null) }
     val okHttpClient: OkHttpClient by lazy { httpFactory() }
 
     /** Own IO scope, so DataStore file reads and writes never touch the main thread. */
@@ -123,7 +141,7 @@ class AppContainer(
             database.clearAllTables()
             outboxRoot.deleteRecursively()
             annotationStore.deleteAll()
-            notebookStore.delete()
+            notebookFiles.deleteAll()
             tokenStore.clear()
         }
         outboxScheduler.cancelAll()
@@ -134,7 +152,11 @@ class AppContainer(
         tasks.reset()
     }
 
-    val boardViewModel: BoardViewModel by lazy { BoardViewModel(notebookStore, appScope, Dispatchers.IO) }
+    /** Starts on the selected conversation's notebook when it has one, else on the unbound one; see [runNotebookSync]. */
+    val boardViewModel: BoardViewModel by lazy {
+        val selected = conversations.selected.value?.takeIf { notebookFiles.forConversation(it).isFile }
+        BoardViewModel(selected?.let(notebookFiles::store) ?: notebookStore, appScope, Dispatchers.IO, files = notebookFiles)
+    }
 
     /** The plain touch input: the fallback, and the pen path of shape tools and the eraser on the Onyx path. */
     val touchInput: TouchStrokeInput by lazy { TouchStrokeInput(fingerEnabled = ::fingerEnabled) }
@@ -204,6 +226,7 @@ class AppContainer(
                 feedbackSync.sync()
             },
             annotations = annotationStore,
+            notebooks = notebookFiles,
         )
     }
 
@@ -227,7 +250,11 @@ class AppContainer(
             store = annotationStore,
             layout = documentLayout,
             scope = appScope,
-        )
+        ).also { vm ->
+            vm.revertTo = { version, latest ->
+                _sendMessage.value = sendOutcomeText(sendUseCase.revert(vm.conversationLocalId, version, latest))
+            }
+        }
 
     /** The ink of documents, one notebook per conversation and version. */
     val documentInk: DocumentInk by lazy { DocumentInk(annotationStore, appScope) }
@@ -252,8 +279,62 @@ class AppContainer(
             onNeedsPairing = pairingRepository::rejectToken,
             schedule = outboxScheduler::later,
             annotations = annotationStore,
+            onFailed = { item ->
+                withContext(Dispatchers.Main.immediate) { boardViewModel.dropFailedUpload(item.clientId, item.conversationLocalId) }
+            },
+            // A newer version exists: fetch it, so the board re-renders before the user sends again.
+            onStaleBase = { conversations.refresh() },
+            onAccepted = { item -> if (item.kind == OutboxKind.REVERT) conversations.refresh() },
         )
     }
+
+    /** Places returned spec versions on the board (Task 4.6). */
+    val notebookSync: NotebookSync by lazy { NotebookSync(database.specDao(), boardViewModel, boardViewModel.textHolds) }
+
+    /**
+     * While the app is paired and in the foreground: applies the spec versions of the board's conversation as they are
+     * stored, and polls the conversations while the board waits for a version (pending segments), since nothing else
+     * fetches specs when the Documents tab is closed. The poll backs off from 5 s to 1 min and stops after about half
+     * an hour ([pendingPollDelay]); a new upload starts it again. A deleted or pruned conversation leaves the board.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    suspend fun runNotebookSync() =
+        coroutineScope {
+            // The board shows the selected conversation's notebook; the first one adopts an unbound board.
+            launch { conversations.selected.collect { id -> id?.let { boardViewModel.bindConversation(it) } } }
+            launch {
+                combine(boardViewModel.notebook.map { it.conversationLocalId }, database.conversationDao().observeAll()) { bound, all ->
+                    bound?.takeIf { id -> all.none { it.localId == id } }
+                }.distinctUntilChanged()
+                    .collect { gone -> gone?.let { boardViewModel.conversationGone(it) } }
+            }
+            launch {
+                combine(boardViewModel.notebook.map { it.conversationLocalId }, conversations.selected) { bound, selected ->
+                    bound
+                        ?: selected
+                }.distinctUntilChanged()
+                    .flatMapLatest { localId ->
+                        database.conversationDao().observeAll().map { all ->
+                            all.firstOrNull { it.localId == localId }?.serverId?.let { it to localId }
+                        }
+                    }.distinctUntilChanged()
+                    .flatMapLatest { ids ->
+                        ids?.let { (serverId, _) -> database.specDao().observeVersions(serverId).map { ids } } ?: emptyFlow()
+                    }.collect { (serverId, localId) -> notebookSync.catchUp(serverId, checkNotNull(localId)) }
+            }
+            launch {
+                boardViewModel.notebook
+                    .map { n -> n.pages.flatMap { p -> p.pendingSegments.map { it.clientId } }.toSet() }
+                    .distinctUntilChanged()
+                    .collectLatest { waiting ->
+                        var attempt = 0
+                        while (waiting.isNotEmpty()) {
+                            delay(pendingPollDelay(attempt++) ?: break)
+                            conversations.refresh()
+                        }
+                    }
+            }
+        }
 
     val sendUseCase: SendUseCase by lazy {
         SendUseCase(
@@ -265,12 +346,17 @@ class AppContainer(
 
                     override suspend fun markSent(sent: Map<Int, Page>) =
                         withContext(Dispatchers.Main.immediate) { boardViewModel.markSentIfUnchanged(sent) }
+
+                    override suspend fun addPending(pending: Map<Int, List<PendingSegment>>) =
+                        withContext(Dispatchers.Main.immediate) { boardViewModel.addPending(pending) }
                 },
             export = PngExporter(CanvasStrokeRenderer())::export,
             limits = configCache::current,
             outboxRoot = outboxRoot,
             kick = ::kickOutbox,
             annotations = annotationStore,
+            // The export shows what the user saw: text and visible ink, without the pending ticks.
+            boardPage = { page -> boardViewModel.textLayers.layer.render(page.copy(pendingSegments = emptyList()), null) },
         )
     }
 
@@ -330,6 +416,24 @@ class AppContainer(
                     "Not sent: the notes could not be saved (${e.message ?: e.javaClass.simpleName})."
                 }
             vm.refreshReadOnly()
+        }
+    }
+
+    /**
+     * Reverts the open document to its shown older version (Q15 B); a refusal shows in the send dialog.
+     * The revert is triggered from the Documents version picker only (T-46 OQ7 A).
+     */
+    @Suppress("TooGenericExceptionCaught")
+    fun onRevert(vm: DocumentViewModel) {
+        appScope.launch {
+            try {
+                vm.revert()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "revert failed: $e")
+                _sendMessage.value = "Not reverted: ${e.message ?: e.javaClass.simpleName}"
+            }
         }
     }
 
@@ -393,6 +497,19 @@ class AppContainer(
         private const val TAG = "BooxSketch"
         private const val DOCUMENT_DPI = 300f
         private const val DIAGNOSTICS_ORDER = 900
+
+        private const val PENDING_POLL_FIRST_MS = 5_000L
+        private const val PENDING_POLL_MAX_MS = 60_000L
+        private const val PENDING_POLL_ATTEMPTS = 33
+
+        /**
+         * The wait before refresh number [attempt] (0-based) while the board waits for a spec version: 5 s doubling up
+         * to 1 min, null after [PENDING_POLL_ATTEMPTS] refreshes (about half an hour), so a translation that never
+         * answers does not poll forever.
+         */
+        internal fun pendingPollDelay(attempt: Int): Long? =
+            if (attempt >= PENDING_POLL_ATTEMPTS) null else minOf(PENDING_POLL_FIRST_MS shl minOf(attempt, 4), PENDING_POLL_MAX_MS)
+
         const val DRAWING_TAB_ORDER = 10
         const val TASKS_TAB_ORDER = 20
         const val DOCUMENTS_TAB_ORDER = 30

@@ -128,4 +128,14 @@ class ErrorMappingTest {
             assertThat(parseErrorBody("""{"error":{"code":"x","message":"y"}}""")).isEqualTo("x" to "y")
             assertThat(parseErrorBody("[]")).isNull()
         }
+
+    @Test
+    fun stale_base_stale_target_op_replayed_busy() =
+        runTest {
+            assertThat(errorOf(failure(409, "stale_base"))).isEqualTo(ApiError.StaleBase)
+            assertThat(errorOf(failure(409, "op_replayed"))).isEqualTo(ApiError.OpReplayed)
+            assertThat(errorOf(failure(409, "busy"))).isEqualTo(ApiError.Busy)
+            assertThat(errorOf(failure(422, "stale_target"))).isEqualTo(ApiError.StaleTarget("d"))
+            assertThat(errorOf(failure(422, "invalid_request"))).isEqualTo(ApiError.Invalid("invalid_request", "d"))
+        }
 }

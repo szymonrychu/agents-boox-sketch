@@ -3,9 +3,19 @@ package io.github.szymonrychu.booxsketch.api
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-enum class OutboxKind { SKETCH, MESSAGE, HANDOFF }
+/** [REVERT]: copy an older spec version as the newest (Q15 B). */
+enum class OutboxKind { SKETCH, MESSAGE, HANDOFF, REVERT }
 
 enum class OutboxState { PENDING, SENDING, ACCEPTED, FAILED_PERMANENT, PAUSED_AUTH }
+
+/** Failure reasons shown on the thread item, for errors the user resolves by acting (Q17 A, revert). */
+object OutboxReasons {
+    /** 409 `stale_base`: a newer spec version exists than the one the board or the document showed. */
+    const val STALE_BASE = "The document changed; check the latest version"
+
+    /** 409 `busy`: a translator turn of the conversation is open (a revert waits for it). */
+    const val BUSY = "A translation is running; try again when it finishes"
+}
 
 data class OutboxItem(
     val id: Long,
@@ -46,8 +56,10 @@ sealed interface DrainResult {
         val item: OutboxItem,
     ) : DrainResult
 
+    /** [error] is what failed it, null for a failure without an [ApiError]. */
     data class Failed(
         val item: OutboxItem,
+        val error: ApiError? = null,
     ) : DrainResult
 
     data object NeedsPairing : DrainResult
@@ -113,6 +125,20 @@ class OutboxRunnerCore(
                 fail(item, e.message)
             }
 
+            // Notebook errors (Q17 A): the item fails with a reason the user can act on; the app then syncs the spec and
+            // keeps the marks for a re-send (the board drops the item's pending segments and marks its pages changed).
+            ApiError.StaleBase -> {
+                fail(item, OutboxReasons.STALE_BASE, e)
+            }
+
+            ApiError.Busy -> {
+                fail(item, OutboxReasons.BUSY, e)
+            }
+
+            ApiError.OpReplayed, is ApiError.StaleTarget -> {
+                fail(item, e.message, e)
+            }
+
             // task-only errors: an upload never produces them
             ApiError.StaleVersion, ApiError.AlreadyAnswered, is ApiError.Unavailable -> {
                 fail(item, e.message)
@@ -138,9 +164,10 @@ class OutboxRunnerCore(
     private suspend fun fail(
         item: OutboxItem,
         error: String?,
+        cause: ApiError? = null,
     ): DrainResult {
         val failed = item.copy(state = OutboxState.FAILED_PERMANENT, lastError = error)
         storage.update(failed)
-        return DrainResult.Failed(failed)
+        return DrainResult.Failed(failed, cause)
     }
 }

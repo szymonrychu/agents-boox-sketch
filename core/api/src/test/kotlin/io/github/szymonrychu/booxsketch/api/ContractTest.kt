@@ -1,6 +1,18 @@
 package io.github.szymonrychu.booxsketch.api
 
 import com.google.common.truth.Truth.assertWithMessage
+import io.github.szymonrychu.booxsketch.model.NotebookGeometry
+import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Point
+import io.github.szymonrychu.booxsketch.model.Stroke
+import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.AtMode
+import io.github.szymonrychu.booxsketch.model.notebook.EditOp
+import io.github.szymonrychu.booxsketch.model.notebook.LayoutCodec
+import io.github.szymonrychu.booxsketch.model.notebook.OpAt
+import io.github.szymonrychu.booxsketch.model.notebook.OpKind
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.RegionRef
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -80,9 +92,57 @@ class ContractTest {
     }
 
     @Test
+    fun layout_and_spec_layout_match_openapi() {
+        check<GeometryDto>(schema("Geometry"))
+        check<SegmentDto>(schema("Segment"))
+        check<VisibleRunDto>(schema("VisibleRun"))
+        check<OpTargetDto>(schema("OpTarget"))
+        check<OpAtDto>(schema("OpAt"))
+        check<RegionDto>(schema("Region"))
+        check<EditOpDto>(schema("EditOp"))
+        check<PageLayoutDto>(schema("PageLayout"))
+        check<SpecLineDto>(schema("SpecLine"))
+        check<OpStatusDto>(schema("OpStatus"))
+        check<SpecLayoutDto>(schema("SpecLayout"))
+        check<RevertIn>(schema("RevertIn"))
+        check<RevertResult>(response("$base/conversations/{conversation_id}/spec/{version}/revert", "post", "201"))
+    }
+
+    @Test
+    fun layout_codec_output_decodes_strictly_as_page_layout() {
+        val stroke = Stroke("a", Tool.BALLPOINT, 2f, listOf(Point(1f, 2f, 0.5f, 0L)))
+        val op =
+            EditOp(
+                "11111111-1111-4111-8111-111111111111",
+                OpKind.INSERT,
+                at = OpAt("L1", 2, AtMode.INLINE),
+                strokeIds = listOf("a"),
+                rect = listOf(1f, 2f, 3f, 4f),
+                region = RegionRef("22222222-2222-4222-8222-222222222222", "region.0.0.png", "L1"),
+            )
+        val page = Page(listOf(stroke), true)
+        val bytes =
+            LayoutCodec.encode(
+                page,
+                NotebookGeometry(1404, 1872),
+                listOf(PendingSegment("c", "p0-r1-0", 1, 0f, 5f, listOf("a"))),
+                listOf(op),
+            )
+        val strict = Json { ignoreUnknownKeys = false }
+        val dto = strict.decodeFromString(PageLayoutDto.serializer(), String(bytes, Charsets.UTF_8))
+        assertWithMessage("version").that(dto.version).isEqualTo(1)
+        assertWithMessage("segment").that(dto.segments.single().strokes).containsExactly(0)
+        assertWithMessage("op kind").that(dto.ops.single().kind).isEqualTo("insert")
+        assertWithMessage("geometry").that(dto.geometry.marginLeft).isEqualTo(983)
+    }
+
+    @Test
     fun upload_form_parts_match_schema() {
         val parts = schema("SketchUpload")["properties"]!!.jsonObject.keys
         assertWithMessage("meta and first page png are documented").that(parts).containsAtLeast("meta", "sketch.0.png")
+        assertWithMessage("layout and region parts are documented")
+            .that(parts)
+            .containsAtLeast("layout.0.json", "region.0.0.png")
     }
 
     @Test

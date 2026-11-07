@@ -8,7 +8,7 @@ import androidx.room.PrimaryKey
 import io.github.szymonrychu.booxsketch.api.OutboxKind
 import io.github.szymonrychu.booxsketch.api.OutboxState
 
-enum class ThreadKind { SKETCH, FEEDBACK, HANDOFF }
+enum class ThreadKind { SKETCH, FEEDBACK, HANDOFF, REVERT }
 
 @Entity(tableName = "outbox")
 data class OutboxEntity(
@@ -70,6 +70,8 @@ data class SpecEntity(
     val createdAt: String,
     /** JSON list of the sketch ids this version was made from. */
     @ColumnInfo(defaultValue = "[]") val sketchIds: String = "[]",
+    /** JSON of the connector's `layout` (line ids, provenance, op statuses); null for versions without one. */
+    val layout: String? = null,
 )
 
 @Entity(tableName = "cursors")

@@ -3,12 +3,18 @@ package io.github.szymonrychu.booxsketch.board
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Command
 import io.github.szymonrychu.booxsketch.model.Notebook
+import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.hitStrokes
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.Placement
+import io.github.szymonrychu.booxsketch.model.notebook.RunPlacer
+import io.github.szymonrychu.booxsketch.model.notebook.SpecLayoutModel
+import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.snapShape
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -18,19 +24,26 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /** Board state: the notebook, pen settings and per-page undo. Autosaves 500 ms after the last change. */
 @Suppress("TooManyFunctions") // one small intent method per board action (tools, colours, pages, undo, send)
 class BoardViewModel(
-    private val store: NotebookStore,
+    private var store: NotebookStore,
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher,
     private val defaultCanvas: Canvas = DEFAULT_CANVAS,
+    /** The notebook files per conversation; needed by [bindConversation]. */
+    private val files: NotebookFiles? = null,
 ) {
     private var undoStack = UndoStack()
     private var saveJob: Job? = null
+
+    /** Serialises [bindConversation], [dropFailedUpload] and [conversationGone]: each reads and writes notebook files. */
+    private val bindLock = Mutex()
 
     private val _notebook = MutableStateFlow(store.load() ?: Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0))
     val notebook: StateFlow<Notebook> = _notebook.asStateFlow()
@@ -62,6 +75,12 @@ class BoardViewModel(
 
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    /** The selected page's text bitmap; created on first use (it needs Android graphics). */
+    val textLayers: TextLayerCache by lazy { TextLayerCache(TextLayer(NotebookGeometry(defaultCanvas.w, defaultCanvas.h))) }
+
+    /** When a new text layer may reach the board: one hold at pen idle. */
+    val textHolds: TextLayerHolds by lazy { TextLayerHolds() }
 
     private val _saveError = MutableStateFlow<String?>(null)
 
@@ -147,6 +166,108 @@ class BoardViewModel(
     fun markSentIfUnchanged(sent: Map<Int, Page>) =
         update { n -> n.markSent(sent.filter { (i, page) -> n.pages.getOrNull(i) == page }.keys) }
 
+    /** Records the segments of an upload: they wait for a spec version (grey tick on their rows). */
+    fun addPending(pending: Map<Int, List<PendingSegment>>) = update { it.addPending(pending) }
+
+    /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
+    fun dropPending(clientId: String) = update { it.dropPending(clientId) }
+
+    /**
+     * The upload [clientId] of conversation [conversationLocalId] failed: [dropPending] on the shown notebook when it
+     * holds the upload or belongs to that conversation, else on that conversation's saved notebook, so its ticks
+     * clear and its ink is re-sent when the user goes back to it.
+     */
+    suspend fun dropFailedUpload(
+        clientId: String,
+        conversationLocalId: String,
+    ) = bindLock.withLock {
+        val shown = _notebook.value
+        val holds =
+            shown.pages.any { p ->
+                p.pendingSegments.any { it.clientId == clientId } || p.pendingOps.any { it.clientId == clientId }
+            }
+        if (holds || shown.conversationLocalId == conversationLocalId) return@withLock dropPending(clientId)
+        val saved = files?.store(conversationLocalId) ?: return@withLock
+        try {
+            withContext(ioDispatcher) { saved.load()?.let { n -> n.dropPending(clientId).takeIf { it != n }?.let(saved::save) } }
+        } catch (e: IOException) {
+            _saveError.value = e.message ?: e.javaClass.simpleName
+        }
+    }
+
+    /** Spec [version] placed on the current notebook, without changing it (no undo entries). */
+    fun placeVersion(
+        version: Int,
+        markdown: String,
+        layout: SpecLayoutModel,
+        measure: TextMeasure,
+    ): Placement = RunPlacer.apply(_notebook.value, version, markdown, layout, measure, geometry(), undo = null)
+
+    /** Places spec [version] on the notebook; each row shift of the selected page is one undoable step. */
+    fun applyVersion(
+        version: Int,
+        markdown: String,
+        layout: SpecLayoutModel,
+        measure: TextMeasure,
+    ): Placement {
+        var placement: Placement? = null
+        update { n -> RunPlacer.apply(n, version, markdown, layout, measure, geometry(), undoStack).also { placement = it }.notebook }
+        return checkNotNull(placement)
+    }
+
+    private fun geometry() = _notebook.value.canvas.let { NotebookGeometry(it.w, it.h) }
+
+    /**
+     * Shows the notebook of conversation [localId] (T-46 OQ1 A: one notebook per conversation): the current one is
+     * saved first, then the bound one is loaded, or an empty one for a conversation without a notebook. A notebook not
+     * yet bound to any conversation is adopted by the first one instead (what was drawn before belongs to it). The
+     * undo history starts empty.
+     */
+    suspend fun bindConversation(localId: String) =
+        bindLock.withLock {
+            val shelf = checkNotNull(files) { "no notebook files" }
+            if (_notebook.value.conversationLocalId == localId) return@withLock
+            val target = shelf.store(localId)
+            val loaded = withContext(ioDispatcher) { target.load() }
+            // Changes made while this suspends (a stroke, a send marking its pages and pending segments) belong to the
+            // shown notebook: save until no change landed during the save, then swap with no suspension in between.
+            saveJob?.cancel()
+            do {
+                val saved = _notebook.value
+                persist()
+            } while (_notebook.value !== saved)
+            swapTo(shelf, target, loaded, localId)
+        }
+
+    private suspend fun swapTo(
+        shelf: NotebookFiles,
+        target: NotebookStore,
+        loaded: Notebook?,
+        localId: String,
+    ) {
+        val now = _notebook.value
+        val adopted = loaded == null && now.conversationLocalId == null
+        val next = loaded ?: if (adopted) now else Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
+        store = target
+        undoStack = UndoStack()
+        _preview.value = null
+        _notebook.value = next.copy(conversationLocalId = localId)
+        _canUndo.value = false
+        _canRedo.value = false
+        persist()
+        if (adopted) withContext(ioDispatcher) { shelf.store(null).delete() }
+    }
+
+    /**
+     * Conversation [localId] was deleted or pruned (its notebook file is gone): when the board shows it, the board
+     * drops it without saving (a save would recreate the file) and shows an empty unbound notebook, which the next
+     * selected conversation adopts.
+     */
+    suspend fun conversationGone(localId: String) =
+        bindLock.withLock {
+            if (_notebook.value.conversationLocalId == localId) reset()
+        }
+
     /** Writes the notebook now, cancelling a pending debounced save. */
     suspend fun flush() {
         saveJob?.cancel()
@@ -167,6 +288,7 @@ class BoardViewModel(
     /** Drops the notebook and its undo history (after Unpair deleted the saved file); nothing is written. */
     fun reset() {
         saveJob?.cancel()
+        files?.let { store = it.store(null) }
         undoStack = UndoStack()
         _notebook.value = Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
         _canUndo.value = false

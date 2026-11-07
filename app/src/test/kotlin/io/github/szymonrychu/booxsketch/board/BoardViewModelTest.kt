@@ -5,10 +5,13 @@ import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -334,5 +337,121 @@ class BoardViewModelTest {
             v.setWidth(9f)
             v.onStroke(stroke("a").copy(width = 9f))
             assertThat(v.strokes().single().width).isEqualTo(9f)
+        }
+
+    private fun TestScope.bindable(): BoardViewModel {
+        val files = NotebookFiles(tmp.root)
+        return BoardViewModel(files.store(null), this, StandardTestDispatcher(testScheduler), files = files)
+    }
+
+    @Test
+    fun switching_conversation_swaps_notebook() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            v.bindConversation("B")
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("B")
+            assertThat(v.strokes()).isEmpty()
+            v.onStroke(stroke("b1"))
+            assertThat(v.canUndo.value).isTrue()
+            v.bindConversation("A")
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("A")
+            assertThat(v.strokes().map { it.id }).containsExactly("a1")
+            // Undo history belongs to the notebook that made it.
+            assertThat(v.canUndo.value).isFalse()
+            runCurrent()
+            assertThat(File(tmp.root, "notebook-B.json").readText()).contains("b1")
+        }
+
+    @Test
+    fun new_conversation_starts_empty_notebook() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            v.addPage()
+            v.bindConversation("new-1")
+            val n = v.notebook.value
+            assertThat(n.conversationLocalId).isEqualTo("new-1")
+            assertThat(n.pages).hasSize(1)
+            assertThat(n.pages.single().strokes).isEmpty()
+        }
+
+    @Test
+    fun unbound_notebook_is_adopted_by_its_first_conversation() =
+        runTest {
+            val v = bindable()
+            v.onStroke(stroke("before"))
+            v.bindConversation("A")
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("A")
+            assertThat(v.strokes().map { it.id }).containsExactly("before")
+            assertThat(File(tmp.root, "notebook-A.json").exists()).isTrue()
+            assertThat(File(tmp.root, "notebook.json").exists()).isFalse()
+        }
+
+    @Test
+    fun changes_during_adoption_are_kept() =
+        runTest {
+            val v = bindable()
+            v.onStroke(stroke("before"))
+            // The first Send selects a new conversation (bind) and marks its pages and pending segments meanwhile.
+            val bind = launch { v.bindConversation("A") }
+            launch {
+                v.onStroke(stroke("during"))
+                v.addPending(mapOf(0 to listOf(PendingSegment("c1", "p0-r4-0", 4, 10f, 30f, listOf("before")))))
+            }
+            advanceUntilIdle()
+            bind.join()
+            val n = v.notebook.value
+            assertThat(n.conversationLocalId).isEqualTo("A")
+            assertThat(v.strokes().map { it.id }).containsExactly("before", "during").inOrder()
+            assertThat(n.pages[0].pendingSegments.map { it.clientId }).containsExactly("c1")
+        }
+
+    @Test
+    fun strokes_during_a_switch_stay_with_the_old_conversation() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            val bind = launch { v.bindConversation("B") }
+            launch { v.onStroke(stroke("a2")) }
+            advanceUntilIdle()
+            bind.join()
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("B")
+            val saved = NotebookStore(File(tmp.root, "notebook-A.json")).load()
+            assertThat(saved!!.pages[0].strokes.map { it.id }).containsExactly("a1", "a2").inOrder()
+        }
+
+    @Test
+    fun failed_upload_of_another_conversation_edits_its_saved_notebook() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            v.addPending(mapOf(0 to listOf(PendingSegment("c1", "p0-r4-0", 4, 10f, 30f, listOf("a1")))))
+            v.markSent(setOf(0))
+            v.bindConversation("B")
+            v.dropFailedUpload("c1", "A")
+            val saved = checkNotNull(NotebookStore(File(tmp.root, "notebook-A.json")).load())
+            assertThat(saved.pages[0].pendingSegments).isEmpty()
+            assertThat(saved.pages[0].changedSinceSend).isTrue()
+            assertThat(v.notebook.value.conversationLocalId).isEqualTo("B")
+        }
+
+    @Test
+    fun removed_bound_conversation_is_not_saved_again() =
+        runTest {
+            val v = bindable()
+            v.bindConversation("A")
+            v.onStroke(stroke("a1"))
+            runCurrent()
+            NotebookFiles(tmp.root).delete("A")
+            v.conversationGone("A")
+            v.onStroke(stroke("x"))
+            advanceUntilIdle()
+            assertThat(File(tmp.root, "notebook-A.json").exists()).isFalse()
+            assertThat(v.notebook.value.conversationLocalId).isNull()
         }
 }

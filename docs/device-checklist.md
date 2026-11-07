@@ -290,3 +290,38 @@ with its exception.
       the light part against the live ink. If the redraw is clearly thinner or fatter than the
       live ink, the 0.6x-1x ramp (`BALLPOINT_MIN`) needs tuning.
 - [ ] Marker, rectangle and arrow redraw at a constant width as before.
+
+## Notebook text rows (0.15.0, T-46 P4)
+
+Needs connector 2.1.0 and the notebook preset. Note Air 6C, portrait and landscape.
+
+- [ ] Write a line on row 4 and a second line on row 6, tap Send: a small grey tick appears at the
+      start of both rows right away, and the ink stays.
+- [ ] When the version arrives, the handwriting of both rows disappears and the typed text sits in
+      the lower half of the same rows, left aligned where the writing started; one partial (GU)
+      refresh, no full flash, no ghost of the hidden ink.
+- [ ] Row text legibility: the 40 px sans text reads comfortably at arm's length in portrait and in
+      landscape (0.75x); a `[[red]]` span is red, a heading is bold.
+- [ ] Pen latency with a full text layer: fill a page with text rows, then write quickly on the free
+      rows and in the margin; live ink is as fast as on an empty page.
+- [ ] Version swap during writing: send, then keep writing until the version arrives. The text does
+      not appear while the pen moves; it appears about 0.7 s after the last stroke, in one refresh,
+      and no stroke written meanwhile is lost or duplicated.
+- [ ] Write a line longer than the text column: it shrinks a little, or wraps onto the next row; if
+      that row held ink or text, it and everything below move down one row together.
+- [ ] Wrap a line on the last row with ink below it: the pushed rows move to a new page inserted
+      right after this one.
+- [ ] Draw a diagram spanning several rows and send it: it stays as ink (not replaced by text).
+- [ ] Undo after a version: the transcribed handwriting does not come back as new ink.
+- [ ] Switch to another conversation in the panel: the board shows that conversation's notebook;
+      New conversation starts an empty board; switching back restores the first one.
+- [ ] Documents, open an older version: "Revert to vN" asks for confirmation; after Revert a new
+      version appears, the board drops the text the later versions added and their handwriting
+      shows again as ink.
+- [ ] Revert while a translation is running: the conversation thread shows "A translation is
+      running; try again when it finishes".
+- [ ] Send after a newer version was made elsewhere (for example a revert on another device): the
+      item fails with "The document changed; check the latest version", the board re-renders the
+      latest version, and Send sends the same ink again.
+- [ ] Record the text layer render time of a full page from the log next to the Robolectric
+      number in MEMORY.md (target under 50 ms).

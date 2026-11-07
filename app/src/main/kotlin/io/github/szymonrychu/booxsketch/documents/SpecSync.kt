@@ -71,7 +71,10 @@ class SpecSync(
         try {
             val dto = c.spec(serverId, version)
             db.withTransaction {
-                db.specDao().upsert(SpecEntity(serverId, dto.version, dto.markdown, dto.created, Json.encodeToString(dto.sketchIds)))
+                val layout = dto.layout?.let { Json.encodeToString(it) }
+                db.specDao().upsert(
+                    SpecEntity(serverId, dto.version, dto.markdown, dto.created, Json.encodeToString(dto.sketchIds), layout),
+                )
             }
             FetchResult.Stored
         } catch (_: ApiError.Unauthorized) {

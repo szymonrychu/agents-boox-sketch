@@ -22,7 +22,10 @@ data class DocumentViewState(
     val pageIndex: Int = 0,
     val readOnly: Boolean = true,
     val loaded: Boolean = false,
-)
+) {
+    /** True on an older version: it can be made the newest again (Q15 B, T-46 OQ7 A). */
+    val canRevert: Boolean get() = loaded && version in 1 until latestVersion
+}
 
 /**
  * Reads one conversation's spec as frozen pages. Opening a version freezes its pages through [store] (or reuses an
@@ -115,6 +118,16 @@ class DocumentViewModel(
     /** Called after the draft was sent: the view turns read-only. */
     fun refreshReadOnly() {
         _state.value = withReadOnly(_state.value)
+    }
+
+    /** Queues a revert to (version, latest); set by the host. */
+    var revertTo: (suspend (version: Int, latest: Int) -> Unit)? = null
+
+    /** Reverts to the shown version when it is an older one; the board re-renders once the new version arrives. */
+    suspend fun revert() {
+        val s = _state.value
+        if (!s.canRevert) return
+        revertTo?.invoke(s.version, s.latestVersion)
     }
 
     /** The markdown of the shown version, for Share. */

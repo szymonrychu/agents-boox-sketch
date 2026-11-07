@@ -51,6 +51,20 @@ sealed class ApiError(
         val code: String,
     ) : ApiError("not found: $code")
 
+    /** 409 stale_base: the spec has a newer version than the one the board showed. */
+    data object StaleBase : ApiError("stale_base")
+
+    /** 409 op_replayed: an op id was already reported by an earlier spec version. */
+    data object OpReplayed : ApiError("op_replayed")
+
+    /** 409 busy: a translator turn of the conversation is open. */
+    data object Busy : ApiError("busy")
+
+    /** 422 stale_target: an op target no longer quotes the source text of its line. */
+    data class StaleTarget(
+        val detail: String,
+    ) : ApiError("stale target: $detail")
+
     /** 410: the stored file was purged after retention. */
     data object Purged : ApiError("purged")
 
@@ -123,7 +137,7 @@ internal fun mapError(
         }
 
         422 -> {
-            ApiError.Invalid(code, detail)
+            invalidOf(code, detail)
         }
 
         429 -> {
@@ -139,10 +153,18 @@ internal fun mapError(
         }
     }
 
+private fun invalidOf(
+    code: String,
+    detail: String,
+): ApiError = if (code == "stale_target") ApiError.StaleTarget(detail) else ApiError.Invalid(code, detail)
+
 private fun conflictOf(code: String): ApiError =
     when (code) {
         "in_progress" -> ApiError.InProgress
         "already_answered" -> ApiError.AlreadyAnswered
+        "stale_base" -> ApiError.StaleBase
+        "op_replayed" -> ApiError.OpReplayed
+        "busy" -> ApiError.Busy
         else -> ApiError.Conflict(code)
     }
 

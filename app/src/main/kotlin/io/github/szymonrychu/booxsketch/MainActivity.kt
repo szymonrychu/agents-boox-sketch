@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -61,6 +62,8 @@ class MainActivity : ComponentActivity() {
                     return@EinkTheme
                 }
                 val input = remember { CountedPause(container.inputSelector.select()) }
+                // Spec versions of the board's conversation reach the board while the app is paired and shown.
+                LaunchedEffect(container) { container.runNotebookSync() }
                 val sendMessage by container.sendMessage.collectAsState()
                 PauseInputWhile(sendMessage != null, input)
                 sendMessage?.let { SendOutcomeDialog(it, container::dismissSendMessage) }

@@ -5,6 +5,7 @@ import androidx.room.withTransaction
 import io.github.szymonrychu.booxsketch.api.ApiError
 import io.github.szymonrychu.booxsketch.api.ConnectorClient
 import io.github.szymonrychu.booxsketch.api.ConversationDto
+import io.github.szymonrychu.booxsketch.board.NotebookFiles
 import io.github.szymonrychu.booxsketch.data.AppDatabase
 import io.github.szymonrychu.booxsketch.data.ConversationEntity
 import io.github.szymonrychu.booxsketch.documents.AnnotationStore
@@ -27,6 +28,7 @@ private const val KEY_SELECTED = "selected_conversation"
  * Local conversations (Room) merged with the server list, plus the selected conversation that
  * sends go to. The selection lives here (persisted in [prefs]), never in a composable.
  */
+@Suppress("LongParameterList") // collaborators, clock and ids, each replaced in tests
 class ConversationRepository(
     private val db: AppDatabase,
     private val client: suspend () -> ConnectorClient?,
@@ -39,6 +41,8 @@ class ConversationRepository(
     private val afterRefresh: suspend () -> Unit = {},
     /** The frozen pages and ink of documents; a conversation that goes away takes its annotations with it. */
     private val annotations: AnnotationStore? = null,
+    /** The board notebooks; a conversation that goes away takes its notebook with it (T-46 OQ1 A). */
+    private val notebooks: NotebookFiles? = null,
 ) {
     private val dao = db.conversationDao()
     private val _selected = MutableStateFlow(prefs.getString(KEY_SELECTED, null))
@@ -72,6 +76,9 @@ class ConversationRepository(
         select(id)
         return id
     }
+
+    /** The conversation [current] would return, without selecting or creating one; null when it would create one. */
+    suspend fun peekCurrent(): ConversationEntity? = _selected.value?.let { id -> dao.get(id)?.takeUnless { it.deleted } } ?: dao.latest()
 
     /** Where a send goes: the selected conversation, else the most recent one, else a new one. */
     suspend fun current(): ConversationEntity {
@@ -112,7 +119,10 @@ class ConversationRepository(
                 return "Could not load conversations: ${e.message}"
             }
         val pruned = db.withTransaction { merge(remote, knownBefore) }
-        pruned.forEach { annotations?.delete(it) }
+        pruned.forEach {
+            annotations?.delete(it)
+            notebooks?.delete(it)
+        }
         if (_selected.value in pruned) select(null)
         latestSpecVersions = remote.mapNotNull { r -> r.latestSpecVersion?.let { r.id to it } }.toMap()
         latestFeedbackIds = remote.mapNotNull { r -> r.latestFeedbackId?.let { r.id to it } }.toMap()
@@ -187,6 +197,7 @@ class ConversationRepository(
         val root = outboxRoot.canonicalFile
         dirs.map { File(it).canonicalFile }.filter { it.parentFile == root }.forEach { it.deleteRecursively() }
         annotations?.delete(localId)
+        notebooks?.delete(localId)
         if (_selected.value == localId) select(null)
         return null
     }

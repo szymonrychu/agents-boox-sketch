@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -51,6 +52,13 @@ const val TAG_DOC_PREV = "doc_prev"
 const val TAG_DOC_NEXT = "doc_next"
 const val TAG_DOC_LOADING = "doc_loading"
 const val TAG_DOC_READ_ONLY = "doc_read_only"
+const val TAG_DOC_REVERT = "doc_revert"
+const val TAG_DOC_REVERT_CONFIRM = "doc_revert_confirm"
+const val TAG_DOC_REVERT_CANCEL = "doc_revert_cancel"
+
+/** The confirm text of a revert of [state]'s version: the copy becomes version latest + 1. */
+fun revertQuestion(state: DocumentViewState) =
+    "Revert to version ${state.version}? This adds version ${state.latestVersion + 1} with the text of version ${state.version}."
 
 fun docVersionTag(v: Int) = "doc_version_$v"
 
@@ -75,6 +83,8 @@ fun DocumentScreen(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
     feedback: List<FeedbackEntity> = emptyList(),
+    /** Reverts to the shown older version; null hides the action. */
+    onRevert: ((version: Int) -> Unit)? = null,
     pageArea: @Composable (
         Modifier,
     ) -> Unit = { m ->
@@ -114,6 +124,8 @@ fun DocumentScreen(
                     }
                 }
             }
+            // Revert (T-46 OQ7 A) lives next to the version picker, on an older version, behind a confirm dialog.
+            if (onRevert != null && state.canRevert) RevertAction(state, onRevert)
             TextButton(
                 onClick = onShare,
                 modifier = Modifier.defaultMinSize(minHeight = 48.dp).testTag(TAG_DOC_SHARE),
@@ -150,6 +162,37 @@ fun DocumentScreen(
             }
             if (state.readOnly) Text("Read only", Modifier.padding(start = 12.dp).testTag(TAG_DOC_READ_ONLY))
         }
+    }
+}
+
+/** The "Revert to vN" action of an older version and its confirm dialog. */
+@Composable
+private fun RevertAction(
+    state: DocumentViewState,
+    onRevert: (version: Int) -> Unit,
+) {
+    var confirm by remember { mutableStateOf(false) }
+    TextButton(
+        onClick = { confirm = true },
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp).testTag(TAG_DOC_REVERT),
+    ) { Text("Revert to v${state.version}") }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            text = { Text(revertQuestion(state)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirm = false
+                        onRevert(state.version)
+                    },
+                    modifier = Modifier.testTag(TAG_DOC_REVERT_CONFIRM),
+                ) { Text("Revert") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirm = false }, modifier = Modifier.testTag(TAG_DOC_REVERT_CANCEL)) { Text("Cancel") }
+            },
+        )
     }
 }
 

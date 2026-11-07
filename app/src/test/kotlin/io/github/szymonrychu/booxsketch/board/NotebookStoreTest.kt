@@ -59,4 +59,20 @@ class NotebookStoreTest {
         assertThat(f.exists()).isFalse()
         assertThat(File(tmp.root, "notebook.json.corrupt").readText()).isEqualTo("{not json")
     }
+
+    @Test
+    fun old_notebook_without_text_fields_loads() {
+        val f = File(tmp.root, "notebook.json")
+        f.writeText(
+            """{"canvas":{"w":1404,"h":1872,"dpi":300.0},"pages":[{"strokes":[
+{"id":"a","tool":"BALLPOINT","width":2.0,"points":[]}],"changedSinceSend":true}],"current":0}""".replace("\n", ""),
+        )
+        val nb = NotebookStore(f).load()!!
+        assertThat(nb.pages[0].strokes.map { it.id }).containsExactly("a")
+        assertThat(nb.pages[0].text).isEmpty()
+        assertThat(nb.pages[0].consumed).isEmpty()
+        assertThat(nb.pages[0].pendingSegments).isEmpty()
+        assertThat(nb.pages[0].pendingOps).isEmpty()
+        assertThat(nb.conversationLocalId).isNull()
+    }
 }

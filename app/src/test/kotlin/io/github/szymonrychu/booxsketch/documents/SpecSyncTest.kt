@@ -39,6 +39,9 @@ class SpecSyncTest {
     private val statuses = mutableMapOf<String, Int>()
     private var latest = mapOf<String, Int>()
 
+    /** Extra JSON members appended to every spec body, for example the `layout`. */
+    private var layout = ""
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -57,7 +60,11 @@ class SpecSyncTest {
                     val (id, v) = m.destructured
                     val status = statuses["$id/$v"] ?: 200
                     return if (status == 200) {
-                        json(200, """{"version":$v,"markdown":"# v$v","created":"2026-11-04T00:00:0${v}Z","sketch_ids":["sk-$v","sk-x"]}""")
+                        json(
+                            200,
+                            """{"version":$v,"markdown":"# v$v","created":"2026-11-04T00:00:0${v}Z",""" +
+                                """"sketch_ids":["sk-$v","sk-x"]$layout}""",
+                        )
                     } else {
                         json(status, """{"error":"e","detail":""}""")
                     }
@@ -179,5 +186,17 @@ class SpecSyncTest {
             assertThat(repo.refresh()).isNull()
             assertThat(calls).isEqualTo(1)
             assertThat(seen).containsExactly("srv-1", 2)
+        }
+
+    @Test
+    fun stores_layout() =
+        runBlocking {
+            layout = ""","layout":{"lines":[{"line_id":"L1","source_line":1}],"ops":[]}"""
+            conversation("a", "srv-1")
+            latest = mapOf("srv-1" to 2)
+            sync().sync()
+            val stored = db.specDao().get("srv-1", 2)!!.layout!!
+            assertThat(stored).contains("\"line_id\":\"L1\"")
+            layout = ""
         }
 }
