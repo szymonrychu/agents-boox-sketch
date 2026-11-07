@@ -2,6 +2,60 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 Notebook text rows on the board (T-46 P4, Tasks 4.4-4.8, v0.15.0)
+
+- Placement (`RunPlacer`, pure Kotlin): lines in source order; a line with a run keeps it (refit), a segment line
+  lands at its first segment's page, row and x0 and consumes its strokes, any other line (origin null OQ6 A, a kept
+  line with no run, an op line) gets a new row right after the previous line's run at the text column start. Runs
+  whose line is gone are removed first; their ink stays hidden, except on a revert (`reverted_from`), where it
+  becomes visible ink again (OQ2 A). Fenced blocks, table rows and blank lines are never placed; their segments'
+  strokes stay ink. The rest of an answered upload's pending segments is dropped (ink kept).
+- Which upload a version answers: segment ids repeat across uploads (`p<part>-r<row>-<n>`, part = upload part
+  index), so the client id holding most of the version's segment ids wins, ties to the oldest in page order.
+- Fit: scale 1, else shrink to fit down to 0.85, else wrap at word boundaries at 0.85. The column ends at the margin
+  or at the next run or pending segment on the same row. Rows the line needs that hold runs, visible ink or pending
+  segments shift down by whole rows with everything below (all strokes by bounding-box centre, consumed ones too, so
+  a later un-hide lands right). On the selected page the ink move is one `Command.ShiftRows` undo step that does not
+  mark the page changed; text runs are not in the undo history (text never lives in the stroke list). Rows pushed
+  past the last row go to a new page inserted right after (OQ4 A); foot ink moves only when this placement shifted
+  rows. An overflow clears that page's undo history through the UndoStack guard (strokes differ), never corrupts it.
+- Text layer: `TextLayer` draws runs into a transparent 1404 x 1872 ARGB bitmap (sans 40 px x scale, headings bold,
+  colour spans, baseline 11 px above the row line, grey tick at x 23 for rows with pending segments, 50 percent grey
+  overlay rects for P5). `TextLayerCache` keeps only the selected page's bitmap and returns a NEW instance on every
+  change instead of `inBitmap` reuse: the board redraws on a new instance (identity) and must never show a layer
+  half drawn into the bitmap it is displaying. Render time: 5 ms per full page in Robolectric (native graphics);
+  the device number is a checklist item.
+- Swap (Review Focus 3): `NotebookSync` places on the main thread (cheap), renders off it, then under ONE
+  `holdUi`/`releaseUi` pair at pen idle (no stroke in progress and 700 ms since the last pen event, the SDK's
+  pen-up refresh time) commits the notebook and calls `BoardSurfaceView.swapText` (sync committed, draw the dirty
+  rows, GU refresh). The next `show()` sees the same strokes and layer and does nothing, so there is no second
+  frame or raw toggle. If the board changed during the render (a stroke), it places again. Not `ChromeHolds`: that
+  waits for overlay rect reports, which a text swap never makes; it uses the same input hold underneath.
+- Specs reach the board: `AppContainer.runNotebookSync` (MainActivity, while paired) observes the stored versions
+  of the board's conversation and applies each new one with a layout in order; versions without a layout (typed
+  feedback, document notes) leave the board. While segments are pending the conversations are refreshed every 5 s
+  (nothing else syncs specs when the Documents tab is closed).
+- Send: a layout part is written only for a page with new handwriting rows or text runs (plain drawing pages need
+  none, and the existing payload tests stay accurate). Every board page is exported whole as text layer plus
+  visible ink (spec 5.1) so the PNG matches the layout's page px; the cropped `PngExporter` path remains only
+  when no text layer function is given (tests). `base_version` is the latest STORED spec version of the
+  conversation, else the newest run version: the plan's "newest run version first" would stay stale forever after
+  a version without a layout and every send would answer 409. Page selection counts visible strokes only.
+- Errors (Q17 A, plan wording): 409 `stale_base` and `busy` fail the item with "The document changed; check the
+  latest version" / "A translation is running; try again when it finishes" (`OutboxReasons`). A failed upload drops
+  its pending segments and marks its pages changed again, so nothing is lost and Send re-sends the ink;
+  `stale_base` also refreshes the conversations so the board re-renders first.
+- One notebook per conversation (OQ1 A): `notebook-<localId>.json` via `NotebookFiles`; `notebook.json` is only the
+  board drawn before any conversation exists, adopted by the first selected one. The selection drives the binding
+  (`runNotebookSync`), the undo history restarts on a switch, a deleted or pruned conversation deletes its notebook.
+- Revert (Q15 B; OQ7 still open, the recommended Documents option is built and marked `T-46 OQ7 pending`):
+  "Revert to vN" next to the version picker on an older version, confirm dialog, outbox kind `REVERT`
+  (`revert.json`, base = latest), accepted revert refreshes the specs and the board re-renders.
+- The instrumented `NotebookSendTest` needs `mockwebserver` as an androidTest dependency (same artifact as the unit
+  tests, so the verification metadata did not change). It talks to 127.0.0.1 (the only cleartext host allowed).
+- `openapi.json` re-copied (`mise run api:refresh`) from the committed connector branch `feat/notebook-annotations`
+  (openapi.json at 19122df): identical to the copy from P4a, so the earlier refresh note is resolved; ContractTest green.
+
 ## 2026-11-07 Notebook text rows, model and wire foundation (T-46 P4, Tasks 4.1-4.3)
 
 - Model: `Page` gains `text`, `consumed`, `pendingSegments`, `pendingOps`; `Notebook` gains

@@ -130,6 +130,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.core.ktx)
     androidTestImplementation(libs.truth)
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }
 
 // onyxsdk-base pulls the pre-AndroidX support libraries (24.2.1), which duplicate AndroidX classes.
