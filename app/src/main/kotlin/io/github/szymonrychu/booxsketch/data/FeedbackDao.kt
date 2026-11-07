@@ -25,8 +25,11 @@ interface FeedbackDao {
     @Query("SELECT * FROM feedback WHERE conversationServerId = :serverId ORDER BY id")
     suspend fun all(serverId: String): List<FeedbackEntity>
 
-    /** Newest first: the latest feedback is the first row (local items have negative ids, so by time, then id). */
-    @Query("SELECT * FROM feedback WHERE conversationServerId = :serverId ORDER BY createdAt DESC, id DESC")
+    /**
+     * Newest first: the latest feedback is the first row (local items have negative ids, so by time, then id). Time
+     * is compared as a point in time, not as text: server and local timestamps differ in offset and fraction digits.
+     */
+    @Query("SELECT * FROM feedback WHERE conversationServerId = :serverId ORDER BY julianday(createdAt) DESC, id DESC")
     fun observe(serverId: String): Flow<List<FeedbackEntity>>
 
     @Query("DELETE FROM feedback WHERE conversationServerId = :serverId")

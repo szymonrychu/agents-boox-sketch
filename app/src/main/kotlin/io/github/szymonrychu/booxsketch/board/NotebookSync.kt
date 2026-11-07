@@ -83,12 +83,13 @@ class NotebookSync(
                     val rects = board.strikeRects(preview.notebook)
                     board.textLayers.prerender(page, rects) to rects
                 }
-            val done =
+            val outcome =
                 withContext(main) {
                     // The board switched conversation (or applied this version) meanwhile: nothing to place.
-                    stale() || commit(base, bitmap, overlay) { board.applyVersion(version, spec.markdown, layout, measure) }
+                    if (stale()) null else commit(base, bitmap, overlay) { board.applyVersion(version, spec.markdown, layout, measure) }
                 }
-            if (done) {
+            if (outcome == null) return@withLock
+            if (outcome) {
                 noteRejected(conversationServerId, version, base, layout)
                 return@withLock
             }
