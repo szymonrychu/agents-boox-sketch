@@ -228,4 +228,28 @@ class MarkdownPaginatorTest {
         plain.bitmap.getPixels(plainPx, 0, plain.bitmap.width, 0, 0, plain.bitmap.width, plain.bitmap.height)
         assertThat(plainPx.none { Color.red(it) > 150 && Color.green(it) < 90 && Color.blue(it) < 90 }).isTrue()
     }
+
+    @Test
+    fun image_reference_renders_image_block() {
+        val red = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val p = MarkdownPaginator(layout, images = { id -> red.takeIf { id == "abc-1" } })
+        val md = "Before\n\n![image](images/abc-1.png)\n\nAfter"
+        assertThat(p.textBlocks(md)).containsExactly("Before", "After").inOrder()
+        val page = p.paginate(md).single()
+        // Scaled to the column width, aspect kept: about textWidth x textWidth / 2 of red.
+        val px = IntArray(page.bitmap.width * page.bitmap.height)
+        page.bitmap.getPixels(px, 0, page.bitmap.width, 0, 0, page.bitmap.width, page.bitmap.height)
+        val width = TextStyles(layout).textWidth
+        assertThat(px.count { it == Color.RED }).isAtLeast(width * width / 2 * 9 / 10)
+        // The image keeps its source line for annotations.
+        assertThat(page.sourceLines.first).isAtMost(2)
+        assertThat(page.sourceLines.last).isAtLeast(4)
+    }
+
+    @Test
+    fun unknown_image_falls_back_to_text() {
+        val p = MarkdownPaginator(layout, images = { null })
+        assertThat(p.textBlocks("![image](images/abc-1.png)")).containsExactly("[image]")
+        assertThat(paginator().textBlocks("![image](images/abc-1.png)")).containsExactly("[image]")
+    }
 }

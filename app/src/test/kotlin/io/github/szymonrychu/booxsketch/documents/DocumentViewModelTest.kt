@@ -204,4 +204,28 @@ class DocumentViewModelTest {
             val items = withTimeout(10_000) { vm.feedback.first { it.size == 2 } }
             assertThat(items.map { it.id }).containsExactly(2, 1).inOrder()
         }
+
+    @Test
+    fun images_of_the_version_are_fetched_before_paginating() =
+        runBlocking<Unit> {
+            val calls = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val vm =
+                DocumentViewModel(
+                    "c1",
+                    "srv-1",
+                    db,
+                    { md ->
+                        calls += "paginate"
+                        List(
+                            1,
+                        ) { RenderedPage(Bitmap.createBitmap(40, 60, Bitmap.Config.ARGB_8888), it..it) }.also { check(md.isNotEmpty()) }
+                    },
+                    store,
+                    layout,
+                    scope,
+                    prefetch = { md -> calls += "prefetch:$md" },
+                )
+            vm.until { true }
+            assertThat(calls).containsExactly("prefetch:# two", "paginate").inOrder()
+        }
 }

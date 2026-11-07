@@ -29,7 +29,8 @@ data class DocumentViewState(
 
 /**
  * Reads one conversation's spec as frozen pages. Opening a version freezes its pages through [store] (or reuses an
- * earlier freeze), so reading and inking share one bitmap set; [paginate] runs only when there is no freeze yet.
+ * earlier freeze), so reading and inking share one bitmap set; [prefetch] and [paginate] run only when there is no
+ * freeze yet.
  */
 class DocumentViewModel(
     val conversationLocalId: String,
@@ -40,6 +41,8 @@ class DocumentViewModel(
     private val layout: DocumentLayout,
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** Fetches what a version's markdown needs before it is paginated (its region images, see [SpecImageCache]). */
+    private val prefetch: suspend (markdown: String) -> Unit = {},
 ) {
     private val _state = MutableStateFlow(DocumentViewState())
     val state: StateFlow<DocumentViewState> = _state.asStateFlow()
@@ -92,6 +95,7 @@ class DocumentViewModel(
                             .get(serverId, version)
                             ?.markdown
                             .orEmpty()
+                    prefetch(markdown)
                     store.freeze(conversationLocalId, version, paginate(markdown), layout)
                 }
             }
