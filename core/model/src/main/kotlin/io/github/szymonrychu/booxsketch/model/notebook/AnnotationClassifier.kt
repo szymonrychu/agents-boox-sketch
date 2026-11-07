@@ -32,10 +32,43 @@ fun interface InsertMarkFinder {
     ): List<InsertMark>
 }
 
+/** An arrow usable as an insert mark's pointer: the tool arrow or a freehand one. [tail] starts at the note. */
+internal data class InsertArrow(
+    val strokeIds: List<String>,
+    val tail: Vec,
+    val tip: Vec,
+)
+
+/**
+ * Tool arrows and freehand arrows among [candidates], in drawing order of their shaft. A double-headed arrow is listed
+ * once per orientation; the finders' `used` sets stop it being claimed twice.
+ */
+internal fun insertArrows(candidates: List<Stroke>): List<InsertArrow> =
+    candidates.flatMapIndexed { i, s ->
+        when {
+            s.tool == Tool.ARROW && s.points.size >= 2 -> {
+                listOf(InsertArrow(listOf(s.id), s.points.first().let { Vec(it.x, it.y) }, s.points.last().let { Vec(it.x, it.y) }))
+            }
+
+            !s.tool.isShape -> {
+                val a = FreehandShapes.arrow(candidates, i)
+                when {
+                    a == null -> emptyList()
+                    a.doubleHeaded -> listOf(InsertArrow(a.strokeIds, a.tail, a.tip), InsertArrow(a.strokeIds, a.tip, a.tail))
+                    else -> listOf(InsertArrow(a.strokeIds, a.tail, a.tip))
+                }
+            }
+
+            else -> {
+                emptyList()
+            }
+        }
+    }
+
 /**
  * Insert marks drawn with the shape tools (Q12 B): a [Tool.RECTANGLE] lying in the margin (at least 80 percent of its
- * width right of the margin line) with pen strokes centred inside it, and an [Tool.ARROW] whose tail lies within
- * [SNAP_RADIUS] of one of its anchors and whose tip is in the text column on a row. One arrow per box: the first one
+ * width right of the margin line) with pen strokes centred inside it, and an [Tool.ARROW] or freehand arrow whose tail lies
+ * within [SNAP_RADIUS] of one of its anchors and whose tip is in the text column on a row. One arrow per box: the first one
  * drawn.
  */
 object ToolInsertMarks : InsertMarkFinder {
@@ -46,7 +79,7 @@ object ToolInsertMarks : InsertMarkFinder {
         candidates: List<Stroke>,
         geometry: NotebookGeometry,
     ): List<InsertMark> {
-        val arrows = candidates.filter { it.tool == Tool.ARROW && it.points.size >= 2 }
+        val arrows = insertArrows(candidates)
         val pens = candidates.filterNot { it.tool.isShape }
         val used = HashSet<String>()
         return candidates
@@ -57,16 +90,82 @@ object ToolInsertMarks : InsertMarkFinder {
                 val anchors = rectAnchors(r)
                 val arrow =
                     arrows.firstOrNull { a ->
-                        val tail = a.points.first()
-                        val tip = a.points.last()
-                        a.id !in used && anchors.any { hypot(it.x - tail.x, it.y - tail.y) <= SNAP_RADIUS } &&
-                            geometry.inTextColumn(tip.x) && geometry.rowAt(tip.y) != null
+                        a.strokeIds.none { it in used } && anchors.any { hypot(it.x - a.tail.x, it.y - a.tail.y) <= SNAP_RADIUS } &&
+                            geometry.inTextColumn(a.tip.x) && geometry.rowAt(a.tip.y) != null
                     } ?: return@mapNotNull null
-                val notes = pens.filter { s -> centre(s).let { it.x in r.l..r.r && it.y in r.t..r.b } }
+                val notes = pens.filter { s -> s.id !in arrow.strokeIds && centre(s).let { it.x in r.l..r.r && it.y in r.t..r.b } }
                 if (notes.isEmpty()) return@mapNotNull null
-                used += arrow.id
-                InsertMark(box.id, listOf(arrow.id), r, arrow.points.last().let { Vec(it.x, it.y) }, notes.map { it.id })
+                used += arrow.strokeIds
+                InsertMark(box.id, arrow.strokeIds, r, arrow.tip, notes.map { it.id })
             }
+    }
+}
+
+/**
+ * Insert marks drawn freehand (Q12 C): a pen [Loop] in the margin (at least 80 percent of its bounds right of the margin
+ * line) around pen strokes centred inside its polygon (the note), and a [Tool.ARROW] or freehand arrow whose tail lies
+ * within [SNAP_RADIUS] of the loop outline and whose tip is in the text column on a row. One arrow per loop: the
+ * first one drawn. Loop and arrow strokes are never notes.
+ */
+object FreehandInsertMarks : InsertMarkFinder {
+    private const val IN_MARGIN = 0.8f
+
+    override fun find(
+        page: Page,
+        candidates: List<Stroke>,
+        geometry: NotebookGeometry,
+    ): List<InsertMark> {
+        val arrows = insertArrows(candidates)
+        val used = HashSet<String>()
+        return candidates
+            .filter { !it.tool.isShape }
+            .mapNotNull { FreehandShapes.loop(it) }
+            .mapNotNull { loop ->
+                val b = loop.bounds
+                if (b.r - maxOf(b.l, geometry.marginX.toFloat()) < IN_MARGIN * (b.r - b.l)) return@mapNotNull null
+                val arrow =
+                    arrows.firstOrNull { a ->
+                        loop.strokeId !in a.strokeIds && a.strokeIds.none { it in used } &&
+                            outlineDistance(loop.polygon, a.tail) <= SNAP_RADIUS &&
+                            geometry.inTextColumn(a.tip.x) && geometry.rowAt(a.tip.y) != null
+                    } ?: return@mapNotNull null
+                val notes =
+                    candidates.filter { s ->
+                        !s.tool.isShape && s.id != loop.strokeId && s.id !in arrow.strokeIds && inside(loop.polygon, centre(s))
+                    }
+                if (notes.isEmpty()) return@mapNotNull null
+                used += arrow.strokeIds
+                InsertMark(loop.strokeId, arrow.strokeIds, b, arrow.tip, notes.map { it.id })
+            }
+    }
+
+    private fun outlineDistance(
+        polygon: List<Vec>,
+        p: Vec,
+    ): Float = polygon.zipWithNext().minOfOrNull { (a, c) -> segmentDistance(a, c, p) } ?: Float.MAX_VALUE
+
+    private fun segmentDistance(
+        a: Vec,
+        b: Vec,
+        p: Vec,
+    ): Float {
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 == 0f) 0f else (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).coerceIn(0f, 1f)
+        return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+
+    /** Even-odd point in polygon. */
+    private fun inside(
+        polygon: List<Vec>,
+        p: Vec,
+    ): Boolean {
+        var odd = false
+        for ((a, b) in polygon.zipWithNext()) {
+            if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) odd = !odd
+        }
+        return odd
     }
 }
 
