@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
  * stripped, [sourceMap] maps its offsets back to the source line, [wrapRows] is the number of rows a wrapped line
  * takes, [scale] the shrink factor (1 down to the 85 percent floor), [heading] marks a markdown heading (drawn bold).
  * [column] is the width in page px the placement fitted and wrapped the line in (0: up to the margin), so the text
- * layer wraps at the same offsets.
+ * layer wraps at the same offsets. [source] is the markdown source line itself (the text an op's quote is cut from);
+ * it defaults to [display] for a line without markup.
  */
 @Serializable
 data class TextRun(
@@ -24,6 +25,7 @@ data class TextRun(
     val sourceStrokeIds: List<String>,
     val heading: Boolean = false,
     val column: Float = 0f,
+    val source: String = display,
 )
 
 /** A segment sent with an upload and not yet answered by a spec version; the app keeps its anchor. */

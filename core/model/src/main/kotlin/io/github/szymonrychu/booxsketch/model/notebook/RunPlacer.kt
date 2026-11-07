@@ -74,7 +74,8 @@ object RunPlacer {
                 continue
             }
             val stripped = SourceMap.stripWithColours(source[line.sourceLine - 1])
-            val text = Text(stripped, HEADING.containsMatchIn(source[line.sourceLine - 1]), version, line.sourceLine)
+            val text =
+                Text(source[line.sourceLine - 1], stripped, HEADING.containsMatchIn(source[line.sourceLine - 1]), version, line.sourceLine)
             when {
                 work.hasRun(line.lineId) -> work.update(line.lineId, text)
                 work.hasSegments(answered, segments) -> work.placeAtSegments(line.lineId, text, answered, segments)
@@ -150,6 +151,7 @@ object RunPlacer {
     }
 
     private class Text(
+        val source: String,
         val stripped: StrippedLine,
         val heading: Boolean,
         val version: Int,
@@ -297,6 +299,7 @@ object RunPlacer {
             sourceMap = text.stripped.map,
             sourceStrokeIds = strokes,
             heading = text.heading,
+            source = text.source,
         )
 
         fun update(
@@ -312,6 +315,7 @@ object RunPlacer {
                     colourSpans = text.stripped.spans,
                     sourceMap = text.stripped.map,
                     heading = text.heading,
+                    source = text.source,
                 )
             val changed = run.display != old.display || run.colourSpans != old.colourSpans || run.heading != old.heading
             put(i, run, replacing = old, dirty = changed)
