@@ -28,9 +28,21 @@ data class Notebook(
     val current: Int,
     /** The conversation this board belongs to (one notebook per conversation); null until bound. */
     val conversationLocalId: String? = null,
+    /** The newest spec version whose layout was placed on the pages; null before the first one. */
+    val appliedSpecVersion: Int? = null,
 ) {
     /** Appends an empty page and selects it. */
     fun addPage(): Notebook = copy(pages = pages + Page(emptyList(), false), current = pages.size)
+
+    /** Inserts [page] at index [at] (0..size); the selected page stays selected. */
+    fun insertPage(
+        at: Int,
+        page: Page,
+    ): Notebook {
+        val i = at.coerceIn(0, pages.size)
+        val list = pages.toMutableList().apply { add(i, page) }
+        return copy(pages = list, current = if (current >= i) current + 1 else current)
+    }
 
     /** Removes page [i]; the notebook always keeps at least one page. */
     fun deletePage(i: Int): Notebook {

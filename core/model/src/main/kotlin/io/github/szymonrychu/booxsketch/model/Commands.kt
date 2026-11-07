@@ -10,7 +10,28 @@ sealed interface Command {
     ) : Command
 
     data object Clear : Command
+
+    /**
+     * Moves every stroke whose bounding-box centre lies at or below page y [fromY] down by [dy] page px: a whole-row
+     * shift of the ink under a wrapped or inserted text line (Q16 A), one undoable step. It does not mark the page
+     * changed since the last send: the ink only moved with its rows.
+     */
+    data class ShiftRows(
+        val fromY: Float,
+        val dy: Float,
+    ) : Command
 }
+
+/** The vertical centre of [s]'s bounding box, the y a row shift and the segmenter judge a stroke by. */
+fun centreY(s: Stroke): Float = if (s.points.isEmpty()) 0f else (s.points.minOf { it.y } + s.points.maxOf { it.y }) / 2f
+
+/** [strokes] with every stroke centred at or below [fromY] moved down by [dy]. */
+fun shiftStrokes(
+    strokes: List<Stroke>,
+    fromY: Float,
+    dy: Float,
+): List<Stroke> =
+    strokes.map { s -> if (s.points.isNotEmpty() && centreY(s) >= fromY) s.copy(points = s.points.map { it.copy(y = it.y + dy) }) else s }
 
 /**
  * Undo/redo history kept per page index. Delete pages through [deletePage] so histories follow
@@ -56,6 +77,19 @@ class UndoStack {
         return n.deletePage(i)
     }
 
+    /** Inserts [page] at [at] into [n] and re-keys the histories of the pages after it. */
+    fun insertPage(
+        n: Notebook,
+        at: Int,
+        page: Page,
+    ): Notebook {
+        val i = at.coerceIn(0, n.pages.size)
+        val moved = histories.mapKeys { (k, _) -> if (k >= i) k + 1 else k }
+        histories.clear()
+        histories.putAll(moved)
+        return n.insertPage(i, page)
+    }
+
     fun apply(
         n: Notebook,
         c: Command,
@@ -66,12 +100,13 @@ class UndoStack {
                 is Command.AddStroke -> before + c.stroke
                 is Command.EraseStrokes -> before.filterNot { it.id in c.ids }
                 Command.Clear -> emptyList()
+                is Command.ShiftRows -> shiftStrokes(before, c.fromY, c.dy)
             }
         if (after == before) return n
         val h = histories.getOrPut(n.current) { History() }
         h.undo.addLast(Entry(before, after))
         h.redo.clear()
-        return n.withStrokes(after)
+        return n.withStrokes(after, changed = c !is Command.ShiftRows)
     }
 
     fun undo(n: Notebook): Notebook {
@@ -100,6 +135,14 @@ class UndoStack {
         return n.withStrokes(e.after)
     }
 
-    private fun Notebook.withStrokes(strokes: List<Stroke>): Notebook =
-        copy(pages = pages.mapIndexed { i, p -> if (i == current) p.copy(strokes = strokes, changedSinceSend = true) else p })
+    private fun Notebook.withStrokes(
+        strokes: List<Stroke>,
+        changed: Boolean = true,
+    ): Notebook =
+        copy(
+            pages =
+                pages.mapIndexed { i, p ->
+                    if (i == current) p.copy(strokes = strokes, changedSinceSend = changed || p.changedSinceSend) else p
+                },
+        )
 }
