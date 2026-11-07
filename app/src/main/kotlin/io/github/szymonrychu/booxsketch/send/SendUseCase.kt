@@ -183,7 +183,11 @@ class SendUseCase(
             board.markSent(indices.associateWith { notebook.pages[it] })
             val pending = parts.filter { it.pending.isNotEmpty() }.associate { it.index to it.pending }
             val ops = parts.filter { it.ops.isNotEmpty() }.associate { it.index to it.ops }
-            if (pending.isNotEmpty() || ops.isNotEmpty()) board.addPending(pending, ops)
+            // Stamped with the base version: a newer version that does not answer them releases them (never pending forever).
+            val from = base?.version ?: 0
+            val stamped = pending.mapValues { (_, l) -> l.map { it.copy(baseVersion = from) } }
+            val stampedOps = ops.mapValues { (_, l) -> l.map { it.copy(baseVersion = from) } }
+            if (pending.isNotEmpty() || ops.isNotEmpty()) board.addPending(stamped, stampedOps)
             kick()
             SendOutcome.Queued(clientId)
         }

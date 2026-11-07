@@ -153,4 +153,41 @@ class RunPlacerOpsTest {
         assertThat(page.text.map { it.lineId }).containsExactly("L1")
         assertThat(page.consumed).containsExactly("s")
     }
+
+    private fun pendingBoard(opBase: Int): Notebook {
+        val above = mark("w", g.rowTop(4) + 26f)
+        val op = EditOp("op1", OpKind.REPLACE, OpTarget("L1", 4, 9, "fresh"), strokeIds = listOf("w"))
+        val ink = stroke("h", 8)
+        val seg = PendingSegment("c1", "p0-r8-0", 8, 100f, 300f, listOf("h"), baseVersion = opBase)
+        val page =
+            Page(listOf(above, ink), false, text = listOf(run("L1", 4, "buy fresh milk")), pendingOps = listOf(PendingOp("c1", op, opBase)))
+        return notebook(page.copy(pendingSegments = listOf(seg)))
+    }
+
+    @Test
+    fun newer_version_that_does_not_report_the_pending_releases_ops_and_segments() {
+        val p = applyOps(pendingBoard(1), "buy fresh milk", emptyList(), line("L1", 1, LineOrigin.Kept("L1")))
+        val page = p.notebook.pages[0]
+        assertThat(page.pendingOps).isEmpty()
+        assertThat(page.pendingSegments).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("w", "h")
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.changedSinceSend).isTrue()
+        assertThat(p.changedRows[0]!!.contains(8)).isTrue()
+    }
+
+    @Test
+    fun version_not_newer_than_the_upload_keeps_the_pending() {
+        val p = applyOps(pendingBoard(2), "buy fresh milk", emptyList(), line("L1", 1, LineOrigin.Kept("L1")))
+        assertThat(p.notebook.pages[0].pendingOps).hasSize(1)
+        assertThat(p.notebook.pages[0].pendingSegments).hasSize(1)
+    }
+
+    @Test
+    fun release_all_clears_every_pending() {
+        val p = RunPlacer.releasePending(pendingBoard(5), null, g)
+        assertThat(p.notebook.pages[0].pendingOps).isEmpty()
+        assertThat(p.notebook.pages[0].pendingSegments).isEmpty()
+        assertThat(p.notebook.pages[0].changedSinceSend).isTrue()
+    }
 }

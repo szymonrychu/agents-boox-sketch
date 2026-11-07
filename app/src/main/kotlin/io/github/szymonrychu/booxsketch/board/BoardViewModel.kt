@@ -207,6 +207,16 @@ class BoardViewModel(
         ops: Map<Int, List<PendingOp>> = emptyMap(),
     ) = update { it.addPending(pending, ops) }
 
+    /** Releases the pending segments and ops of uploads based on a version below [version] (all when null). */
+    fun releasePending(version: Int?): Placement {
+        var placement: Placement? = null
+        update { n -> RunPlacer.releasePending(n, version, geometry()).also { placement = it }.notebook }
+        return checkNotNull(placement)
+    }
+
+    /** What [releasePending] would do to the shown notebook, without changing it. */
+    fun previewRelease(version: Int?): Placement = RunPlacer.releasePending(_notebook.value, version, geometry())
+
     /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
     fun dropPending(clientId: String) = update { it.dropPending(clientId) }
 
