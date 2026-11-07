@@ -18,12 +18,13 @@ data class Loop(
 
 /**
  * A freehand arrow: the shaft stroke plus the stroke(s) of its head, in drawing order. [tip] is the shaft end
- * at the head, [tail] the other end.
+ * at the head, [tail] the other end. A [doubleHeaded] arrow has a head at both ends, so either end may be the tip.
  */
 data class FreehandArrow(
     val strokeIds: List<String>,
     val tail: Vec,
     val tip: Vec,
+    val doubleHeaded: Boolean = false,
 )
 
 /**
@@ -142,7 +143,7 @@ object FreehandShapes {
                 val heads = headAt(rest.take(count), count, tip, tail) ?: continue
                 // A double-headed arrow: a second head at the other end is consumed too.
                 val second = (1..MAX_HEAD_STROKES).firstNotNullOfOrNull { c -> headAt(rest.drop(count).take(c), c, tail, tip) }
-                return FreehandArrow(listOf(shaftStroke.id) + (heads + second.orEmpty()).map { it.id }, tail, tip)
+                return FreehandArrow(listOf(shaftStroke.id) + (heads + second.orEmpty()).map { it.id }, tail, tip, second != null)
             }
         }
         return null

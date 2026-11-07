@@ -368,4 +368,29 @@ class AnnotationClassifierTest {
         assertThat(r.ops).isEmpty()
         assertThat(r.opStrokeIds).isEmpty()
     }
+
+    @Test
+    fun double_headed_arrow_makes_insert_in_either_drawing_order() {
+        // Shaft from the loop to the text, then the head at the loop end, then the head at the text end.
+        val tip = penArrow("A", 1050f, 450f, 240f, textY(4))
+        val tail = penArrow("T", 240f, textY(4), 1050f, 450f)
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    tip[0],
+                    tail[1],
+                    tail[2],
+                    tip[1],
+                    tip[2],
+                ),
+            )
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.INSERT)
+        assertThat(op.at).isEqualTo(OpAt("L1", 9, AtMode.INLINE))
+        assertThat(op.strokeIds).containsExactly("n1", "L", "A", "A-a", "A-b", "T-a", "T-b")
+        assertThat(r.marginInk).isEmpty()
+    }
 }

@@ -39,20 +39,28 @@ internal data class InsertArrow(
     val tip: Vec,
 )
 
-/** Tool arrows and freehand arrows among [candidates], in drawing order of their shaft. */
+/**
+ * Tool arrows and freehand arrows among [candidates], in drawing order of their shaft. A double-headed arrow is listed
+ * once per orientation; the finders' `used` sets stop it being claimed twice.
+ */
 internal fun insertArrows(candidates: List<Stroke>): List<InsertArrow> =
-    candidates.mapIndexedNotNull { i, s ->
+    candidates.flatMapIndexed { i, s ->
         when {
             s.tool == Tool.ARROW && s.points.size >= 2 -> {
-                InsertArrow(listOf(s.id), s.points.first().let { Vec(it.x, it.y) }, s.points.last().let { Vec(it.x, it.y) })
+                listOf(InsertArrow(listOf(s.id), s.points.first().let { Vec(it.x, it.y) }, s.points.last().let { Vec(it.x, it.y) }))
             }
 
             !s.tool.isShape -> {
-                FreehandShapes.arrow(candidates, i)?.let { InsertArrow(it.strokeIds, it.tail, it.tip) }
+                val a = FreehandShapes.arrow(candidates, i)
+                when {
+                    a == null -> emptyList()
+                    a.doubleHeaded -> listOf(InsertArrow(a.strokeIds, a.tail, a.tip), InsertArrow(a.strokeIds, a.tip, a.tail))
+                    else -> listOf(InsertArrow(a.strokeIds, a.tail, a.tip))
+                }
             }
 
             else -> {
-                null
+                emptyList()
             }
         }
     }
