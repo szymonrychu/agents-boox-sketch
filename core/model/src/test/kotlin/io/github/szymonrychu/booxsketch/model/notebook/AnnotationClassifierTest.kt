@@ -156,6 +156,24 @@ class AnnotationClassifierTest {
     }
 
     @Test
+    fun strike_bridging_two_strikes_is_one_delete() {
+        // buy 53-113, fresh 133-233, milk 253-333, "and" 353-413, "more" 433-513
+        val r =
+            classify(
+                page(
+                    listOf(run("L1", 4, "buy fresh milk and more")),
+                    line("a", 60f, 230f, textY(4)),
+                    line("b", 360f, 500f, textY(4)),
+                    line("c", 200f, 380f, textY(4) + 6f),
+                ),
+            )
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.DELETE)
+        assertThat(op.strokeIds).containsExactly("a", "b", "c")
+        assertThat(op.target).isEqualTo(OpTarget("L1", 0, 23, "buy fresh milk and more"))
+    }
+
+    @Test
     fun pending_and_consumed_strokes_are_not_classified_again() {
         val strike = line("s", 140f, 340f, textY(4))
         val sent = EditOp("old", OpKind.DELETE, OpTarget("L1", 4, 14, "fresh milk"), strokeIds = listOf("s"))
