@@ -1152,3 +1152,15 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   pen-lift flick at the end of a straight line is not an arrow. V-head arms keep the 8 px floor.
 - A double-headed arrow (shaft plus a V head at each end) consumes both heads in `strokeIds`; `tip` is the
   first head found (shaft end drawn last first). Not supported: a head drawn before its shaft.
+
+## 2026-11-07 Freehand insert marks wired into the classifier (T-46 P5b, Task 5.6)
+
+- `FreehandInsertMarks` (next to `ToolInsertMarks`) is the second finder in `SendUseCase`. A pen `Loop` with at
+  least 80 percent of its bounds right of the margin line is the box; pen strokes centred inside its polygon
+  (even-odd test) are the note. The arrow tail must be within `SNAP_RADIUS` of the loop outline (distance to the
+  polygon segments, not to four anchors, since a loop has none), the tip in the text column on a row.
+- Arrows are shared: `insertArrows` offers tool `ARROW` strokes and `FreehandShapes.arrow` results to both
+  finders, so tool rectangle plus pen arrow and pen loop plus tool arrow count. Why: a user mixes tools freely
+  (Q12 C). The classifier's `used` set stops two finders claiming the same strokes; non-insert margin ink stays
+  ordinary ink (OQ3 A).
+- Device number to record: misses over 10 freehand loop plus arrow tries (docs/device-checklist.md).

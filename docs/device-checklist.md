@@ -356,3 +356,16 @@ Needs connector 2.1.0, the notebook preset and a page with text rows. Note Air 6
 - [ ] Misclassification rate: over 20 strikes, 20 replaces and 10 inserts in normal handwriting,
       note how many came out as the wrong kind or as new handwriting, and record the numbers and any
       threshold change in MEMORY.md.
+
+## Freehand loop and arrow inserts (0.17.0, T-46 P5b)
+
+Needs the notebook preset and a page with text rows. Note Air 6C.
+
+- [ ] Freehand loop plus arrow insert: write a note in the right margin, circle it with the pen (no
+      shape tool), draw a pen arrow from the circle to a gap between two words. Send: the note's text
+      appears at that gap and the note, loop and arrow are hidden. Repeat 10 times, count the misses
+      (loop not closed, arrow not recognised) and record the number in MEMORY.md.
+- [ ] Mixed marks: shape-tool rectangle plus pen arrow, and pen loop plus shape-tool arrow, both insert.
+- [ ] Letters are not loops: write an "o", "d" and "0" in the margin and in the text column; none of
+      them is taken as an insert or lost.
+- [ ] A pen underline or a short flick at the end of a line is not taken as an arrow.
