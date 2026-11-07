@@ -200,6 +200,8 @@ class NotebookSyncTest {
         runTest {
             db.specDao().upsert(SpecEntity("srv", 1, "typed", "2026-11-07T00:00:00Z", "[]", null))
             val vm = board()
+            // Nothing pending (a version without a layout releases pending marks, see below).
+            vm.dropPending("c1")
             val holds = TextLayerHolds(clock = { testScheduler.currentTime })
             val dispatcher = StandardTestDispatcher(testScheduler)
             val before = vm.notebook.value
@@ -381,5 +383,86 @@ class NotebookSyncTest {
             advanceUntilIdle()
             job.join()
             assertThat(db.feedbackDao().all("srv")).isEmpty()
+        }
+
+    @Test
+    fun newer_version_without_layout_releases_the_pending_ink() =
+        runTest {
+            val vm = struckBoard()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            db.specDao().upsert(SpecEntity("srv", 2, "typed note", "2026-11-07T00:00:00Z", "[]", null))
+            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
+            sync.onVersion("srv", "local", 2)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.pendingOps).isEmpty()
+            assertThat(page.visibleStrokes.map { it.id }).containsExactly("s")
+            assertThat(page.changedSinceSend).isTrue()
+            assertThat(page.text).isEqualTo(listOf(milk))
+            // The version without a layout is not a placed one.
+            assertThat(vm.notebook.value.appliedSpecVersion).isEqualTo(1)
+            assertThat(vm.overlayFor(vm.notebook.value)).hasSize(1)
+        }
+
+    @Test
+    fun newer_layout_version_not_listing_the_pending_releases_it() =
+        runTest {
+            val vm = board()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            val other = """{"lines":[{"line_id":"L9","source_line":1,"origin":null}],"ops":[]}"""
+            db.specDao().upsert(SpecEntity("srv", 1, "other", "2026-11-07T00:00:00Z", "[]", other))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "local", 1)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.pendingSegments).isEmpty()
+            assertThat(page.consumed).isEmpty()
+            assertThat(page.visibleStrokes.map { it.id }).containsExactly("a", "b")
+            assertThat(page.changedSinceSend).isTrue()
+        }
+
+    @Test
+    fun release_pending_clears_everything_on_the_board() =
+        runTest {
+            val vm = struckBoard()
+            advanceTimeBy(1_000)
+            vm.releasePending(null)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.pendingOps).isEmpty()
+            assertThat(page.visibleStrokes.map { it.id }).containsExactly("s")
+            assertThat(page.changedSinceSend).isTrue()
+        }
+
+    @Test
+    fun undoing_the_stroke_of_a_pending_op_keeps_the_op_pending_and_the_later_version_applies() =
+        runTest {
+            val store = NotebookStore(File(tmp.root, "undo.json"))
+            store.save(Notebook(canvas, listOf(Page(emptyList(), false, text = listOf(milk))), 0, appliedSpecVersion = 1))
+            val vm = BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
+            vm.onStroke(strike)
+            vm.addPending(emptyMap(), mapOf(0 to listOf(PendingOp("c1", delete, 1))))
+            vm.undo()
+            assertThat(
+                vm.notebook.value.pages[0]
+                    .strokes,
+            ).isEmpty()
+            // The server still applies the op: the later version consumes a stroke that is gone, harmlessly.
+            assertThat(
+                vm.notebook.value.pages[0]
+                    .pendingOps,
+            ).hasSize(1)
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            val layout =
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":{"kept":"L1","op":"op-1"}}],""" +
+                    """"ops":[{"id":"op-1","status":"applied"}]}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy", "2026-11-07T00:00:00Z", "[]", layout))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "local", 2)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.pendingOps).isEmpty()
+            assertThat(page.text.single().display).isEqualTo("buy")
+            assertThat(page.visibleStrokes).isEmpty()
         }
 }

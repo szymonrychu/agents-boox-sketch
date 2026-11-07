@@ -48,4 +48,6 @@ data class EditOp(
 data class PendingOp(
     val clientId: String,
     val op: EditOp,
+    /** The spec version the upload was based on (0 when none): a newer version that does not report it releases it. */
+    val baseVersion: Int = 0,
 )

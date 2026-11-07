@@ -126,6 +126,38 @@ class AnnotationClassifierTest {
         assertThat(r.ops.single().at).isEqualTo(OpAt("L1", "buy".length, AtMode.AFTER_LINE))
     }
 
+    // "alpha beta gamma delta" wraps at column 240: row 5 alpha beta, row 6 gamma (53-153) delta (173-273).
+    private val wrapped = run("L1", 5, "alpha beta gamma delta").copy(wrapRows = 2, column = 240f)
+
+    @Test
+    fun arrow_tip_in_the_second_row_of_a_wrapped_run_is_inline_there() {
+        val r =
+            classify(
+                page(
+                    listOf(wrapped),
+                    rect("R", 1000f, 400f, 1300f, 500f),
+                    word("n1", 1050f, 1200f, 450f),
+                    arrow("A", 1000f, 450f, 170f, textY(6)),
+                ),
+            )
+        assertThat(r.ops.single().at).isEqualTo(OpAt("L1", 16, AtMode.INLINE))
+    }
+
+    @Test
+    fun write_above_a_word_in_the_second_row_of_a_wrapped_run_is_replace_of_that_word() {
+        val r = classify(page(listOf(wrapped), word("w1", 180f, 260f, annotationY(6))))
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.REPLACE)
+        assertThat(op.target).isEqualTo(OpTarget("L1", 17, 22, "delta"))
+    }
+
+    @Test
+    fun two_runs_on_one_row_get_separate_replaces() {
+        val runs = listOf(run("L1", 4, "buy"), run("L2", 4, "milk", x0 = 500f, sourceLine = 2))
+        val r = classify(page(runs, word("w1", 60f, 100f, annotationY(4)), word("w2", 510f, 570f, annotationY(4))))
+        assertThat(r.ops.map { it.target }).containsExactly(OpTarget("L1", 0, 3, "buy"), OpTarget("L2", 0, 4, "milk"))
+    }
+
     @Test
     fun arrow_tip_below_the_last_text_is_after_that_line() {
         val r =

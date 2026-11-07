@@ -13,6 +13,7 @@ import io.github.szymonrychu.booxsketch.model.notebook.OpStatusModel
 import io.github.szymonrychu.booxsketch.model.notebook.Placement
 import io.github.szymonrychu.booxsketch.model.notebook.SpecLayoutModel
 import io.github.szymonrychu.booxsketch.model.notebook.SpecLineModel
+import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -33,8 +34,10 @@ import io.github.szymonrychu.booxsketch.model.RectF as ModelRect
  * ([TextLayerHolds]): the new notebook state and the bitmap swap happen together while raw drawing is off, so the
  * hidden ink and the new text appear in one frame and the pen path is never touched while raw drawing is live. A
  * board that changed while the layer rendered (the user wrote on) is placed again. Versions without a layout (typed
- * feedback, document notes) leave the board as it is; a version at or below the board's applied one is skipped. A
- * version is placed only while the board shows its conversation's notebook (or the unbound one it is about to adopt):
+ * feedback, document notes) leave the board as it is, except that they release the pending marks of older uploads
+ * (the strokes become plain unsent ink, see [io.github.szymonrychu.booxsketch.model.notebook.RunPlacer.releasePending]);
+ * a version at or below the board's applied one is skipped. A version is placed only while the board shows its
+ * conversation's notebook (or the unbound one it is about to adopt):
  * the check runs in the same main-thread step as the placement, so a conversation switch never gets another's text.
  * The strike preview ([StrikePreviewSync]) is recomputed for the placed page and swapped in with the text, and the
  * notes of rejected edit ops go to the feedback strip.
@@ -72,11 +75,16 @@ class NotebookSync(
         fun stale() = board.notebook.value.let { n -> !n.showsConversation(conversationLocalId) || (n.appliedSpecVersion ?: 0) >= version }
         if (withContext(main) { stale() }) return@withLock
         val spec = specs.get(conversationServerId, version) ?: return@withLock
-        val layout = spec.layout?.let(::layoutModel) ?: return@withLock
+        val layout = spec.layout?.let(::layoutModel)
         val measure = board.textLayers.layer.measure
         while (true) {
             holds.awaitPenIdle()
-            val (base, preview) = withContext(main) { board.notebook.value to board.placeVersion(version, spec.markdown, layout, measure) }
+            val (base, preview) =
+                withContext(main) {
+                    board.notebook.value to board.preview(version, spec.markdown, layout, measure)
+                }
+            // A version without a layout only releases the pending marks of older uploads; nothing pending, nothing to do.
+            if (layout == null && preview.notebook === base) return@withLock
             val page = preview.notebook.pages[preview.notebook.current]
             val (bitmap, overlay) =
                 withContext(worker) {
@@ -86,15 +94,34 @@ class NotebookSync(
             val outcome =
                 withContext(main) {
                     // The board switched conversation (or applied this version) meanwhile: nothing to place.
-                    if (stale()) null else commit(base, bitmap, overlay) { board.applyVersion(version, spec.markdown, layout, measure) }
+                    if (stale()) {
+                        null
+                    } else {
+                        commit(base, bitmap, overlay) { board.place(version, spec.markdown, layout, measure) }
+                    }
                 }
             if (outcome == null) return@withLock
             if (outcome) {
-                noteRejected(conversationServerId, version, base, layout)
+                layout?.let { noteRejected(conversationServerId, version, base, it) }
                 return@withLock
             }
         }
     }
+
+    /** The placement of [version] on the shown board, or only the release of older pending marks for one without a [layout]. */
+    private fun BoardViewModel.preview(
+        version: Int,
+        markdown: String,
+        layout: SpecLayoutModel?,
+        measure: TextMeasure,
+    ) = layout?.let { placeVersion(version, markdown, it, measure) } ?: previewRelease(version)
+
+    private fun BoardViewModel.place(
+        version: Int,
+        markdown: String,
+        layout: SpecLayoutModel?,
+        measure: TextMeasure,
+    ) = layout?.let { applyVersion(version, markdown, it, measure) } ?: releasePending(version)
 
     /**
      * Places through [apply] and swaps [bitmap] in under one hold, unless the board changed since [base] was placed or

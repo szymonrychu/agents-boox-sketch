@@ -37,4 +37,6 @@ data class PendingSegment(
     val x0: Float,
     val x1: Float,
     val strokeIds: List<String>,
+    /** The spec version the upload was based on (0 when none): a newer version that does not answer it releases it. */
+    val baseVersion: Int = 0,
 )

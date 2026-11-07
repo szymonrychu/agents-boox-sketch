@@ -85,7 +85,22 @@ object RunPlacer {
             prev = line.lineId
         }
         work.dropAnswered(answered)
+        work.release(version)
         return Placement(work.n.copy(appliedSpecVersion = version), work.dirty.toMap())
+    }
+
+    /**
+     * Releases the pending segments and ops of uploads based on a version older than [version] (all of them when null):
+     * their strokes become ordinary unsent ink again and their pages count as changed.
+     */
+    fun releasePending(
+        notebook: Notebook,
+        version: Int?,
+        geometry: NotebookGeometry,
+    ): Placement {
+        val work = Work(notebook, geometry, TextMeasure { text, scale -> text.length * scale }, null)
+        work.release(version)
+        return Placement(work.n, work.dirty.toMap())
     }
 
     /** Display offset ranges of the rows [display] wraps into at [scale] within [column] px, breaking at spaces. */
@@ -277,6 +292,26 @@ object RunPlacer {
                 val p = page(i)
                 setPage(i, p.copy(pendingSegments = p.pendingSegments - s))
                 markDirty(i, s.row..s.row)
+            }
+        }
+
+        /** Pending segments and ops of uploads based on a version below [version] (all when null): their ink is unsent again. */
+        fun release(version: Int?) {
+            for (i in n.pages.indices) {
+                val p = page(i)
+                val segments = p.pendingSegments.filter { version == null || it.baseVersion < version }
+                val ops = p.pendingOps.filter { version == null || it.baseVersion < version }
+                if (segments.isEmpty() && ops.isEmpty()) continue
+                setPage(
+                    i,
+                    p.copy(
+                        pendingSegments = p.pendingSegments - segments.toSet(),
+                        pendingOps = p.pendingOps - ops.toSet(),
+                        changedSinceSend = true,
+                    ),
+                )
+                segments.forEach { markDirty(i, it.row..it.row) }
+                if (ops.isNotEmpty()) markDirty(i, 0 until g.rowCount)
             }
         }
 

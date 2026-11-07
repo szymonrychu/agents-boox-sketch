@@ -106,19 +106,23 @@ class SendUseCaseOpsTest {
     @After
     fun tearDown() = db.close()
 
-    private fun dir(clientId: String) =
-        runBlocking {
-            File(
-                db
-                    .outboxDao()
-                    .forConversation("local-1")
-                    .single { it.clientId == clientId }
-                    .payloadDir,
-            )
-        }
+    private fun dir(
+        clientId: String,
+        conversation: String = "local-1",
+    ) = runBlocking {
+        File(
+            db
+                .outboxDao()
+                .forConversation(conversation)
+                .single { it.clientId == clientId }
+                .payloadDir,
+        )
+    }
 
-    private fun layoutOf(clientId: String): PageLayoutDto =
-        Json.decodeFromString(PageLayoutDto.serializer(), File(dir(clientId), "layout.0.json").readText())
+    private fun layoutOf(
+        clientId: String,
+        conversation: String = "local-1",
+    ): PageLayoutDto = Json.decodeFromString(PageLayoutDto.serializer(), File(dir(clientId, conversation), "layout.0.json").readText())
 
     @Test
     fun ops_in_layout_with_stroke_indices() =
@@ -136,6 +140,14 @@ class SendUseCaseOpsTest {
                     .pendingOps
                     .single()
             assertThat(pending.clientId).isEqualTo(clientId)
+            // Stamped with the base version: a newer version that does not report it releases it.
+            assertThat(pending.baseVersion).isEqualTo(3)
+            assertThat(
+                board.notebook.pages[0]
+                    .pendingSegments
+                    .single()
+                    .baseVersion,
+            ).isEqualTo(3)
             assertThat(pending.op.id).isEqualTo(op.id)
             assertThat(pending.op.kind).isEqualTo(OpKind.DELETE)
             assertThat(pending.op.target).isEqualTo(OpTarget("L1", 4, 14, "fresh milk"))
@@ -174,5 +186,41 @@ class SendUseCaseOpsTest {
             assertThat(layoutOf(clientId).ops).isEmpty()
             // L1 is not in the base version: no op may target it.
             assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+        }
+
+    @Test
+    fun no_base_version_sends_no_ops() =
+        runBlocking<Unit> {
+            // A conversation without any stored version: no run is annotatable, so there is no op (NoBaseVersion is a guard).
+            db.conversationDao().upsert(ConversationEntity("local-2", "srv-2", "t", 0, 1))
+            repo.select("local-2")
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(layoutOf(clientId, "local-2").ops).isEmpty()
+            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+            assertThat(Payload.readPages(dir(clientId, "local-2")).baseVersion).isNull()
+        }
+
+    @Test
+    fun op_ids_are_uuids_in_a_real_send() =
+        runBlocking<Unit> {
+            val real =
+                SendUseCase(
+                    db = db,
+                    conversations = repo,
+                    board = board,
+                    export = { _, _, _ -> ExportResult.Exported(ByteArray(64) { 1 }, 300, 400) },
+                    limits = { ConfigCache.DEFAULT },
+                    outboxRoot = tmp.newFolder("outbox-real"),
+                    kick = {},
+                    worker = Dispatchers.Unconfined,
+                    measure = measure,
+                )
+            val clientId = (real.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            val id = layoutOf(clientId).ops.single().id
+            assertThat(
+                java.util.UUID
+                    .fromString(id)
+                    .toString(),
+            ).isEqualTo(id)
         }
 }

@@ -302,7 +302,8 @@ class AppContainer(
      * While the app is paired and in the foreground: applies the spec versions of the board's conversation as they are
      * stored, and polls the conversations while the board waits for a version (pending segments or ops), since nothing else
      * fetches specs when the Documents tab is closed. The poll backs off from 5 s to 1 min and stops after about half
-     * an hour ([pendingPollDelay]); a new upload starts it again. A deleted or pruned conversation leaves the board.
+     * an hour ([pendingPollDelay]) and releases what is still pending as plain ink; a new upload starts it again. A
+     * deleted or pruned conversation leaves the board.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun runNotebookSync() =
@@ -335,11 +336,8 @@ class AppContainer(
                     .map { n -> n.pages.flatMap { p -> p.pendingSegments.map { it.clientId } + p.pendingOps.map { it.clientId } }.toSet() }
                     .distinctUntilChanged()
                     .collectLatest { waiting ->
-                        var attempt = 0
-                        while (waiting.isNotEmpty()) {
-                            delay(pendingPollDelay(attempt++) ?: break)
-                            conversations.refresh()
-                        }
+                        // A translation that never answers must not leave the strokes pending forever.
+                        if (waiting.isNotEmpty()) pollPending(conversations::refresh) { boardViewModel.releasePending(null) }
                     }
             }
         }
@@ -512,6 +510,19 @@ class AppContainer(
         private const val PENDING_POLL_FIRST_MS = 5_000L
         private const val PENDING_POLL_MAX_MS = 60_000L
         private const val PENDING_POLL_ATTEMPTS = 33
+
+        /** Refreshes on the [pendingPollDelay] schedule, then calls [giveUp] once: nothing answered, the wait is over. */
+        internal suspend fun pollPending(
+            refresh: suspend () -> Unit,
+            giveUp: () -> Unit,
+        ) {
+            var attempt = 0
+            while (true) {
+                delay(pendingPollDelay(attempt++) ?: break)
+                refresh()
+            }
+            giveUp()
+        }
 
         /**
          * The wait before refresh number [attempt] (0-based) while the board waits for a spec version: 5 s doubling up
