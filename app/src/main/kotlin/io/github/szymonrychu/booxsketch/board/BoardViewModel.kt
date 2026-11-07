@@ -207,15 +207,21 @@ class BoardViewModel(
         ops: Map<Int, List<PendingOp>> = emptyMap(),
     ) = update { it.addPending(pending, ops) }
 
-    /** Releases the pending segments and ops of uploads based on a version below [version] (all when null). */
-    fun releasePending(version: Int?): Placement {
+    /** Releases the pending segments and ops of [uploads] (all when null) based on a version below [version] (any when null). */
+    fun releasePending(
+        version: Int?,
+        uploads: Set<String>? = null,
+    ): Placement {
         var placement: Placement? = null
-        update { n -> RunPlacer.releasePending(n, version, geometry()).also { placement = it }.notebook }
+        update { n -> RunPlacer.releasePending(n, version, geometry(), uploads).also { placement = it }.notebook }
         return checkNotNull(placement)
     }
 
     /** What [releasePending] would do to the shown notebook, without changing it. */
-    fun previewRelease(version: Int?): Placement = RunPlacer.releasePending(_notebook.value, version, geometry())
+    fun previewRelease(
+        version: Int?,
+        uploads: Set<String>? = null,
+    ): Placement = RunPlacer.releasePending(_notebook.value, version, geometry(), uploads)
 
     /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
     fun dropPending(clientId: String) = update { it.dropPending(clientId) }
@@ -249,7 +255,8 @@ class BoardViewModel(
         markdown: String,
         layout: SpecLayoutModel,
         measure: TextMeasure,
-    ): Placement = RunPlacer.apply(_notebook.value, version, markdown, layout, measure, geometry(), undo = null)
+        answeredUploads: Set<String>? = null,
+    ): Placement = RunPlacer.apply(_notebook.value, version, markdown, layout, measure, geometry(), undo = null, answeredUploads)
 
     /** Places spec [version] on the notebook; each row shift of the selected page is one undoable step. */
     fun applyVersion(
@@ -257,9 +264,12 @@ class BoardViewModel(
         markdown: String,
         layout: SpecLayoutModel,
         measure: TextMeasure,
+        answeredUploads: Set<String>? = null,
     ): Placement {
         var placement: Placement? = null
-        update { n -> RunPlacer.apply(n, version, markdown, layout, measure, geometry(), undoStack).also { placement = it }.notebook }
+        update { n ->
+            RunPlacer.apply(n, version, markdown, layout, measure, geometry(), undoStack, answeredUploads).also { placement = it }.notebook
+        }
         return checkNotNull(placement)
     }
 

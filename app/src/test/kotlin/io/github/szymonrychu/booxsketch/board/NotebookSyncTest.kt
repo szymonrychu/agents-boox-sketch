@@ -8,8 +8,11 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.data.ConversationEntity
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
+import io.github.szymonrychu.booxsketch.data.ThreadItemEntity
+import io.github.szymonrychu.booxsketch.data.ThreadKind
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
@@ -392,8 +395,9 @@ class NotebookSyncTest {
             val holds = TextLayerHolds(clock = { testScheduler.currentTime })
             val dispatcher = StandardTestDispatcher(testScheduler)
             advanceTimeBy(1_000)
-            db.specDao().upsert(SpecEntity("srv", 2, "typed note", "2026-11-07T00:00:00Z", "[]", null))
-            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
+            sendFrom("c1", "sk1")
+            db.specDao().upsert(SpecEntity("srv", 2, "typed note", "2026-11-07T00:00:00Z", """["sk1"]""", null))
+            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher, threads = db.threadDao())
             sync.onVersion("srv", "local", 2)
             val page = vm.notebook.value.pages[0]
             assertThat(page.pendingOps).isEmpty()
@@ -405,6 +409,41 @@ class NotebookSyncTest {
             assertThat(vm.overlayFor(vm.notebook.value)).hasSize(1)
         }
 
+    /** The upload [clientId] was acknowledged by the connector as sketch [sketchId]. */
+    private suspend fun sendFrom(
+        clientId: String,
+        sketchId: String,
+    ) {
+        db.conversationDao().upsert(ConversationEntity("local", "srv", "t", 0, 0))
+        db.threadDao().upsert(ThreadItemEntity("i-$clientId", "local", ThreadKind.SKETCH, clientId, null, 1, null, "sent", 1, sketchId))
+    }
+
+    @Test
+    fun a_version_releases_only_the_uploads_it_answers_when_two_share_a_base() =
+        runTest {
+            val store = NotebookStore(File(tmp.root, "two.json"))
+            val pending =
+                listOf(
+                    PendingSegment("c1", "p0-r4-0", 4, 100f, 300f, listOf("a", "b"), 1),
+                    PendingSegment("c2", "p0-r6-0", 6, 100f, 300f, listOf("c", "d"), 1),
+                )
+            val page = Page(listOf(stroke("a", 4), stroke("b", 4), stroke("c", 6), stroke("d", 6)), false, pendingSegments = pending)
+            store.save(Notebook(canvas, listOf(page), 0, appliedSpecVersion = 1))
+            val vm = BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
+            sendFrom("c1", "sk1")
+            sendFrom("c2", "sk2")
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            // Version 2 answers the first upload only; the second is still in flight on the same base.
+            db.specDao().upsert(SpecEntity("srv", 2, "other", "2026-11-07T00:00:00Z", """["sk1"]""", """{"lines":[],"ops":[]}"""))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher, threads = db.threadDao())
+                .onVersion("srv", "local", 2)
+            val result = vm.notebook.value.pages[0]
+            assertThat(result.pendingSegments.map { it.clientId }).containsExactly("c2")
+            assertThat(result.changedSinceSend).isTrue()
+        }
+
     @Test
     fun newer_layout_version_not_listing_the_pending_releases_it() =
         runTest {
@@ -413,8 +452,10 @@ class NotebookSyncTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             advanceTimeBy(1_000)
             val other = """{"lines":[{"line_id":"L9","source_line":1,"origin":null}],"ops":[]}"""
-            db.specDao().upsert(SpecEntity("srv", 1, "other", "2026-11-07T00:00:00Z", "[]", other))
-            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "local", 1)
+            sendFrom("c1", "sk1")
+            db.specDao().upsert(SpecEntity("srv", 1, "other", "2026-11-07T00:00:00Z", """["sk1"]""", other))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher, threads = db.threadDao())
+                .onVersion("srv", "local", 1)
             val page = vm.notebook.value.pages[0]
             assertThat(page.pendingSegments).isEmpty()
             assertThat(page.consumed).isEmpty()

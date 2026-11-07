@@ -292,7 +292,13 @@ class AppContainer(
 
     /** Places returned spec versions on the board (Task 4.6). */
     val notebookSync: NotebookSync by lazy {
-        NotebookSync(database.specDao(), boardViewModel, boardViewModel.textHolds, feedback = database.feedbackDao())
+        NotebookSync(
+            database.specDao(),
+            boardViewModel,
+            boardViewModel.textHolds,
+            feedback = database.feedbackDao(),
+            threads = database.threadDao(),
+        )
     }
 
     /** Shows the grey strike preview over struck words at pen idle (Task 5.3). */
