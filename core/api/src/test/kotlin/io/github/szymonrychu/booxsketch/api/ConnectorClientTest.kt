@@ -385,4 +385,104 @@ class ConnectorClientTest {
             val e = runCatching { client.attachment(cid) }.exceptionOrNull()
             assertThat(e).isEqualTo(ApiError.NotFound("not_found"))
         }
+
+    @Test
+    fun upload_sends_layout_and_region_parts() =
+        runTest {
+            server.enqueue(json("""{"sketch_id":"$cid","conversation_id":"$conv","status":"queued"}""", 202))
+            val meta =
+                SketchMetaDto(
+                    clientId = cid,
+                    conversationId = conv,
+                    pages = listOf(PageMetaDto(0, Canvas(1404, 1872, 300f)), PageMetaDto(1, Canvas(1404, 1872, 300f))),
+                    baseVersion = 3,
+                )
+            client.uploadSketch(
+                meta,
+                listOf(byteArrayOf(1), byteArrayOf(2)),
+                listOf(null, null),
+                layouts = listOf(null, """{"version":1}""".toByteArray()),
+                regions = mapOf("region.1.0.png" to byteArrayOf(9)),
+            )
+            val body = server.takeRequest().body.readUtf8()
+            assertThat(body).contains("name=\"layout.1.json\"")
+            assertThat(body).doesNotContain("layout.0.json")
+            assertThat(body).contains("name=\"region.1.0.png\"")
+            assertThat(body).contains("\"base_version\":3")
+        }
+
+    @Test
+    fun meta_omits_base_version_when_absent() {
+        val meta = SketchMetaDto(clientId = cid, pages = listOf(PageMetaDto(0, Canvas(1, 1, 300f))))
+        val text =
+            Json {
+                explicitNulls = false
+                encodeDefaults = true
+            }.encodeToString(SketchMetaDto.serializer(), meta)
+        assertThat(text).doesNotContain("base_version")
+    }
+
+    @Test
+    fun revert_posts_base_version() =
+        runTest {
+            server.enqueue(json("""{"version":5,"reverted_from":2}""", 201))
+            val result = client.revertSpec(conv, 2, 4)
+            val r = server.takeRequest()
+            assertThat(r.method).isEqualTo("POST")
+            assertThat(r.path).isEqualTo("/app/v1/sketch/conversations/$conv/spec/2/revert")
+            assertThat(r.getHeader("Authorization")).isEqualTo(bearerHeader)
+            assertThat(
+                Json
+                    .parseToJsonElement(r.body.readUtf8())
+                    .jsonObject["base_version"]!!
+                    .jsonPrimitive.content,
+            ).isEqualTo("4")
+            assertThat(result).isEqualTo(RevertResult(5, 2))
+        }
+
+    @Test
+    fun revert_409_stale_base_is_typed() =
+        runTest {
+            server.enqueue(json("""{"error":"stale_base","detail":"x"}""", 409))
+            assertThat(runCatching { client.revertSpec(conv, 2, 4) }.exceptionOrNull()).isEqualTo(ApiError.StaleBase)
+        }
+
+    @Test
+    fun spec_image_get() =
+        runTest {
+            val region = "33333333-3333-4333-8333-333333333333"
+            server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(7, 8))))
+            val bytes = client.specImage(conv, region)
+            val r = server.takeRequest()
+            assertThat(r.path).isEqualTo("/app/v1/sketch/conversations/$conv/images/$region.png")
+            assertThat(r.getHeader("Authorization")).isEqualTo(bearerHeader)
+            assertThat(bytes).isEqualTo(byteArrayOf(7, 8))
+        }
+
+    @Test
+    fun spec_parses_layout() =
+        runTest {
+            server.enqueue(
+                json(
+                    """{"version":2,"markdown":"# a","created":"x","sketch_ids":[],"layout":{"lines":[
+{"line_id":"L1","source_line":1,"origin":{"segments":["p0-r0-0"]}},{"line_id":"L2","source_line":2,"origin":null}],
+"ops":[{"id":"$cid","status":"rejected","note":"no"}],"base_version":1,"reverted_from":null}}""".replace("\n", ""),
+                ),
+            )
+            val spec = client.spec(conv, 2)
+            val layout = spec.layout!!
+            assertThat(layout.lines.map { it.lineId }).containsExactly("L1", "L2").inOrder()
+            assertThat(layout.lines[0].origin!!["segments"]).isNotNull()
+            assertThat(layout.lines[1].origin).isNull()
+            assertThat(layout.ops).containsExactly(OpStatusDto(cid, "rejected", "no"))
+            assertThat(layout.baseVersion).isEqualTo(1)
+            assertThat(layout.revertedFrom).isNull()
+        }
+
+    @Test
+    fun spec_without_layout_has_null_layout() =
+        runTest {
+            server.enqueue(json("""{"version":1,"markdown":"# a","created":"x","sketch_ids":[],"layout":null}"""))
+            assertThat(client.spec(conv, 1).layout).isNull()
+        }
 }

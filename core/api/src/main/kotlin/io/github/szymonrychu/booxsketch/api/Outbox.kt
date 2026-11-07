@@ -113,6 +113,11 @@ class OutboxRunnerCore(
                 fail(item, e.message)
             }
 
+            // notebook errors: Task 4.6 gives the user a way to re-render and re-send; until then the item fails
+            ApiError.StaleBase, ApiError.OpReplayed, ApiError.Busy, is ApiError.StaleTarget -> {
+                fail(item, e.message)
+            }
+
             // task-only errors: an upload never produces them
             ApiError.StaleVersion, ApiError.AlreadyAnswered, is ApiError.Unavailable -> {
                 fail(item, e.message)

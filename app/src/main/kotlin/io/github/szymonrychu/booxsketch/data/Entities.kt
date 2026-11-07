@@ -70,6 +70,8 @@ data class SpecEntity(
     val createdAt: String,
     /** JSON list of the sketch ids this version was made from. */
     @ColumnInfo(defaultValue = "[]") val sketchIds: String = "[]",
+    /** JSON of the connector's `layout` (line ids, provenance, op statuses); null for versions without one. */
+    val layout: String? = null,
 )
 
 @Entity(tableName = "cursors")

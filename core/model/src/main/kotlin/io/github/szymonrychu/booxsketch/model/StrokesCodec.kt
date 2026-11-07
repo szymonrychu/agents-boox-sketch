@@ -15,7 +15,8 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 /**
- * strokes.json wire format, version 3. Point times are relative to the first point of the page.
+ * strokes.json wire format, version 3, over the page's visible strokes (consumed strokes are not written).
+ * Point times are relative to the first point of the page.
  * A point is [x, y, pressure, t] and, when the pen reported tilt, [x, y, pressure, t, tiltX, tiltY]
  * (a missing axis is written as 0). Version 2 files (4 values per point) still decode.
  */
@@ -27,8 +28,9 @@ object StrokesCodec {
         canvas: Canvas,
         page: Page,
     ): ByteArray {
+        val strokes = page.visibleStrokes
         val t0 =
-            page.strokes
+            strokes
                 .firstOrNull()
                 ?.points
                 ?.firstOrNull()
@@ -47,7 +49,7 @@ object StrokesCodec {
                 put(
                     "strokes",
                     buildJsonArray {
-                        page.strokes.forEach { s ->
+                        strokes.forEach { s ->
                             add(
                                 buildJsonObject {
                                     put("tool", s.tool.wire)

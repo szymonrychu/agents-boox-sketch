@@ -52,6 +52,8 @@ class ConnectorClient(
         meta: SketchMetaDto,
         pngs: List<ByteArray>,
         strokes: List<ByteArray?>,
+        layouts: List<ByteArray?> = emptyList(),
+        regions: Map<String, ByteArray> = emptyMap(),
     ): UploadResult {
         val body =
             MultipartBody
@@ -66,8 +68,30 @@ class ConnectorClient(
                 body.addFormDataPart("strokes.$i.json", "strokes.$i.json", data.toRequestBody(JSON_TYPE))
             }
         }
+        layouts.forEachIndexed { i, data ->
+            if (data != null) {
+                body.addFormDataPart("layout.$i.json", "layout.$i.json", data.toRequestBody(JSON_TYPE))
+            }
+        }
+        regions.forEach { (part, data) -> body.addFormDataPart(part, part, data.toRequestBody(PNG_TYPE)) }
         return call(authedRequest("/sketches").post(body.build()).build())
     }
+
+    /** Stores spec version [version] again as the newest version; [baseVersion] is the latest version the app shows. */
+    suspend fun revertSpec(
+        conversationId: String,
+        version: Int,
+        baseVersion: Int,
+    ): RevertResult {
+        val body = json.encodeToString(RevertIn(baseVersion)).toRequestBody(JSON_TYPE)
+        return call(authedRequest("/conversations/$conversationId/spec/$version/revert").post(body).build())
+    }
+
+    /** The PNG of the region [regionId] a spec references as `images/<region_id>.png`. */
+    suspend fun specImage(
+        conversationId: String,
+        regionId: String,
+    ): ByteArray = execute(authedRequest("/conversations/$conversationId/images/$regionId.png").get().build()) { it.body.bytes() }
 
     suspend fun postMessage(
         conversationId: String,

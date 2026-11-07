@@ -55,6 +55,8 @@ data class SketchMetaDto(
     val caption: String? = null,
     val pages: List<PageMetaDto>,
     val annotates: AnnotatesDto? = null,
+    /** The spec version whose text the board showed; required when a layout carries ops. */
+    @SerialName("base_version") val baseVersion: Int? = null,
 )
 
 /**
@@ -135,6 +137,123 @@ data class SpecDto(
     val markdown: String,
     val created: String,
     @SerialName("sketch_ids") val sketchIds: List<String>,
+    /** Line ids, provenance and op statuses; null for versions not written from notebook pages. */
+    val layout: SpecLayoutDto? = null,
+)
+
+/** The `Geometry` schema: the notebook grid of a page in page-canvas px. */
+@Serializable
+data class GeometryDto(
+    val cell: Int,
+    @SerialName("row_pitch") val rowPitch: Int,
+    val top: Int,
+    val rows: Int,
+    @SerialName("text_left") val textLeft: Int,
+    @SerialName("margin_left") val marginLeft: Int,
+)
+
+/** The `Segment` schema: new handwriting of one row. [strokes] are indices into that page's strokes.json. */
+@Serializable
+data class SegmentDto(
+    val id: String,
+    val row: Int,
+    val x0: Float,
+    val x1: Float,
+    val strokes: List<Int>,
+)
+
+/** The `VisibleRun` schema: a rendered spec line as the board showed it. */
+@Serializable
+data class VisibleRunDto(
+    @SerialName("line_id") val lineId: String,
+    val row: Int,
+    val x0: Float,
+)
+
+/** The `OpTarget` schema: char offsets `[from, to)` in the markdown source line and the text there. */
+@Serializable
+data class OpTargetDto(
+    @SerialName("line_id") val lineId: String,
+    val from: Int,
+    val to: Int,
+    val quote: String,
+)
+
+/** The `OpAt` schema; [mode] is `inline` or `after_line`. */
+@Serializable
+data class OpAtDto(
+    @SerialName("line_id") val lineId: String,
+    val offset: Int,
+    val mode: String,
+)
+
+/** The `Region` schema: an image op's region PNG part. */
+@Serializable
+data class RegionDto(
+    val id: String,
+    val part: String,
+    @SerialName("after_line") val afterLine: String? = null,
+)
+
+/** The `EditOp` schema; [kind] is `replace`, `delete`, `insert` or `image`. */
+@Serializable
+data class EditOpDto(
+    val id: String,
+    val kind: String,
+    val target: OpTargetDto? = null,
+    val at: OpAtDto? = null,
+    val strokes: List<Int> = emptyList(),
+    val rect: List<Float>? = null,
+    val region: RegionDto? = null,
+)
+
+/** The `PageLayout` schema: the `layout.<i>.json` part of a notebook page. */
+@Serializable
+data class PageLayoutDto(
+    val version: Int = 1,
+    val geometry: GeometryDto,
+    val segments: List<SegmentDto> = emptyList(),
+    val runs: List<VisibleRunDto> = emptyList(),
+    val ops: List<EditOpDto> = emptyList(),
+)
+
+/** The `SpecLine` schema: one markdown source line (1-based) and its stable id. */
+@Serializable
+data class SpecLineDto(
+    @SerialName("line_id") val lineId: String,
+    @SerialName("source_line") val sourceLine: Int,
+    /** `{"segments": [...]}`, `{"kept": "L12"}`, `{"op": "uuid"}` or null. */
+    val origin: JsonObject? = null,
+)
+
+/** The `OpStatus` schema; [status] is `applied` or `rejected`. */
+@Serializable
+data class OpStatusDto(
+    val id: String,
+    val status: String,
+    val note: String? = null,
+)
+
+/** The `SpecLayout` schema. */
+@Serializable
+data class SpecLayoutDto(
+    val lines: List<SpecLineDto>,
+    val ops: List<OpStatusDto> = emptyList(),
+    @SerialName("base_version") val baseVersion: Int? = null,
+    @SerialName("reverted_from") val revertedFrom: Int? = null,
+)
+
+/** The `RevertIn` schema: the latest spec version the app shows. */
+@Serializable
+data class RevertIn(
+    @SerialName("base_version") val baseVersion: Int,
+)
+
+/** 201 body of `POST /conversations/{id}/spec/{version}/revert`. */
+@Serializable
+data class RevertResult(
+    val version: Int,
+    @SerialName("reverted_from") val revertedFrom: Int,
 )
 
 /** The `Feedback` schema: something the translator tells the user, kept apart from the document. */
