@@ -8,9 +8,9 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
-import io.github.szymonrychu.booxsketch.model.notebook.RunPlacer
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
+import io.github.szymonrychu.booxsketch.model.notebook.WordBoxes
 
 /**
  * The page-sized text bitmap of a notebook page (spec 6, Q5 A): every [TextRun] in sans serif, 40 px at scale 1,
@@ -63,19 +63,7 @@ class TextLayer(
         paint: Paint,
     ) {
         paint.textSize = TEXT_SIZE * run.scale
-        val rows =
-            if (run.wrapRows <= 1) {
-                listOf(run.display.indices)
-            } else {
-                // The column the placement wrapped in (a neighbour on the row may have narrowed it), so the rows match.
-                val column = if (run.column > 0f) run.column else geometry.marginX - run.x0
-                val parts = RunPlacer.wrap(run.display, run.scale, column, measure)
-                if (parts.size <= run.wrapRows) {
-                    parts
-                } else {
-                    parts.take(run.wrapRows - 1) + listOf(parts[run.wrapRows - 1].first until run.display.length)
-                }
-            }
+        val rows = WordBoxes.rows(run, geometry, measure)
         rows.forEachIndexed { k, range ->
             val baseline = (geometry.rowLineY(run.row + k) - BASELINE_ABOVE_LINE).toFloat()
             drawSpans(canvas, run, range, run.x0, baseline, paint)
