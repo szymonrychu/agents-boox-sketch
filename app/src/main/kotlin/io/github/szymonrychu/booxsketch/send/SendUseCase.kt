@@ -22,9 +22,13 @@ import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.SendSelection
 import io.github.szymonrychu.booxsketch.model.StrokesCodec
+import io.github.szymonrychu.booxsketch.model.notebook.AnnotationClassifier
 import io.github.szymonrychu.booxsketch.model.notebook.LayoutCodec
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.Segmenter
+import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
+import io.github.szymonrychu.booxsketch.model.notebook.ToolInsertMarks
 import io.github.szymonrychu.booxsketch.model.selectPagesForSend
 import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.render.ExportResult
@@ -72,6 +76,9 @@ sealed interface SendOutcome {
 
     /** The draft of this version was sent already (a repeated tap). */
     data object AlreadySent : SendOutcome
+
+    /** Edit ops need the spec version they edit, and the conversation has none stored: nothing was written. */
+    data object NoBaseVersion : SendOutcome
 }
 
 /** What a send needs from the board: the notebook and marking pages sent. */
@@ -81,8 +88,11 @@ interface SendBoard {
     /** Marks the sent pages, unless they changed since [sent] was taken. */
     suspend fun markSent(sent: Map<Int, Page>)
 
-    /** Records the segments just sent per page index: they wait for a spec version (the grey tick). */
-    suspend fun addPending(pending: Map<Int, List<PendingSegment>>)
+    /** Records the segments and edit ops just sent per page index: they wait for a spec version (the grey tick). */
+    suspend fun addPending(
+        pending: Map<Int, List<PendingSegment>>,
+        ops: Map<Int, List<PendingOp>>,
+    )
 }
 
 /** Status of a thread item, kept in step with its outbox item. */
@@ -120,6 +130,12 @@ class SendUseCase(
      * the visible ink, no grid) through [exportPage], so the PNG matches the page px of its layout; else [export].
      */
     private val boardPage: ((Page) -> Bitmap)? = null,
+    /**
+     * The text layer's measure: with it, the handwriting over text runs becomes edit ops (spec 4.3) before the rest is
+     * segmented; without it (tests of plain pages) nothing is classified.
+     */
+    private val measure: TextMeasure? = null,
+    private val classifier: AnnotationClassifier = AnnotationClassifier(listOf(ToolInsertMarks)),
 ) {
     private val mutex = Mutex()
 
@@ -145,9 +161,7 @@ class SendUseCase(
                     is Prepared.Failed -> return@withLock r.outcome
                     is Prepared.Parts -> r.parts
                 }
-            if (parts.isEmpty()) return@withLock SendOutcome.NothingToSend
-            val total = parts.sumOf { it.png.size.toLong() + (it.strokes?.size ?: 0) + (it.layout?.size ?: 0) }
-            if (total > cfg.maxUploadBytes) return@withLock SendOutcome.TooLarge(total, cfg.maxUploadBytes.toLong())
+            refusal(parts, base, cfg)?.let { return@withLock it }
 
             val conversation = conversations.current()
             enqueue(
@@ -168,10 +182,24 @@ class SendUseCase(
             conversations.titleFromCaption(conversation.localId, caption)
             board.markSent(indices.associateWith { notebook.pages[it] })
             val pending = parts.filter { it.pending.isNotEmpty() }.associate { it.index to it.pending }
-            if (pending.isNotEmpty()) board.addPending(pending)
+            val ops = parts.filter { it.ops.isNotEmpty() }.associate { it.index to it.ops }
+            if (pending.isNotEmpty() || ops.isNotEmpty()) board.addPending(pending, ops)
             kick()
             SendOutcome.Queued(clientId)
         }
+
+    /** Why the exported board [parts] cannot be sent, or null when they can. */
+    private fun refusal(
+        parts: List<PagePart>,
+        base: Base?,
+        cfg: ConfigDto,
+    ): SendOutcome? {
+        if (parts.isEmpty()) return SendOutcome.NothingToSend
+        // Ops edit the base version: runs are limited to its lines, so ops without one cannot occur.
+        if (base == null && parts.any { it.ops.isNotEmpty() }) return SendOutcome.NoBaseVersion
+        val total = parts.sumOf { it.png.size.toLong() + (it.strokes?.size ?: 0) + (it.layout?.size ?: 0) }
+        return if (total > cfg.maxUploadBytes) SendOutcome.TooLarge(total, cfg.maxUploadBytes.toLong()) else null
+    }
 
     /**
      * Sends the handwritten notes of a document draft: only the pages with ink, as full-page PNGs (frozen page plus ink)
@@ -256,7 +284,7 @@ class SendUseCase(
                     val kept = strokes.takeIf { it.size <= cfg.maxStrokesBytes }
                     // The layout's stroke indices point into the strokes part: no strokes part, no layout.
                     val notebookPart = kept?.let { withContext(worker) { notebookLayout(clientId, page, geometry, parts.size, baseLines) } }
-                    parts += PagePart(i, r.png, kept, notebookPart?.first, notebookPart?.second.orEmpty())
+                    parts += PagePart(i, r.png, kept, notebookPart?.bytes, notebookPart?.segments.orEmpty(), notebookPart?.ops.orEmpty())
                 }
             }
         }
@@ -425,10 +453,11 @@ class SendUseCase(
     }
 
     /**
-     * The `layout.<part>.json` of a notebook page and the segments it sends, or null for a page with neither new
-     * handwriting rows nor text runs (plain drawing needs no layout). Segment ids carry the upload part index. Only
-     * runs whose line id is in [baseLines] are sent: the connector rejects (422) any run line id the base version's
-     * layout does not have.
+     * The `layout.<part>.json` of a notebook page with the segments and edit ops it sends, or null for a page with
+     * neither new handwriting rows nor text runs (plain drawing needs no layout). Only runs whose line id is in
+     * [baseLines] are sent and annotated: the connector rejects (422) any run or op line id the base version's layout
+     * does not have. The handwriting over those runs is classified first ([AnnotationClassifier]); its strokes are in
+     * no segment. Segment ids carry the upload part index.
      */
     private fun notebookLayout(
         clientId: String,
@@ -436,15 +465,24 @@ class SendUseCase(
         geometry: NotebookGeometry,
         part: Int,
         baseLines: Set<String>,
-    ): Pair<ByteArray, List<PendingSegment>>? {
+    ): NotebookPart? {
+        val runs = page.text.filter { it.lineId in baseLines }
+        val shown = page.copy(text = runs)
+        val classified = measure?.let { classifier.classify(shown, geometry, it, newId) }
         val segments =
-            Segmenter.segment(page, geometry, part).segments.map {
+            Segmenter.segment(page, geometry, part, exclude = classified?.opStrokeIds.orEmpty()).segments.map {
                 PendingSegment(clientId, it.id, it.row, it.x0, it.x1, it.strokeIds)
             }
-        val runs = page.text.filter { it.lineId in baseLines }
+        val ops = classified?.ops.orEmpty()
         if (segments.isEmpty() && runs.isEmpty()) return null
-        return LayoutCodec.encode(page.copy(text = runs), geometry, segments, emptyList()) to segments
+        return NotebookPart(LayoutCodec.encode(shown, geometry, segments, ops), segments, ops.map { PendingOp(clientId, it) })
     }
+
+    private class NotebookPart(
+        val bytes: ByteArray,
+        val segments: List<PendingSegment>,
+        val ops: List<PendingOp>,
+    )
 
     /**
      * `base_version`: the conversation's latest stored spec version, with the line ids of its layout (none when it has
@@ -477,6 +515,7 @@ class SendUseCase(
         val strokes: ByteArray?,
         val layout: ByteArray? = null,
         val pending: List<PendingSegment> = emptyList(),
+        val ops: List<PendingOp> = emptyList(),
     )
 }
 

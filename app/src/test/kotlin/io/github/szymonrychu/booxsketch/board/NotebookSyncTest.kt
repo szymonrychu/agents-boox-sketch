@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.data.AppDatabase
+import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
@@ -16,9 +17,16 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.EditOp
+import io.github.szymonrychu.booxsketch.model.notebook.OpKind
+import io.github.szymonrychu.booxsketch.model.notebook.OpTarget
+import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
+import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.testing.FreezingInput
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -226,5 +234,105 @@ class NotebookSyncTest {
             // The versions were read for conversation A, but the board switched to B before the placement.
             NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "A", 1)
             assertThat(vm.notebook.value).isEqualTo(before)
+        }
+
+    private val milk =
+        SourceMap.stripWithColours("buy fresh milk").let {
+            TextRun("L1", 1, 1, 4, 53f, display = it.display, colourSpans = it.spans, sourceMap = it.map, sourceStrokeIds = emptyList())
+        }
+
+    private val strike =
+        Stroke("s", Tool.BALLPOINT, 3f, (0..20).map { Point(60f + it * 15f, g.textBandTop(4) + 30f, 0.5f, it * 10L) })
+
+    private val delete = EditOp("op-1", OpKind.DELETE, OpTarget("L1", 4, 14, "fresh milk"), strokeIds = listOf("s"))
+
+    /** A board showing v1 ("buy fresh milk" on row 4) with a strike sent as op-1 in upload c1. */
+    private fun TestScope.struckBoard(): BoardViewModel {
+        val store = NotebookStore(File(tmp.root, "struck.json"))
+        val page = Page(listOf(strike), false, text = listOf(milk), pendingOps = listOf(PendingOp("c1", delete)))
+        store.save(Notebook(canvas, listOf(page), 0, appliedSpecVersion = 1))
+        return BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
+    }
+
+    @Test
+    fun stale_base_keeps_marks_and_renders_latest() =
+        runTest {
+            val vm = struckBoard()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime }).also { it.input = FreezingInput() }
+            val surface = RecordingSurface(FreezingInput()).also { holds.surface = it }
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            // 409 stale_base: the outbox fails the item, the board drops what it sent, the conversations refresh.
+            vm.dropFailedUpload("c1", "local")
+            val lines = """{"line_id":"L1","source_line":1,"origin":{"kept":"L1"}},{"line_id":"L2","source_line":2,"origin":null}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy fresh milk\neggs", "2026-11-07T00:00:00Z", "[]", """{"lines":[$lines]}"""))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "local", 2)
+            val page = vm.notebook.value.pages[0]
+            // The latest version is on the board ...
+            assertThat(page.text.map { it.lineId }).containsExactly("L1", "L2")
+            assertThat(vm.notebook.value.appliedSpecVersion).isEqualTo(2)
+            assertThat(surface.swaps).hasSize(1)
+            // ... and the strike is still there for the user to check and send again, its preview included.
+            assertThat(page.pendingOps).isEmpty()
+            assertThat(page.visibleStrokes.map { it.id }).containsExactly("s")
+            assertThat(page.changedSinceSend).isTrue()
+            assertThat(vm.overlayFor(vm.notebook.value)).hasSize(1)
+        }
+
+    @Test
+    fun applied_delete_consumes_the_strike_and_clears_its_preview() =
+        runTest {
+            val vm = struckBoard()
+            vm.setStrikeOverlay(0, vm.strikeRects(vm.notebook.value))
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            val layout =
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":{"kept":"L1","op":"op-1"}}],""" +
+                    """"ops":[{"id":"op-1","status":"applied"}]}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy", "2026-11-07T00:00:00Z", "[]", layout))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher).onVersion("srv", "local", 2)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.text.single().display).isEqualTo("buy")
+            assertThat(page.consumed).containsExactly("s")
+            assertThat(vm.overlayFor(vm.notebook.value)).isEmpty()
+        }
+
+    @Test
+    fun rejected_op_keeps_ink_and_its_note_goes_to_the_feedback_strip() =
+        runTest {
+            val vm = struckBoard()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            db.feedbackDao().upsert(FeedbackEntity("srv", 1, "note", "older", null, 1, "2026-11-07T09:00:00Z"))
+            val layout =
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":{"kept":"L1"}}],""" +
+                    """"ops":[{"id":"op-1","status":"rejected","note":"the words differ"}]}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy fresh milk", "2026-11-07T00:00:00Z", "[]", layout))
+            NotebookSync(
+                db.specDao(),
+                vm,
+                holds,
+                main = dispatcher,
+                worker = dispatcher,
+                feedback = db.feedbackDao(),
+                now = { "2026-11-07T10:00:00Z" },
+            ).onVersion("srv", "local", 2)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.pendingOps).isEmpty()
+            assertThat(page.visibleStrokes.map { it.id }).containsExactly("s")
+            val latest =
+                db
+                    .feedbackDao()
+                    .observe("srv")
+                    .first()
+                    .first()
+            assertThat(latest.id).isLessThan(0)
+            assertThat(latest.text).isEqualTo("Edit not applied (delete \"fresh milk\"): the words differ")
+            assertThat(latest.whereText).isEqualTo("page 1")
+            assertThat(latest.specVersion).isEqualTo(2)
+            // The connector cursor ignores the local note.
+            assertThat(db.feedbackDao().maxId("srv")).isEqualTo(1)
         }
 }

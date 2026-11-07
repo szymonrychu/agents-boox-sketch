@@ -11,6 +11,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.model.notebook.WordBoxes
+import io.github.szymonrychu.booxsketch.model.RectF as ModelRect
 
 /**
  * The page-sized text bitmap of a notebook page (spec 6, Q5 A): every [TextRun] in sans serif, 40 px at scale 1,
@@ -145,9 +146,10 @@ class TextLayer(
 
 /**
  * The text bitmap of the selected page only (spec 6: one page-sized bitmap is 10.5 MB). [bitmapFor] returns the
- * cached bitmap while the page's text and pending rows are unchanged, else renders a new one; a page with neither has
- * none. A change always yields a new instance (never drawn into the shown one), because the board redraws on a new
- * instance and must never show a half-drawn layer. [prerender] does the same off the main thread ahead of a swap.
+ * cached bitmap while the page's text, pending rows and strike overlay are unchanged, else renders a new one; a page
+ * with no text and no pending rows has none. A change always yields a new instance (never drawn into the shown one),
+ * because the board redraws on a new instance and must never show a half-drawn layer. [prerender] does the same off
+ * the main thread ahead of a swap.
  */
 class TextLayerCache(
     val layer: TextLayer,
@@ -155,19 +157,33 @@ class TextLayerCache(
     private var key: Any? = null
     private var bitmap: Bitmap? = null
 
+    /** [overlay]: the strike preview rects (page px) drawn in grey over the text. */
     @Synchronized
-    fun bitmapFor(page: Page): Bitmap? {
-        val k = keyOf(page) ?: return null
+    fun bitmapFor(
+        page: Page,
+        overlay: List<ModelRect> = emptyList(),
+    ): Bitmap? {
+        val k = keyOf(page, overlay) ?: return null
         if (k == key) return bitmap
-        val b = layer.render(page, null)
+        val b = layer.render(page, null, overlay.map { RectF(it.l, it.t, it.r, it.b) })
         key = k
         bitmap = b
         return b
     }
 
     /** Renders [page]'s layer now (any thread) so a later [bitmapFor] of the same page returns it at once. */
-    fun prerender(page: Page): Bitmap? = bitmapFor(page)
+    fun prerender(
+        page: Page,
+        overlay: List<ModelRect> = emptyList(),
+    ): Bitmap? = bitmapFor(page, overlay)
 
-    private fun keyOf(page: Page): Any? =
-        if (page.text.isEmpty() && page.pendingSegments.isEmpty()) null else page.text to page.pendingSegments.map { it.row }.toSet()
+    private fun keyOf(
+        page: Page,
+        overlay: List<ModelRect>,
+    ): Any? =
+        if (page.text.isEmpty() && page.pendingSegments.isEmpty()) {
+            null
+        } else {
+            Triple(page.text, page.pendingSegments.map { it.row }.toSet(), overlay)
+        }
 }
