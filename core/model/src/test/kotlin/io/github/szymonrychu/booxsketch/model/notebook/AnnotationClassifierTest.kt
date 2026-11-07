@@ -98,6 +98,35 @@ class AnnotationClassifierTest {
     }
 
     @Test
+    fun inline_insert_after_a_marked_up_word_lands_after_its_closing_markup() {
+        val r =
+            classify(
+                page(
+                    listOf(run("L1", 4, "**buy** milk")),
+                    rect("R", 1000f, 400f, 1300f, 500f),
+                    word("n1", 1050f, 1200f, 450f),
+                    arrow("A", 1000f, 450f, 120f, textY(4)),
+                ),
+            )
+        assertThat(r.ops.single().at).isEqualTo(OpAt("L1", 7, AtMode.INLINE))
+    }
+
+    @Test
+    fun after_line_with_two_runs_on_one_row_picks_the_line_start() {
+        val runs = listOf(run("L2", 4, "milk", x0 = 500f, sourceLine = 2), run("L1", 4, "buy"))
+        val r =
+            classify(
+                page(
+                    runs,
+                    rect("R", 1000f, 400f, 1300f, 500f),
+                    word("n1", 1050f, 1200f, 450f),
+                    arrow("A", 1000f, 450f, 100f, annotationY(6)),
+                ),
+            )
+        assertThat(r.ops.single().at).isEqualTo(OpAt("L1", "buy".length, AtMode.AFTER_LINE))
+    }
+
+    @Test
     fun arrow_tip_below_the_last_text_is_after_that_line() {
         val r =
             classify(
