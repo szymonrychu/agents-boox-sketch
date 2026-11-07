@@ -6,6 +6,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.centreY
+import io.github.szymonrychu.booxsketch.model.shiftCentres
 import io.github.szymonrychu.booxsketch.model.shiftStrokes
 import kotlin.math.floor
 
@@ -29,8 +30,9 @@ data class Placement(
  * down to [MIN_SCALE], else wrapped at word boundaries at [MIN_SCALE]. A column narrower than [MIN_COLUMN_CELLS] cells
  * is widened to that, moving x0 left when the margin is closer. Rows a line needs that hold other runs, ink or pending
  * segments move down by whole rows with everything below them; the ink moves through [UndoStack.shiftRows], which is
- * not an undo step and keeps the history aligned. Rows pushed past the last row move to a new page inserted right
- * after (OQ4 A); a later overflow of the same page goes above the earlier one there.
+ * not an undo step and keeps the history aligned. An image region and its ink move (or overflow) as one unit. Rows
+ * pushed past the last row move to a new page inserted right after (OQ4 A); a later overflow of the same page goes
+ * above the earlier one there.
  */
 object RunPlacer {
     const val MIN_SCALE = 0.85f
@@ -512,7 +514,8 @@ object RunPlacer {
                     cut = straddling
                 }
                 val runs = p.text.filter { it.row >= cut }
-                val strokes = p.strokes.filter { it.points.isNotEmpty() && rowOf(centreY(it)) >= cut }
+                val centres = shiftCentres(p.strokes)
+                val strokes = p.strokes.filter { it.points.isNotEmpty() && rowOf(centres.getValue(it.id)) >= cut }
                 val segments = p.pendingSegments.filter { it.row >= cut }
                 if (runs.isEmpty() && strokes.isEmpty() && segments.isEmpty()) return
                 val ids = strokes.map { it.id }.toSet()

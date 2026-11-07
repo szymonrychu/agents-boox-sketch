@@ -28,8 +28,11 @@ Lessons that outlive a session. Newest first.
   The eraser hits `visibleStrokes` only (2026-11-07 review fix): applied frames and consumed strokes cannot be erased
   from the board, so an applied region keeps its ink excluded from segments; ink inside it stays erasable. The export
   text layer (`TextLayer.renderForExport`) has no pending ticks and no region frames, so crops and page PNGs are clean.
-  Known limit: a row shift moves a region frame and its ink by each stroke's own centre, so a shift line inside a region
-  can split them (not fixed: it needs a region-aware shift through the undo history).
+  A row shift (and an overflow move) treats a region and its members (bbox centre inside the rect) as one unit,
+  decided by the region's own centre (`shiftCentres`, 2026-11-07 review fix): a shift line inside a region no longer
+  splits frame from ink. `UndoStack.shiftRows` decides each stroke id once (page first, then the history entries) and
+  applies that decision to the page and every entry, so undo/redo restore exact positions even when the step that drew
+  the region is undone.
 - Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
   (region images never change), removed with the conversation (delete and server-side removal). Only PNG bodies (signature checked) are kept, written through a unique temp file. Unpair deletes all of it and
   the share zips. Ids are checked
