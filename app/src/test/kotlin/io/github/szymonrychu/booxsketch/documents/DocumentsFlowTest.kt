@@ -87,6 +87,13 @@ class DocumentsFlowTest {
                             MockResponse().setResponseCode(204)
                         }
 
+                        path.contains("/images/") -> {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .setHeader("Content-Type", "image/png")
+                                .setBody(okio.Buffer().write(byteArrayOf(-119, 80, 78, 71)))
+                        }
+
                         path.endsWith("/sketches") -> {
                             uploads += request
                             json(202, """{"sketch_id":"sk-1","conversation_id":"srv-1","status":"queued"}""")
@@ -249,6 +256,34 @@ class DocumentsFlowTest {
             val sync = SpecSync(db, { client }, { mapOf("srv-9" to 2) })
             assertThat(sync.sync()).isEqualTo(0)
             assertThat(db.specDao().versions("srv-9")).isEmpty()
+        }
+
+    @Test
+    fun share_with_images_shares_zip() =
+        runBlocking<Unit> {
+            val region = "0b7f6a1e-2c3d-4e5f-8a9b-0c1d2e3f4a5b"
+            specMarkdown = "# Title\n\n![image](images/$region.png)\n"
+            repo.refresh()
+            val row = rows { it.isNotEmpty() }.single()
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val images = SpecImageCache(tmp.newFolder("spec-images")) { client }
+            val markdown = viewModel(row).let { vm -> withTimeout(10_000) { vm.state.first { it.loaded } }.let { vm.markdown()!! } }
+            val intent = ShareBundle.intent(context, 1, markdown) { images.get(row.serverId, it) }
+            assertThat(intent.action).isEqualTo(android.content.Intent.ACTION_SEND)
+            assertThat(intent.type).isEqualTo("application/zip")
+            assertThat(intent.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION).isNotEqualTo(0)
+            @Suppress("DEPRECATION")
+            val uri = intent.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)!!
+            assertThat(uri.authority).isEqualTo("${context.packageName}.share")
+            val names =
+                java.util.zip.ZipInputStream(context.contentResolver.openInputStream(uri)!!).use { zip ->
+                    generateSequence { zip.nextEntry }.map { it.name }.toList()
+                }
+            assertThat(names).containsExactly("spec-v1.md", "images/$region.png")
+            // Without images the share stays the text share.
+            val text = ShareBundle.intent(context, 1, "# Title\n") { null }
+            assertThat(text.type).isEqualTo("text/markdown")
+            assertThat(text.getStringExtra(android.content.Intent.EXTRA_TEXT)).isEqualTo("# Title\n")
         }
 }
 

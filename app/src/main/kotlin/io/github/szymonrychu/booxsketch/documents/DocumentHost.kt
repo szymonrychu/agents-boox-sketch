@@ -57,8 +57,13 @@ fun DocumentHost(
         onShare = {
             scope.launch {
                 val markdown = vm.markdown() ?: return@launch
-                val send = Intent(Intent.ACTION_SEND).setType("text/markdown").putExtra(Intent.EXTRA_TEXT, markdown)
-                context.startActivity(Intent.createChooser(send, "Share spec").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                // With region images: a zip of the markdown and its images (Q10 B); else the markdown as text.
+                val send = ShareBundle.intent(context, state.version, markdown) { container.specImages.get(row.serverId, it) }
+                context.startActivity(
+                    Intent
+                        .createChooser(send, "Share spec")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                )
             }
         },
         onSources = { showSources = true },
