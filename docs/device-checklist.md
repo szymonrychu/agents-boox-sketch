@@ -325,3 +325,23 @@ Needs connector 2.1.0 and the notebook preset. Note Air 6C, portrait and landsca
       latest version, and Send sends the same ink again.
 - [ ] Record the text layer render time of a full page from the log next to the Robolectric
       number in MEMORY.md (target under 50 ms).
+
+## Image regions, inline images, share bundle (0.18.0, T-46 P6)
+
+- [ ] Shape popup (rectangle or arrow button): three shapes in a row; pick the image region (dashed
+      rectangle with a mountain); the box button of the strip now shows that icon and is selected.
+- [ ] Drag an image region around a drawing: it is drawn dashed in dark grey even with red picked.
+- [ ] Write a line of text next to it and Send: the text becomes a text row; the drawing inside the
+      region stays ink (never transcribed); once the version arrives the dashed frame turns into a
+      thin solid frame with a small "image" label, in the same refresh as the text.
+- [ ] Documents: the version shows the region as a picture scaled to the column width at its place
+      in the text; reopen it offline later: it still shows (cached).
+- [ ] Draw five image regions on one page and Send: "Not sent: page N has more than 4 new image
+      regions"; erase one and Send again: it goes.
+- [ ] On a brand new conversation (no spec yet) draw a region and Send: the drawing is not
+      transcribed (sent as drawing ink); the frame stays dashed.
+- [ ] Share .md of a version with an image: the chooser offers a zip; save it to a file manager and
+      check spec-vN.md plus images/<id>.png open; a version without images still shares as text.
+- [ ] Hand-off a version with an image: the target session receives the image attachments with the
+      message.
+- [ ] Delete the conversation: files/spec-images/<conversation> is gone (Diagnostics or adb).

@@ -2,6 +2,37 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-07 Image regions, inline images, share bundle (T-46 P6, Tasks 6.1-6.6, v0.18.0)
+
+- Tool: `Tool.IMAGE_REGION` ("image_region" in strokes.json) is a box shape like the rectangle (`Tool.isBox`). The
+  strip has separate rectangle and arrow buttons (no shape picker existed), so the shape popup gained a row of the
+  three shapes above the colour grid and the strip's box button stands for rectangle or image region, showing the
+  one in use. Pending regions are dashed dark grey (0xFF555555) whatever the pen colour.
+- Region members: visible strokes whose bbox centre lies in the region rect, the region stroke included
+  (`ImageRegions`). They are the image op's `strokes` and never segmented, also after the op was applied.
+- Send: one image op per region no pending op carries; `region.<part>.<k>.png` crops the text layer and visible ink
+  inside the rect (no grid, no region frames) at canvas resolution, 0.85x shrink under `max_png_bytes`, floor 16 px.
+  `after_line` is the base-version run ending nearest above the rect top. The cap of 4 new regions per page is a
+  client constant (`SendUseCase.MAX_REGIONS_PER_PAGE`, the connector default) until `/config` exposes it.
+- Why no op without a stored spec version: the connector requires `base_version` for any op (422), and a first send
+  has none. Then the region and its ink go as plain drawing ink (still not segmented) and the frame stays dashed;
+  it is sent as an op on a later Send once a version exists and the page changed.
+- Applied state: `Page.appliedRegions`. Applied frames leave `visibleStrokes` (not drawn by the stroke renderer, not
+  in strokes.json, not erasable) and the text layer draws them as a 2 px solid frame with a 20 px "image" label.
+  Done there (not in `CanvasStrokeRenderer`, as the plan said) so the swap rides the text layer's pen-idle hold and
+  the renderer interface stays per-stroke. Rejected image ops leave the region pending again. Image-only markdown
+  lines are not placed as text runs. A revert keeps `appliedRegions` (known limit: a revert that drops the image line
+  still shows the solid frame).
+- Spec images: `SpecImageCache` keeps `files/spec-images/<conversation server id>/<region id>.png`, written once
+  (region images never change), removed with the conversation (delete and server-side removal). Ids are checked
+  against `[A-Za-z0-9-]+` before any path is built. Documents prefetches a version's images before paginating; a
+  freeze made while offline keeps the `[image]` text for that version (frozen pages are reused).
+- Share bundle: `cache/share/spec-v<N>.zip` through FileProvider `<applicationId>.share` (`res/xml/file_paths.xml`),
+  `spec-v<N>.md` unchanged, `images/<id>.png`, `MISSING.txt` for images not available.
+- Test changed: `StrokeTest.shape_tools_are_shapes_and_pens_are_not` expected exactly rectangle and arrow as shapes;
+  the image region is a third shape. Golden `board_tool_icons.png` re-recorded for the new glyph; new goldens
+  `region_frame_pending`, `region_frame_applied`, `document_with_inline_image`.
+
 ## 2026-11-07 P4 review fixes (T-46)
 
 - `base_version` (connector 2.1.0 `_check_base`): it must be the latest stored version, and EVERY run line id must
