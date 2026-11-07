@@ -46,4 +46,11 @@ fun interface TextMeasure {
         text: String,
         scale: Float,
     ): Float
+
+    /** Width as drawn bold (headings); measures that cannot tell bold apart use the regular width. */
+    fun width(
+        text: String,
+        scale: Float,
+        bold: Boolean,
+    ): Float = width(text, scale)
 }

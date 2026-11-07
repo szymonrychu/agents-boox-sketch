@@ -47,6 +47,20 @@ class WordBoxesTest {
     }
 
     @Test
+    fun heading_boxes_use_the_bold_width() {
+        val bold =
+            object : TextMeasure {
+                override fun width(text: String, scale: Float) = text.length * 20f * scale
+
+                override fun width(text: String, scale: Float, bold: Boolean) = text.length * (if (bold) 30f else 20f) * scale
+            }
+        val heading = run("buy milk").copy(heading = true)
+        assertThat(WordBoxes.of(heading, g, bold))
+            .containsExactly(WordBox(0, 3, 53f, 143f, 3), WordBox(4, 8, 173f, 293f, 3))
+            .inOrder()
+    }
+
+    @Test
     fun wrapped_run_boxes_on_second_row() {
         val boxes = WordBoxes.of(run("alpha beta gamma delta", row = 5, wrapRows = 2, column = 240f), g, measure)
         assertThat(boxes.map { it.row }).containsExactly(5, 5, 6, 6).inOrder()

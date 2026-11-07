@@ -23,13 +23,25 @@ import io.github.szymonrychu.booxsketch.model.RectF as ModelRect
 class TextLayer(
     private val geometry: NotebookGeometry,
 ) {
-    private val measurePaint = textPaint(bold = false)
+    private val measurePaints = mapOf(false to textPaint(bold = false), true to textPaint(bold = true))
 
     val measure: TextMeasure =
-        TextMeasure { text, scale ->
-            synchronized(measurePaint) {
-                measurePaint.textSize = TEXT_SIZE * scale
-                measurePaint.measureText(text)
+        object : TextMeasure {
+            override fun width(
+                text: String,
+                scale: Float,
+            ): Float = width(text, scale, bold = false)
+
+            override fun width(
+                text: String,
+                scale: Float,
+                bold: Boolean,
+            ): Float {
+                val paint = measurePaints.getValue(bold)
+                return synchronized(paint) {
+                    paint.textSize = TEXT_SIZE * scale
+                    paint.measureText(text)
+                }
             }
         }
 
