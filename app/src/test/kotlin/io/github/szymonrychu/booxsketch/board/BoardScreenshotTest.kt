@@ -189,4 +189,50 @@ class BoardScreenshotTest {
         }
         compose.onRoot().captureRoboImage("src/test/screenshots/pending_strike_overlay.png")
     }
+
+    /** A notebook page with a text run and an image region around a drawing; [applied] once a version used it. */
+    private fun captureRegionPage(
+        name: String,
+        applied: Boolean,
+    ) {
+        val g = NotebookGeometry(1404, 1872)
+        val s = SourceMap.stripWithColours("A sketch of the house:")
+        val run = TextRun("L1", 2, 1, 1, 53f, display = s.display, colourSpans = s.spans, sourceMap = s.map, sourceStrokeIds = emptyList())
+        val region =
+            Stroke(
+                "r",
+                Tool.IMAGE_REGION,
+                BoardViewModel.SHAPE_WIDTH,
+                listOf(Point(150f, g.rowTop(3).toFloat(), 1f, 0L), Point(900f, g.rowTop(9).toFloat(), 1f, 1L)),
+            )
+        val house =
+            Stroke(
+                "h",
+                Tool.BALLPOINT,
+                6f,
+                listOf(300f to 850f, 300f to 550f, 525f to 400f, 750f to 550f, 750f to 850f, 300f to 850f).mapIndexed { i, (x, y) ->
+                    Point(x, y, 0.8f, i * 10L)
+                },
+            )
+        val page =
+            Page(
+                listOf(region, house),
+                false,
+                text = listOf(run),
+                appliedRegions = if (applied) setOf("r") else emptySet(),
+            )
+        val layer = TextLayer(g).render(page, null)
+        compose.setContent {
+            MaterialTheme {
+                BoardPreviewCanvas(Canvas(1404, 1872, 300f), page, Modifier.fillMaxSize(), textLayer = layer)
+            }
+        }
+        compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
+    }
+
+    @Test
+    fun region_frame_pending() = captureRegionPage("region_frame_pending", applied = false)
+
+    @Test
+    fun region_frame_applied() = captureRegionPage("region_frame_applied", applied = true)
 }

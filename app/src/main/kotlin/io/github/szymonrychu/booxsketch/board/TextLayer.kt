@@ -11,14 +11,16 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.model.notebook.WordBoxes
+import io.github.szymonrychu.booxsketch.model.rectOf
 import io.github.szymonrychu.booxsketch.model.RectF as ModelRect
 
 /**
  * The page-sized text bitmap of a notebook page (spec 6, Q5 A): every [TextRun] in sans serif, 40 px at scale 1,
  * black with its colour spans in their pen colour, headings bold, the baseline 11 px above the row line; a grey tick
  * at the start of each row with pending segments (spec 3.3.6); [render]'s overlay rects in 50 percent grey (the P5
- * strike preview). The background is transparent: the board draws it over the grid and under the ink, the export
- * over white. [measure] uses the same paint settings, so the placement fits what is drawn.
+ * strike preview); a thin solid dark grey frame with a small "image" label for every applied image region (spec
+ * 3.6). The background is transparent: the board draws it over the grid and under the ink, the export over white.
+ * [measure] uses the same paint settings, so the placement fits what is drawn.
  */
 class TextLayer(
     private val geometry: NotebookGeometry,
@@ -67,7 +69,30 @@ class TextLayer(
             .map { it.row }
             .distinct()
             .forEach { drawTick(canvas, it, tick) }
+        appliedRegionRects(page).forEach { drawRegionFrame(canvas, it) }
         return bitmap
+    }
+
+    private fun drawRegionFrame(
+        canvas: Canvas,
+        r: ModelRect,
+    ) {
+        val frame =
+            Paint().apply {
+                isAntiAlias = true
+                color = REGION_GREY
+                style = Paint.Style.STROKE
+                strokeWidth = REGION_FRAME
+            }
+        canvas.drawRect(r.l, r.t, r.r, r.b, frame)
+        val label =
+            Paint().apply {
+                isAntiAlias = true
+                color = REGION_GREY
+                textSize = REGION_LABEL_SIZE
+                typeface = Typeface.SANS_SERIF
+            }
+        canvas.drawText(REGION_LABEL, r.l + REGION_LABEL_INSET, r.t + REGION_LABEL_INSET + REGION_LABEL_SIZE, label)
     }
 
     private fun drawRun(
@@ -153,15 +178,30 @@ class TextLayer(
 
         /** 50 percent grey: the strike preview over text. */
         const val OVERLAY_GREY = 0x80808080.toInt()
+
+        /** An applied image region: a [REGION_FRAME] px solid frame and a [REGION_LABEL_SIZE] px label, dark grey. */
+        const val REGION_GREY = 0xFF555555.toInt()
+        const val REGION_FRAME = 2f
+        const val REGION_LABEL = "image"
+        const val REGION_LABEL_SIZE = 20f
+        const val REGION_LABEL_INSET = 6f
     }
 }
 
+/** Rects of the applied image regions of [page] (their strokes may have moved with a row shift). */
+internal fun appliedRegionRects(page: Page): List<ModelRect> =
+    if (page.appliedRegions.isEmpty()) {
+        emptyList()
+    } else {
+        page.strokes.filter { it.id in page.appliedRegions && it.points.size >= 2 }.map(::rectOf)
+    }
+
 /**
  * The text bitmap of the selected page only (spec 6: one page-sized bitmap is 10.5 MB). [bitmapFor] returns the
- * cached bitmap while the page's text, pending rows and strike overlay are unchanged, else renders a new one; a page
- * with no text and no pending rows has none. A change always yields a new instance (never drawn into the shown one),
- * because the board redraws on a new instance and must never show a half-drawn layer. [prerender] does the same off
- * the main thread ahead of a swap.
+ * cached bitmap while the page's text, pending rows, applied region frames and strike overlay are unchanged, else
+ * renders a new one; a page with none of them has none. A change always yields a new instance (never drawn into the
+ * shown one), because the board redraws on a new instance and must never show a half-drawn layer. [prerender] does the
+ * same off the main thread ahead of a swap.
  */
 class TextLayerCache(
     val layer: TextLayer,
@@ -192,10 +232,9 @@ class TextLayerCache(
     private fun keyOf(
         page: Page,
         overlay: List<ModelRect>,
-    ): Any? =
-        if (page.text.isEmpty() && page.pendingSegments.isEmpty()) {
-            null
-        } else {
-            Triple(page.text, page.pendingSegments.map { it.row }.toSet(), overlay)
-        }
+    ): Any? {
+        val regions = appliedRegionRects(page)
+        if (page.text.isEmpty() && page.pendingSegments.isEmpty() && regions.isEmpty()) return null
+        return listOf(page.text, page.pendingSegments.map { it.row }.toSet(), regions, overlay)
+    }
 }

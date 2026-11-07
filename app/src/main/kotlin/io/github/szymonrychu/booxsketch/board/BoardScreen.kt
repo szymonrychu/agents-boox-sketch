@@ -176,7 +176,10 @@ internal fun BoardScreenWith(
     // The strike preview is set at pen idle together with its swap (StrikePreviewSync), so this finds that bitmap.
     val strikeOverlay by vm.strikeOverlay.collectAsState()
     val overlay = strikeOverlay.rects.takeIf { strikeOverlay.page == notebook.current }.orEmpty()
-    val textLayer = remember(shownPage.text, shownPage.pendingSegments, overlay) { vm.textLayers.bitmapFor(shownPage, overlay) }
+    val textLayer =
+        remember(shownPage.text, shownPage.pendingSegments, shownPage.appliedRegions, overlay) {
+            vm.textLayers.bitmapFor(shownPage, overlay)
+        }
     val exclude = holds.rects + (chrome?.overlays ?: emptyList()) + overlays
     Box(modifier.fillMaxSize()) {
         BoardView(
