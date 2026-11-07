@@ -199,7 +199,12 @@ class OutboxRunner(
 
                 OutboxKind.REVERT -> {
                     val (version, base) = withContext(Dispatchers.IO) { Payload.readRevert(dir) }
-                    c.revertSpec(checkNotNull(item.conversationServerId), version, base).version.toString()
+                    val id = checkNotNull(item.conversationServerId)
+                    try {
+                        c.revertSpec(id, version, base).version.toString()
+                    } catch (e: ApiError.StaleBase) {
+                        replayedRevert(c, id, version, base) ?: throw e
+                    }
                 }
 
                 OutboxKind.HANDOFF -> {
@@ -208,6 +213,36 @@ class OutboxRunner(
                     item.clientId
                 }
             }
+        }
+
+    /**
+     * The connector answers a revert replayed after success (its 201 lost) with 409 `stale_base`: the base check is its
+     * idempotency. When version [base] + 1 is the copy of [version] (its layout says `reverted_from`, or, for a version
+     * without a layout, it has the same markdown and sketches), the revert happened: its version as a string, else null.
+     */
+    @Suppress("SwallowedException") // any failure of the check keeps the original stale_base
+    private suspend fun replayedRevert(
+        c: ConnectorClient,
+        conversationId: String,
+        version: Int,
+        base: Int,
+    ): String? =
+        try {
+            val next = c.spec(conversationId, base + 1)
+            val layout = next.layout
+            val copied =
+                if (layout != null) {
+                    layout.revertedFrom == version
+                } else {
+                    val target = c.spec(conversationId, version)
+                    target.layout == null && target.markdown == next.markdown && target.sketchIds == next.sketchIds
+                }
+            next.version.toString().takeIf { copied }
+        } catch (e: ApiError) {
+            null
+        } catch (e: IllegalArgumentException) {
+            // An undecodable spec (kotlinx SerializationException).
+            null
         }
 
     private class SketchParts(

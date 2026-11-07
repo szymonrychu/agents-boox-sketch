@@ -49,6 +49,9 @@ class SendUseCaseRevertTest {
     private var answer: MockResponse = MockResponse().setResponseCode(201).setBody("""{"version":5,"reverted_from":2}""")
     private var ids = 0
 
+    /** Answers by request path suffix; any other path gets [answer]. */
+    private val routes = mutableMapOf<String, MockResponse>()
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -59,7 +62,12 @@ class SendUseCaseRevertTest {
                     object : Dispatcher() {
                         override fun dispatch(request: RecordedRequest): MockResponse {
                             requests += request
-                            return answer.clone().setHeader("Content-Type", "application/json")
+                            return (
+                                routes.entries
+                                    .firstOrNull {
+                                        request.path.orEmpty().endsWith(it.key)
+                                    }?.value ?: answer
+                            ).clone().setHeader("Content-Type", "application/json")
                         }
                     }
             }
@@ -163,6 +171,68 @@ class SendUseCaseRevertTest {
                     .single { it.clientId == stale }
                     .status,
             ).isEqualTo(ThreadStatus.failed(OutboxReasons.STALE_BASE))
+            assertThat(events).containsExactly("sync")
+        }
+
+    private fun spec(
+        version: Int,
+        markdown: String,
+        layout: String?,
+    ) = MockResponse().setResponseCode(200).setBody(
+        """{"version":$version,"markdown":"$markdown","created":"2026-11-07T00:00:00Z","sketch_ids":["s1"],"layout":$layout}""",
+    )
+
+    @Test
+    fun revert_replay_after_a_lost_answer_counts_as_accepted() =
+        runBlocking<Unit> {
+            // The first POST made v4 but its 201 was lost; the retry is a 409 stale_base, and v4 is the revert of v1.
+            answer = MockResponse().setResponseCode(409).setBody("""{"error":"stale_base","detail":"spec version 4 is the latest"}""")
+            routes["/conversations/srv-1/spec/4"] =
+                spec(4, "one", """{"lines":[],"ops":[],"base_version":3,"reverted_from":1}""")
+            val clientId = (useCase.revert("local-1", version = 1, latest = 3) as SendOutcome.Queued).clientId
+            val events = mutableListOf<String>()
+            runner(events).drain()
+            val item = db.outboxDao().forConversation("local-1").single()
+            assertThat(item.state).isEqualTo(OutboxState.ACCEPTED)
+            assertThat(
+                db
+                    .threadDao()
+                    .list("local-1")
+                    .single { it.clientId == clientId }
+                    .status,
+            ).isEqualTo(ThreadStatus.SENT)
+            assertThat(events).containsExactly("accepted:REVERT")
+        }
+
+    @Test
+    fun revert_replay_of_a_version_without_layout_matches_its_markdown() =
+        runBlocking<Unit> {
+            answer = MockResponse().setResponseCode(409).setBody("""{"error":"stale_base","detail":"spec version 4 is the latest"}""")
+            routes["/conversations/srv-1/spec/4"] = spec(4, "one", "null")
+            routes["/conversations/srv-1/spec/1"] = spec(1, "one", "null")
+            useCase.revert("local-1", version = 1, latest = 3)
+            runner().drain()
+            assertThat(
+                db
+                    .outboxDao()
+                    .forConversation("local-1")
+                    .single()
+                    .state,
+            ).isEqualTo(OutboxState.ACCEPTED)
+        }
+
+    @Test
+    fun stale_base_with_an_unrelated_newer_version_still_fails() =
+        runBlocking<Unit> {
+            answer = MockResponse().setResponseCode(409).setBody("""{"error":"stale_base","detail":"spec version 4 is the latest"}""")
+            routes["/conversations/srv-1/spec/4"] = spec(4, "typed feedback", """{"lines":[],"ops":[],"base_version":3}""")
+            routes["/conversations/srv-1/spec/1"] = spec(1, "one", "null")
+            useCase.revert("local-1", version = 1, latest = 3)
+            val events = mutableListOf<String>()
+            runner(events).drain()
+            val item = db.outboxDao().forConversation("local-1").single()
+            assertThat(item.state).isEqualTo(OutboxState.FAILED_PERMANENT)
+            assertThat(item.lastError).isEqualTo(OutboxReasons.STALE_BASE)
             assertThat(events).containsExactly("sync")
         }
 }
