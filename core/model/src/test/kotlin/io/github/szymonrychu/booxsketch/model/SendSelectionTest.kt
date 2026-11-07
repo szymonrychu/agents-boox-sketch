@@ -45,4 +45,10 @@ class SendSelectionTest {
         assertThat(selectPagesForSend(n, all = false, maxPages = 2)).isEqualTo(SendSelection.TooManyPages(3, 2))
         assertThat(selectPagesForSend(n, all = false, maxPages = 3)).isEqualTo(SendSelection.Pages(listOf(0, 1, 2)))
     }
+
+    @Test
+    fun pages_with_only_consumed_strokes_never_selected() {
+        val consumed = Page(listOf(Stroke("s", Tool.BRUSH, 2f, emptyList())), true, consumed = setOf("s"))
+        assertThat(selectPagesForSend(nb(consumed, full(true)), all = true, maxPages = 4)).isEqualTo(SendSelection.Pages(listOf(1)))
+    }
 }

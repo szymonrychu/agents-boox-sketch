@@ -8,7 +8,7 @@ data class MarkerSpan(
     val colour: PenColor?,
 )
 
-private val MARKER = Regex("\\[\\[(${PenColor.entries.joinToString("|") { it.wire }})]]", RegexOption.IGNORE_CASE)
+internal val COLOUR_MARKER = Regex("\\[\\[(${PenColor.entries.joinToString("|") { it.wire }})]]", RegexOption.IGNORE_CASE)
 
 /**
  * Splits [text] around the translator's ink colour markers (`[[red]]`, also black, blue, green, orange, purple). A
@@ -18,7 +18,7 @@ private val MARKER = Regex("\\[\\[(${PenColor.entries.joinToString("|") { it.wir
 fun splitColourMarkers(text: String): List<MarkerSpan> {
     val out = ArrayList<MarkerSpan>()
     var from = 0
-    for (m in MARKER.findAll(text)) {
+    for (m in COLOUR_MARKER.findAll(text)) {
         if (m.range.first > from) out += MarkerSpan(text.substring(from, m.range.first), null)
         val name = m.groupValues[1].lowercase()
         out += MarkerSpan("[$name]", PenColor.entries.first { it.wire == name })

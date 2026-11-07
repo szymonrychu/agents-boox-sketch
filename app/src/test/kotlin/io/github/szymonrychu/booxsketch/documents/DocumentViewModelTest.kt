@@ -103,6 +103,23 @@ class DocumentViewModelTest {
         }
 
     @Test
+    fun revert_action_only_on_older_versions() =
+        runBlocking<Unit> {
+            val reverts = mutableListOf<Pair<Int, Int>>()
+            val vm = vm()
+            vm.revertTo = { version, latest -> reverts += version to latest }
+            vm.until { it.version == 2 }
+            assertThat(vm.state.value.canRevert).isFalse()
+            vm.revert()
+            assertThat(reverts).isEmpty()
+            vm.selectVersion(1)
+            val s = vm.until { it.version == 1 }
+            assertThat(s.canRevert).isTrue()
+            vm.revert()
+            assertThat(reverts).containsExactly(1 to 2)
+        }
+
+    @Test
     fun new_latest_version_makes_open_draft_read_only_for_sending() =
         runBlocking<Unit> {
             val vm = vm()

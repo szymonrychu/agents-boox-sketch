@@ -85,6 +85,17 @@ class PngExporterTest {
     }
 
     @Test
+    fun consumed_strokes_not_exported() {
+        val consumed = stroke(pts = diag).copy(id = "gone")
+        assertThat(exporter.export(Page(listOf(consumed), true, consumed = setOf("gone")), canvas, cfg())).isEqualTo(ExportResult.Empty)
+        val kept = stroke(pts = listOf(10f to 10f, 40f to 40f)).copy(id = "kept")
+        val far = stroke(pts = listOf(900f to 1300f, 990f to 1390f)).copy(id = "gone")
+        val page = Page(listOf(kept, far), true, consumed = setOf("gone"))
+        val only = exported(exporter.export(Page(listOf(kept), true), canvas, cfg()))
+        assertThat(exported(exporter.export(page, canvas, cfg())).png).isEqualTo(only.png)
+    }
+
+    @Test
     fun dimensions_follow_export_plan() {
         val r = exported(exporter.export(page(stroke(pts = listOf(0f to 0f, 3000f to 100f))), Canvas(3200, 1400, 300f), cfg()))
         assertThat(maxOf(r.w, r.h)).isEqualTo(1568)

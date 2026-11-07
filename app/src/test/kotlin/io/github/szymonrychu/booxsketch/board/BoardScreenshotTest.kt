@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.board
 
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
@@ -12,10 +13,15 @@ import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.Canvas
+import io.github.szymonrychu.booxsketch.model.NotebookGeometry
+import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.PenColor
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
+import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Rule
@@ -106,4 +112,57 @@ class BoardScreenshotTest {
         }
         compose.onRoot().captureRoboImage("src/test/screenshots/board_colours_shapes.png")
     }
+
+    /** A notebook page with three text runs (one heading, one with a red span), drawing ink and a pending tick. */
+    private fun notebookPage(): Page {
+        fun run(
+            id: String,
+            row: Int,
+            text: String,
+            heading: Boolean = false,
+        ): TextRun {
+            val s = SourceMap.stripWithColours(text)
+            return TextRun(
+                id,
+                2,
+                row,
+                row,
+                53f,
+                display = s.display,
+                colourSpans = s.spans,
+                sourceMap = s.map,
+                sourceStrokeIds = emptyList(),
+                heading = heading,
+            )
+        }
+        return Page(
+            listOf(stroke("ink", Tool.BALLPOINT, 1300f)),
+            false,
+            text =
+                listOf(
+                    run("L1", 0, "# Shopping list", heading = true),
+                    run("L2", 1, "buy **milk** and bread"),
+                    run("L3", 2, "call [[red]]Anna[[/]] at five"),
+                ),
+            pendingSegments = listOf(PendingSegment("c", "p0-r5-0", 5, 100f, 400f, emptyList())),
+        )
+    }
+
+    private fun captureNotebookPage(name: String) {
+        val page = notebookPage()
+        val layer = TextLayer(NotebookGeometry(1404, 1872)).render(page, null)
+        compose.setContent {
+            MaterialTheme {
+                BoardPreviewCanvas(Canvas(1404, 1872, 300f), page, Modifier.fillMaxSize(), textLayer = layer)
+            }
+        }
+        compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
+    }
+
+    @Test
+    fun notebook_page_with_text_portrait() = captureNotebookPage("notebook_page_with_text_portrait")
+
+    @Test
+    @Config(qualifiers = "w900dp-h480dp-xhdpi")
+    fun notebook_page_with_text_landscape() = captureNotebookPage("notebook_page_with_text_landscape")
 }

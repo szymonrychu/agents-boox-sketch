@@ -4,9 +4,11 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.ui.EinkTheme
 import org.junit.Rule
@@ -83,6 +85,37 @@ class DocumentScreenshotTest {
     fun document_page_portrait() {
         content(readOnly = false)
         compose.onRoot().captureRoboImage("src/test/screenshots/document_page_portrait.png")
+    }
+
+    @Test
+    fun version_picker_with_revert() {
+        val p = page()
+        val state = DocumentViewState(1, 3, listOf(p, p, p), 1, readOnly = true, loaded = true)
+        compose.setContent {
+            EinkTheme { DocumentScreen("Settings page", state, listOf(1, 2, 3), {}, {}, {}, {}, {}, {}, onRevert = {}) }
+        }
+        compose.onRoot().captureRoboImage("src/test/screenshots/version_picker_with_revert.png")
+    }
+
+    @Test
+    fun revert_asks_for_confirmation_first() {
+        val p = page()
+        val reverted = mutableListOf<Int>()
+        val state = DocumentViewState(1, 3, listOf(p, p, p), 1, readOnly = true, loaded = true)
+        compose.setContent {
+            EinkTheme { DocumentScreen("Settings page", state, listOf(1, 2, 3), {}, {}, {}, {}, {}, {}, onRevert = { reverted += it }) }
+        }
+        compose.onNodeWithTag(TAG_DOC_REVERT).performClick()
+        compose.onNodeWithText("Revert to version 1? This adds version 4 with the text of version 1.").assertExists()
+        assertThat(reverted).isEmpty()
+        compose.onNodeWithTag(TAG_DOC_REVERT_CONFIRM).performClick()
+        assertThat(reverted).containsExactly(1)
+    }
+
+    @Test
+    fun no_revert_on_the_latest_version() {
+        content(readOnly = false)
+        compose.onNodeWithTag(TAG_DOC_REVERT).assertDoesNotExist()
     }
 
     @Test

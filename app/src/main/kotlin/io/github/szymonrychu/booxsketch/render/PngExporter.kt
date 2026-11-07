@@ -40,12 +40,13 @@ class PngExporter(
         canvas: Canvas,
         cfg: ConfigDto,
     ): ExportResult {
-        val plan = planExport(bounds(page.strokes), canvas, cfg.maxLongEdgePx, cfg.minEdgePx) ?: return ExportResult.Empty
+        val strokes = page.visibleStrokes
+        val plan = planExport(bounds(strokes), canvas, cfg.maxLongEdgePx, cfg.minEdgePx) ?: return ExportResult.Empty
         var w = plan.outW
         var h = plan.outH
         var scale = plan.scale
         while (true) {
-            val png = encodeRgbPng(render(page.strokes, w, h, scale, plan.cropLeft, plan.cropTop), w, h)
+            val png = encodeRgbPng(render(strokes, w, h, scale, plan.cropLeft, plan.cropTop), w, h)
             if (png.size <= cfg.maxPngBytes) return ExportResult.Exported(png, w, h)
             val nw = (w * SHRINK).roundToInt()
             val nh = (h * SHRINK).roundToInt()

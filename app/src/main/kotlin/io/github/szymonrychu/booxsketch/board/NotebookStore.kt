@@ -52,3 +52,32 @@ class NotebookStore(
         const val CORRUPT_SUFFIX = ".corrupt"
     }
 }
+
+/**
+ * The board notebooks, one file per conversation (T-46 OQ1 A): `notebook-<localId>.json`, plus `notebook.json` for
+ * a notebook not yet bound to a conversation (before the first conversation exists).
+ */
+class NotebookFiles(
+    private val dir: File,
+) {
+    fun forConversation(localId: String): File = File(dir, "notebook-$localId.json")
+
+    /** The store of [localId]'s notebook; null is the unbound one. */
+    fun store(localId: String?): NotebookStore = NotebookStore(localId?.let(::forConversation) ?: File(dir, UNBOUND))
+
+    /** Removes the notebook of [localId] (its conversation is gone). */
+    fun delete(localId: String) = store(localId).delete()
+
+    /** Removes every board notebook (Unpair). */
+    fun deleteAll() {
+        dir
+            .listFiles { f ->
+                f.name == UNBOUND || f.name.startsWith(UNBOUND + NotebookStore.CORRUPT_SUFFIX) ||
+                    f.name.startsWith("notebook-")
+            }?.forEach { it.delete() }
+    }
+
+    companion object {
+        const val UNBOUND = "notebook.json"
+    }
+}

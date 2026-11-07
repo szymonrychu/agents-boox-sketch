@@ -12,6 +12,7 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -84,6 +85,9 @@ internal fun excludeRectsInView(
     inWindow.mapNotNull { r ->
         Rect(r).apply { offset(-viewLeft, -viewTop) }.takeIf { it.intersect(0, 0, viewW, viewH) && !it.isEmpty }
     }
+
+/** The strokes the board draws for the selected page: consumed ones (transcribed into text runs) never are. */
+internal fun shownStrokes(n: Notebook): List<Stroke> = n.pages[n.current].visibleStrokes
 
 /** A GC full refresh follows the first show (load), a page switch and a clear of the shown page. */
 internal fun needsFullRefresh(
@@ -234,7 +238,8 @@ class BoardSurfaceView(
     renderer: StrokeRenderer? = null,
 ) : SurfaceView(context),
     SurfaceHolder.Callback,
-    CommittedInkSurface {
+    CommittedInkSurface,
+    TextLayerSurface {
     private val renderer: StrokeRenderer = renderer ?: CanvasStrokeRenderer(devicePenRenderer(::screenOrigin))
     private val grid = BoardGrid()
     private var strokes: List<Stroke> = emptyList()
@@ -242,6 +247,7 @@ class BoardSurfaceView(
     private var shownIndex: Int? = null
     private var preview: Stroke? = null
     private var background: Bitmap? = null
+    private var textLayer: Bitmap? = null
     private var ready = false
     private var live: Stroke? = null
     private var handwriting = false
@@ -339,23 +345,30 @@ class BoardSurfaceView(
     /**
      * Shows [strokes] of page [index] plus the shape [preview] (page-canvas pixels, drawn over the page). A [background]
      * (a document page, in page-canvas pixels) is drawn first; another background instance counts as a page change.
+     * The notebook [textLayer] (page-canvas pixels, transparent, see [TextLayer]) is drawn over the grid and the
+     * background and under the ink; another instance redraws the page without a full refresh.
      */
+    @Suppress("LongParameterList")
     fun show(
         page: PageCanvas,
         strokes: List<Stroke>,
         index: Int,
         preview: Stroke? = null,
         background: Bitmap? = null,
+        textLayer: Bitmap? = null,
     ) {
         val sameBackground = background === this.background
-        val samePage = page == this.page && strokes == this.strokes && index == shownIndex && sameBackground
+        // Same layers: the document background and the text layer are the shown instances.
+        val sameLayers = sameBackground && textLayer === this.textLayer
+        val samePage = sameLayers && page == this.page && strokes == this.strokes && index == shownIndex
         if (samePage && preview == this.preview) return
-        val appended = sameBackground && onlyAppended(page, strokes, index, preview)
+        val appended = sameLayers && onlyAppended(page, strokes, index, preview)
         if (appended && rawLive()) return defer(strokes)
         syncCommitted()
         val full = needsFullRefresh(shownIndex, this.strokes, index, strokes) || (shownIndex != null && !sameBackground)
         val dragging = preview != null && samePage
         this.background = background
+        this.textLayer = textLayer
         this.page = page
         this.strokes = strokes
         shownIndex = index
@@ -363,6 +376,45 @@ class BoardSurfaceView(
         dragMode(dragging)
         redraw()
         if (full) fullRefresh.request()
+    }
+
+    /**
+     * A new text layer and the strokes it leaves visible, drawn now (the caller holds raw drawing off, see
+     * [TextLayerHolds]): committed ink is synced, then [dirtyPage] (page px, null for all) is drawn and refreshed in GU.
+     * The next [show] with the same strokes and layer is then a no-op.
+     */
+    override fun swapText(
+        strokes: List<Stroke>,
+        textLayer: Bitmap?,
+        dirtyPage: RectF?,
+    ) {
+        syncCommitted()
+        this.strokes = strokes
+        this.textLayer = textLayer
+        if (!ready) return
+        val dirty = dirtyPage?.let { viewRect(it) }
+        if (dirty == null) {
+            draw()
+        } else {
+            val canvas = dirtyCanvasSource(holder, dirty) ?: return
+            try {
+                canvas.clipRect(dirty)
+                paint(canvas, RectF(dirty))
+            } finally {
+                holder.unlockCanvasAndPost(canvas)
+            }
+        }
+        partialRefresh(this)
+    }
+
+    /** The GU refresh after a text swap; tests record it. */
+    internal var partialRefresh: (View) -> Unit = Epd::partialRefresh
+
+    /** [page] (page px) in view pixels, rounded out. */
+    private fun viewRect(page: RectF): Rect {
+        val g = geometry()
+        val r = RectF(page.left * g.scale + g.dx, page.top * g.scale + g.dy, page.right * g.scale + g.dx, page.bottom * g.scale + g.dy)
+        return Rect().also { r.roundOut(it) }
     }
 
     /** Takes [strokes] (the shown ones plus appended ones) without drawing; [syncCommitted] draws their rect later. */
@@ -482,19 +534,24 @@ class BoardSurfaceView(
         // The grid is view-only (never exported); it sits under the document background and the ink.
         grid.draw(canvas, g, page, within)
         background?.let {
-            val m =
-                Matrix().apply {
-                    postScale(g.scale * page.w / it.width, g.scale * page.h / it.height)
-                    postTranslate(g.dx, g.dy)
-                }
-            canvas.drawBitmap(it, m, null)
+            canvas.drawBitmap(it, pageMatrix(it, g), null)
         }
+        textLayer?.let { canvas.drawBitmap(it, pageMatrix(it, g), null) }
         val shown =
             if (within == null) strokes else strokes.filter { s -> g.inkBounds(s)?.let { RectF.intersects(it, within) } ?: false }
         renderer.draw(canvas, shown, g.scale, g.dx, g.dy)
         // Redrawn on every drag or pen move event: never the vendor pens.
         preview?.let { renderer.drawPreview(canvas, listOf(it), g.scale, g.dx, g.dy) }
         live?.let { renderer.drawPreview(canvas, listOf(it), 1f, 0f, 0f) }
+    }
+
+    /** Maps a page-sized bitmap onto the view: the page's scale and offset. */
+    private fun pageMatrix(
+        b: Bitmap,
+        g: BoardGeometry,
+    ) = Matrix().apply {
+        postScale(g.scale * page.w / b.width, g.scale * page.h / b.height)
+        postTranslate(g.dx, g.dy)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -618,6 +675,9 @@ fun BoardView(
     onShapeDrag: (Stroke) -> Unit = {},
     onShapeCancel: () -> Unit = {},
     background: Bitmap? = null,
+    textLayer: Bitmap? = null,
+    onSurface: (TextLayerSurface) -> Unit = {},
+    onPenActivity: () -> Unit = {},
     onBoardTap: () -> Unit = {},
     dismissMode: Boolean = false,
     onDismiss: () -> Unit = {},
@@ -629,6 +689,7 @@ fun BoardView(
     val shapeCancelCb by rememberUpdatedState(onShapeCancel)
     val tapCb by rememberUpdatedState(onBoardTap)
     val dismissCb by rememberUpdatedState(onDismiss)
+    val penActivity by rememberUpdatedState(onPenActivity)
     val excludeNow by rememberUpdatedState(exclude)
     // Raw drawing stays held off for the whole swallowed gesture, even after the overlays are gone.
     var swallowing by remember { mutableStateOf(false) }
@@ -643,6 +704,7 @@ fun BoardView(
         factory = { ctx ->
             BoardSurfaceView(ctx).also { v ->
                 surface[0] = v
+                onSurface(v)
                 v.refresher = input::refresh
                 v.rawLive = { input.rawLive }
                 v.onSurfaceCreated = { startOn(v) }
@@ -661,7 +723,8 @@ fun BoardView(
         },
         update = {
             it.dismissMode = dismissMode
-            it.show(notebook.canvas, notebook.pages[notebook.current].strokes, notebook.current, preview, background)
+            // Consumed strokes (transcribed into text runs) are never drawn.
+            it.show(notebook.canvas, shownStrokes(notebook), notebook.current, preview, background, textLayer)
         },
         onRelease = { input.stop() },
     )
@@ -685,6 +748,7 @@ fun BoardView(
     }
     LaunchedEffect(input) {
         input.events.collect { ev ->
+            penActivity()
             if (ev is StrokeEvent.Cancelled) return@collect shapeCancelCb()
             // The firmware pen can stay live under a swallowed gesture (a hold right after an open is a no-op): no stroke.
             val v = surface[0]?.takeUnless { it.dropsEvent(ev) } ?: return@collect
@@ -731,16 +795,27 @@ internal fun BoardSurfaceView.startInput(
     input.start(this, Rect(0, 0, width, height), overlays)
 }
 
-/** Non-surface rendering of a page for previews and screenshot tests, where a SurfaceView does not draw. */
+/** Non-surface rendering of a page (text layer, then visible ink) for previews and screenshot tests, where a SurfaceView does not draw. */
 @Composable
 fun BoardPreviewCanvas(
     canvas: PageCanvas,
     page: Page,
     modifier: Modifier = Modifier,
     renderer: StrokeRenderer = CanvasStrokeRenderer(),
+    textLayer: Bitmap? = null,
 ) {
     Canvas(modifier.background(androidx.compose.ui.graphics.Color.White)) {
         val g = BoardGeometry(size.width.toInt(), size.height.toInt(), canvas)
-        drawIntoCanvas { renderer.draw(it.nativeCanvas, page.strokes, g.scale, g.dx, g.dy) }
+        drawIntoCanvas {
+            textLayer?.let { b ->
+                val m =
+                    Matrix().apply {
+                        postScale(g.scale * canvas.w / b.width, g.scale * canvas.h / b.height)
+                        postTranslate(g.dx, g.dy)
+                    }
+                it.nativeCanvas.drawBitmap(b, m, null)
+            }
+            renderer.draw(it.nativeCanvas, page.visibleStrokes, g.scale, g.dx, g.dy)
+        }
     }
 }
