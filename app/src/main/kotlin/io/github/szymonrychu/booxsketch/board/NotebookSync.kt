@@ -6,6 +6,7 @@ import io.github.szymonrychu.booxsketch.api.SpecLayoutDto
 import io.github.szymonrychu.booxsketch.data.FeedbackDao
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecDao
+import io.github.szymonrychu.booxsketch.data.ThreadDao
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.notebook.LineOrigin
@@ -19,6 +20,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -51,6 +54,8 @@ class NotebookSync(
     /** Where the notes of rejected ops go (the feedback strip); none in tests that do not look at them. */
     private val feedback: FeedbackDao? = null,
     private val now: () -> String = { Instant.now().toString() },
+    /** Links a version's sketch ids back to the uploads (client ids) that sent them. */
+    private val threads: ThreadDao? = null,
 ) {
     private val mutex = Mutex()
 
@@ -77,11 +82,13 @@ class NotebookSync(
         val spec = specs.get(conversationServerId, version) ?: return@withLock
         val layout = spec.layout?.let(::layoutModel)
         val measure = board.textLayers.layer.measure
+        // Only the uploads this version was made from can be released by it; a later one on the same base is still in flight.
+        val answered = answeredUploads(spec.sketchIds)
         while (true) {
             holds.awaitPenIdle()
             val (base, preview) =
                 withContext(main) {
-                    board.notebook.value to board.preview(version, spec.markdown, layout, measure)
+                    board.notebook.value to board.preview(version, spec.markdown, layout, measure, answered)
                 }
             // A version without a layout only releases the pending marks of older uploads; nothing pending, nothing to do.
             if (layout == null && preview.notebook === base) return@withLock
@@ -97,7 +104,7 @@ class NotebookSync(
                     if (stale()) {
                         null
                     } else {
-                        commit(base, bitmap, overlay) { board.place(version, spec.markdown, layout, measure) }
+                        commit(base, bitmap, overlay) { board.place(version, spec.markdown, layout, measure, answered) }
                     }
                 }
             if (outcome == null) return@withLock
@@ -114,14 +121,23 @@ class NotebookSync(
         markdown: String,
         layout: SpecLayoutModel?,
         measure: TextMeasure,
-    ) = layout?.let { placeVersion(version, markdown, it, measure) } ?: previewRelease(version)
+        answered: Set<String>,
+    ) = layout?.let { placeVersion(version, markdown, it, measure, answered) } ?: previewRelease(version, answered)
 
     private fun BoardViewModel.place(
         version: Int,
         markdown: String,
         layout: SpecLayoutModel?,
         measure: TextMeasure,
-    ) = layout?.let { applyVersion(version, markdown, it, measure) } ?: releasePending(version)
+        answered: Set<String>,
+    ) = layout?.let { applyVersion(version, markdown, it, measure, answered) } ?: releasePending(version, answered)
+
+    /** The client ids of the uploads whose stored sketch id is among the [sketchIds] (JSON list) a version was made from. */
+    private suspend fun answeredUploads(sketchIds: String): Set<String> {
+        val dao = threads ?: return emptySet()
+        val ids = runCatching { Json.decodeFromString(ListSerializer(String.serializer()), sketchIds) }.getOrDefault(emptyList())
+        return ids.mapNotNull { dao.byServerId(it)?.clientId }.toSet()
+    }
 
     /**
      * Places through [apply] and swaps [bitmap] in under one hold, unless the board changed since [base] was placed or

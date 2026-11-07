@@ -49,6 +49,7 @@ object RunPlacer {
         measure: TextMeasure,
         geometry: NotebookGeometry,
         undo: UndoStack? = null,
+        answeredUploads: Set<String>? = null,
     ): Placement {
         val source = markdown.split('\n').map { it.removeSuffix("\r") }
         val placeable = placeableLines(source)
@@ -85,21 +86,23 @@ object RunPlacer {
             prev = line.lineId
         }
         work.dropAnswered(answered)
-        work.release(version)
+        work.release(version, answeredUploads)
         return Placement(work.n.copy(appliedSpecVersion = version), work.dirty.toMap())
     }
 
     /**
-     * Releases the pending segments and ops of uploads based on a version older than [version] (all of them when null):
-     * their strokes become ordinary unsent ink again and their pages count as changed.
+     * Releases the pending segments and ops of uploads based on a version older than [version] (all of them when null),
+     * limited to the uploads in [uploads] (client ids; all when null): their strokes become ordinary unsent ink again and
+     * their pages count as changed.
      */
     fun releasePending(
         notebook: Notebook,
         version: Int?,
         geometry: NotebookGeometry,
+        uploads: Set<String>? = null,
     ): Placement {
         val work = Work(notebook, geometry, TextMeasure { text, scale -> text.length * scale }, null)
-        work.release(version)
+        work.release(version, uploads)
         return Placement(work.n, work.dirty.toMap())
     }
 
@@ -295,12 +298,22 @@ object RunPlacer {
             }
         }
 
-        /** Pending segments and ops of uploads based on a version below [version] (all when null): their ink is unsent again. */
-        fun release(version: Int?) {
+        /** Pending marks of [uploads] (all when null) based on a version below [version] (any when null): their ink is unsent again. */
+        fun release(
+            version: Int?,
+            uploads: Set<String>?,
+        ) {
             for (i in n.pages.indices) {
                 val p = page(i)
-                val segments = p.pendingSegments.filter { version == null || it.baseVersion < version }
-                val ops = p.pendingOps.filter { version == null || it.baseVersion < version }
+                val segments =
+                    p.pendingSegments.filter {
+                        (version == null || it.baseVersion < version) &&
+                            (uploads == null || it.clientId in uploads)
+                    }
+                val ops =
+                    p.pendingOps.filter {
+                        (version == null || it.baseVersion < version) && (uploads == null || it.clientId in uploads)
+                    }
                 if (segments.isEmpty() && ops.isEmpty()) continue
                 setPage(
                     i,
