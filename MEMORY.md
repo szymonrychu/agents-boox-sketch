@@ -2,6 +2,24 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-08 One text size on the page, whole page redrawn on every version (fix/text-render-uniform, 0.19.3 report)
+
+- Device report: the lines changed by the latest version had a different text size than the unchanged ones. Cause:
+  `RunPlacer.fit` chose a size per run (scale 1, else shrink to fit the column down to 0.85, else wrap at 0.85), so a
+  line that got longer was drawn smaller than its neighbours. Second, `RunPlacer.update` marked a kept line dirty only
+  when its text changed, and `NotebookSync.commit` swapped in only those rows (`swapText` with a row rect): pixels of
+  unchanged lines stayed from the earlier render on screen even when their refit changed.
+- Fix (the user asked to always render all text): every run is placed at the one `RunPlacer.TEXT_SCALE` (1, 40 px)
+  and wraps at word boundaries when wider than its column, no shrink to fit (`MIN_SCALE` removed). Every kept run is
+  marked changed on every version, and `NotebookSync` swaps the whole page (null dirty rect, one GU refresh, the mode
+  a text swap already used) whenever the shown page changed. Older notebooks with shrunk runs are laid out
+  again at scale 1 when the conversation's notebook loads (`BoardViewModel.swapTo` -> `RunPlacer.relayout`, the same
+  `put` step as a version, no undo steps, applied version untouched) and saved at once, so it happens once; a revert
+  afterwards re-places every kept run at scale 1 anyway. Hidden or consumed ink, revert and row shifts are unchanged.
+- Tests changed: `RunPlacerTest.long_line_shrinks_to_85_percent` encoded the per-run shrink, replaced by
+  `long_line_wraps_at_the_one_text_size`; `NotebookSyncTest.version_applies_runs_and_consumes` asserted a row-only
+  dirty rect, now the whole page.
+
 ## 2026-11-08 Every open is paused for real: the tap-to-dismiss regression (T-78, fix/live-ink-held-open-pause)
 
 - Root cause (analysis: `.scratchpad/boox-fixes/fable-tap-dismiss-regression.md` in the workbench; medium-low

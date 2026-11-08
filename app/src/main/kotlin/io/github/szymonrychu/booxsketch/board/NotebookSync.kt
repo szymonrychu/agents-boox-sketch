@@ -1,14 +1,12 @@
 package io.github.szymonrychu.booxsketch.board
 
 import android.graphics.Bitmap
-import android.graphics.RectF
 import io.github.szymonrychu.booxsketch.api.SpecLayoutDto
 import io.github.szymonrychu.booxsketch.data.FeedbackDao
 import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecDao
 import io.github.szymonrychu.booxsketch.data.ThreadDao
 import io.github.szymonrychu.booxsketch.model.Notebook
-import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.notebook.LineOrigin
 import io.github.szymonrychu.booxsketch.model.notebook.OpKind
 import io.github.szymonrychu.booxsketch.model.notebook.OpStatusModel
@@ -155,8 +153,8 @@ class NotebookSync(
             val placed = apply()
             val n = placed.notebook
             board.setStrikeOverlay(n.current, overlay)
-            val dirty = placed.changedRows[n.current]?.let { rows -> dirtyRect(NotebookGeometry(n.canvas.w, n.canvas.h), rows) }
-            if (dirty != null || n.current != base.current) holds.surface?.swapText(shownStrokes(n), bitmap, dirty)
+            // The whole page is drawn again (null dirty rect), never only the changed rows over an earlier render.
+            if (n.current in placed.changedRows || n.current != base.current) holds.surface?.swapText(shownStrokes(n), bitmap, null)
         }
         return true
     }
@@ -192,11 +190,6 @@ class NotebookSync(
     }
 
     private fun Notebook.showsConversation(localId: String) = conversationLocalId == null || conversationLocalId == localId
-
-    private fun dirtyRect(
-        g: NotebookGeometry,
-        rows: IntRange,
-    ) = RectF(0f, g.rowTop(rows.first).toFloat(), g.pageW.toFloat(), g.rowLineY(rows.last).toFloat())
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }

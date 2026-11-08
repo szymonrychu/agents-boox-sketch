@@ -126,13 +126,40 @@ class NotebookSyncTest {
             assertThat(vm.notebook.value.appliedSpecVersion).isEqualTo(1)
             assertThat(surface.swaps).hasSize(1)
             assertThat(surface.swaps.single().first).isNotNull()
-            assertThat(surface.dirty!!.top).isEqualTo(g.rowTop(4).toFloat())
+            // The whole page is drawn again, not only the rows that changed.
+            assertThat(surface.dirty).isNull()
             // The cached layer is the swapped one: the next board frame finds it and does not redraw.
             assertThat(vm.textLayers.bitmapFor(page)).isSameInstanceAs(surface.swaps.single().first)
             // A version already applied is not applied again.
             sync.onVersion("srv", "local", 1)
             assertThat(surface.swaps).hasSize(1)
             assertThat(input.held).isEqualTo(0)
+        }
+
+    @Test
+    fun a_version_changing_some_lines_redraws_every_line_at_one_size() =
+        runTest {
+            storeVersion()
+            val vm = board()
+            val input = FreezingInput()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime }).also { it.input = input }
+            val surface = RecordingSurface(input).also { holds.surface = it }
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
+            advanceTimeBy(1_000)
+            sync.onVersion("srv", "local", 1)
+            // Version 2 keeps L1 as it is and adds L2, a line wider than the text column.
+            val long = "a much longer line that does not fit the text column of the page at all"
+            val lines = """{"line_id":"L1","source_line":1,"origin":{"kept":"L1"}},{"line_id":"L2","source_line":2,"origin":null}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy milk\n$long", "2026-11-07T00:00:00Z", "[]", """{"lines":[$lines]}"""))
+            sync.onVersion("srv", "local", 2)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.text.map { it.lineId }).containsExactly("L1", "L2")
+            assertThat(page.text.map { it.scale }.toSet()).hasSize(1)
+            assertThat(surface.swaps).hasSize(2)
+            // The unchanged line is drawn again with the rest: the whole page, on a new layer.
+            assertThat(surface.dirty).isNull()
+            assertThat(surface.swaps[1].first).isNotSameInstanceAs(surface.swaps[0].first)
         }
 
     @Test
