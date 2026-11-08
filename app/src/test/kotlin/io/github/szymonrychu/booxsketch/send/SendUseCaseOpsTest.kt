@@ -223,4 +223,56 @@ class SendUseCaseOpsTest {
                     .toString(),
             ).isEqualTo(id)
         }
+
+    /** Margin ink (x past the margin line, row 7) that is no insert and no strike: a note. */
+    private fun marginNote() = line("m", 1050f, 1200f, g.rowTop(7) + 70f)
+
+    private fun showPage(
+        vararg strokes: Stroke,
+        text: List<TextRun> = listOf(milk),
+    ) {
+        board.notebook = Notebook(CANVAS, listOf(Page(strokes.toList(), true, text = text)), 0)
+    }
+
+    @Test
+    fun margin_note_on_a_text_page_is_the_only_op_sent() =
+        runBlocking<Unit> {
+            showPage(marginNote())
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            val layout = layoutOf(clientId)
+            val op = layout.ops.single()
+            assertThat(op.kind).isEqualTo("note")
+            assertThat(op.strokes).containsExactly(0)
+            assertThat(layout.segments).isEmpty()
+            val pending =
+                board.notebook.pages[0]
+                    .pendingOps
+                    .single()
+            assertThat(pending.op.kind).isEqualTo(OpKind.NOTE)
+            assertThat(pending.op.strokeIds).containsExactly("m")
+        }
+
+    @Test
+    fun note_strokes_are_in_no_segment() =
+        runBlocking<Unit> {
+            showPage(line("w", 100f, 300f, g.rowTop(7) + 70f), marginNote())
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            val layout = layoutOf(clientId)
+            assertThat(layout.ops.single().kind).isEqualTo("note")
+            assertThat(layout.segments.flatMap { it.strokes }).containsExactly(0)
+            assertThat(
+                board.notebook.pages[0]
+                    .pendingSegments
+                    .flatMap { it.strokeIds },
+            ).containsExactly("w")
+        }
+
+    @Test
+    fun drawing_only_page_with_margin_ink_sends_no_layout() =
+        runBlocking<Unit> {
+            showPage(marginNote(), text = emptyList())
+            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+            assertThat(File(dir(clientId), "layout.0.json").exists()).isFalse()
+            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+        }
 }
