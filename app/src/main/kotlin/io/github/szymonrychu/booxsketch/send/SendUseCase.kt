@@ -166,7 +166,7 @@ class SendUseCase(
             // Read without creating a conversation: a refused send must leave none behind.
             val base = base(conversations.peekCurrent()?.serverId)
             val indices =
-                when (val sel = selectPagesForSend(notebook, all, cfg.maxPages, regionsSendable = base != null)) {
+                when (val sel = selectPagesForSend(notebook, all, cfg.maxPages)) {
                     SendSelection.NothingToSend -> return@withLock SendOutcome.NothingToSend
                     is SendSelection.TooManyPages -> return@withLock SendOutcome.TooManyPages(sel.count, sel.max)
                     is SendSelection.Pages -> sel.indices
