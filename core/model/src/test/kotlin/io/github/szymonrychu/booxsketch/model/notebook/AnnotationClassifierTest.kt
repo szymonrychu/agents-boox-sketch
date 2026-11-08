@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.model.notebook
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.annotationY
@@ -509,5 +510,74 @@ class AnnotationClassifierTest {
                 ),
             )
         assertThat(r.notes.single().strokeIds).containsExactly("L", "n1", "A", "A-a", "A-b")
+    }
+
+    @Test
+    fun a_later_unrelated_arrow_ending_in_the_first_arrows_box_does_not_join_the_note() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    word("n1", 1050f, 1200f, 450f),
+                    arrow("A", 1040f, 450f, 400f, textY(4)),
+                    // Tip at (700, 450): inside the box that note plus arrow A span, but 350 px from the note itself.
+                    arrow("B", 700f, 1000f, 700f, 450f),
+                ),
+            )
+        assertThat(r.notes.single().strokeIds).containsExactly("n1", "A")
+    }
+
+    @Test
+    fun an_arrow_touching_two_clusters_joins_only_the_nearer_one() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    word("n1", 900f, 1200f, 450f),
+                    word("n2", 900f, 1200f, 600f),
+                    // In the text column (x 900); tail about 22 px below n1, tip about 12 px above n2: the nearer one is n2.
+                    arrow("A", 900f, 480f, 900f, 580f),
+                ),
+            )
+        assertThat(r.notes.map { it.strokeIds }).containsExactly(listOf("n1"), listOf("n2", "A")).inOrder()
+    }
+
+    private val realArrows =
+        listOf(
+            "arrow_hook_right",
+            "arrow_hook_diagonal",
+            "arrow_two_strokes_v",
+            "arrow_chevron_one_stroke",
+            "arrow_shaft_then_v_up",
+        )
+
+    /** The recorded hand-drawn arrow [name] moved so its tail is at the loop (x 1050) and its tip on the text band of row 4. */
+    private fun realArrow(name: String): List<Stroke> {
+        val raw = NotebookFixtures.freehand(name)
+        val found = checkNotNull(FreehandShapes.arrow(raw, 0)) { name }
+        val dx = 1050f - found.tail.x
+        val dy = textY(4) - found.tip.y
+        return NotebookFixtures.freehand(name, dx, dy)
+    }
+
+    @Test
+    fun recorded_freehand_arrows_make_an_insert_that_carries_every_arrow_stroke() {
+        for (name in realArrows) {
+            val arrowStrokes = realArrow(name)
+            val tail = checkNotNull(FreehandShapes.arrow(arrowStrokes, 0)).tail
+            val r =
+                classify(
+                    page(
+                        listOf(milk),
+                        circle("L", 1150f, tail.y, 100f),
+                        word("n1", 1080f, 1220f, tail.y),
+                        *arrowStrokes.toTypedArray(),
+                    ),
+                )
+            val op = r.ops.singleOrNull()
+            assertWithMessage(name).that(op?.kind).isEqualTo(OpKind.INSERT)
+            assertWithMessage(name).that(op!!.strokeIds).containsExactlyElementsIn(listOf("n1", "L") + arrowStrokes.map { it.id })
+            assertWithMessage(name).that(r.marginInk).isEmpty()
+        }
     }
 }

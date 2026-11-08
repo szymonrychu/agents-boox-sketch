@@ -8,6 +8,16 @@
   either end (tail or tip) touches. Contract 2.2.0 unchanged (arrow strokes were already in the op's strokes). Applied,
   revert and rejected paths needed no change; tests added for all three. Not covered: an arrow too curved or too far
   from the note to be recognised as an arrow stays plain ink.
+  Follow-up (same day, v0.19.3 device report "text and loop disappear, arrow stays"): (1) the INSERT path was traced
+  end to end and is NOT missing the arrow: `FreehandInsertMarks`/`ToolInsertMarks` put `arrowStrokeIds` (shaft plus
+  every head stroke, both heads of a double arrow) in the insert op's strokeIds, `LayoutCodec` sends them and
+  `RunPlacer.applyOps` consumes/rejects/restores all op strokeIds; tests with the recorded hand-drawn arrows
+  (one-stroke hook, chevron, two-stroke V, shaft then V) and the full applied/revert/reject path now pin this. NOTE is
+  the only other op kind with an arrow (no move op exists). So a leftover arrow means the arrow was not recognised as
+  an arrow (stays plain ink), or went through notes(). (2) Real bug fixed in notes(): adjacency was measured against
+  the bounding box of the whole cluster, which grows with joined arrows, so a later unrelated arrow ending in that box
+  chained onto the note and was consumed. Now measured against the points of the cluster's own margin strokes only. An
+  arrow touching two clusters joins only the nearest (ties: topmost, then leftmost); documented in the KDoc.
 
 Lessons that outlive a session. Newest first.
 

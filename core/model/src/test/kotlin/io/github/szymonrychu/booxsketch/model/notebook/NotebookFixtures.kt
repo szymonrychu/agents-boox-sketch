@@ -80,6 +80,40 @@ object NotebookFixtures {
         tipY: Float,
     ) = Stroke(id, Tool.ARROW, 4f, listOf(Point(tailX, tailY, 1f, 0L), Point(tipX, tipY, 1f, 10L)))
 
+    /**
+     * The strokes of the recorded freehand fixture [name] (src/test/resources/freehand), ids "<name>-<i>", shifted by
+     * ([dx], [dy]).
+     */
+    fun freehand(
+        name: String,
+        dx: Float = 0f,
+        dy: Float = 0f,
+    ): List<Stroke> {
+        val text =
+            checkNotNull(NotebookFixtures::class.java.getResourceAsStream("/freehand/$name.json")) { "missing $name" }
+                .bufferedReader()
+                .readText()
+        val strokes = Regex("""(-?\d+\.?\d*), (-?\d+\.?\d*)""")
+        val body = text.substring(text.indexOf("\"strokes\""))
+        return body.split("]], [[").mapIndexed { i, one ->
+            Stroke(
+                "$name-$i",
+                Tool.BALLPOINT,
+                3f,
+                strokes
+                    .findAll(one)
+                    .mapIndexed { j, m ->
+                        Point(
+                            m.groupValues[1].toFloat() + dx,
+                            m.groupValues[2].toFloat() + dy,
+                            0.5f,
+                            j * 8L,
+                        )
+                    }.toList(),
+            )
+        }
+    }
+
     /** Y in the annotation band (upper half) of [row]. */
     fun annotationY(row: Int) = g.rowTop(row) + 26f
 
