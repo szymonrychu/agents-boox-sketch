@@ -97,6 +97,25 @@ object RunPlacer {
         return Placement(work.n.copy(appliedSpecVersion = version), work.dirty.toMap())
     }
 
+    /** True when a saved run was laid out at another scale than [TEXT_SCALE] (an older build shrank it to fit). */
+    fun needsRelayout(notebook: Notebook): Boolean = notebook.pages.any { p -> p.text.any { it.scale != TEXT_SCALE } }
+
+    /**
+     * Lays every run whose scale is not [TEXT_SCALE] out again at [TEXT_SCALE] with the wrap, column and row-shift
+     * rules of [apply] (the same placement step), for notebooks saved by older builds. Text, strokes, consumed ink,
+     * source strokes, undo-free row shifts and the applied spec version stay as they were.
+     */
+    fun relayout(
+        notebook: Notebook,
+        measure: TextMeasure,
+        geometry: NotebookGeometry,
+    ): Placement {
+        val work = Work(notebook, geometry, measure, null)
+        val stale = notebook.pages.flatMap { p -> p.text.filter { it.scale != TEXT_SCALE }.map { it.lineId } }
+        for (id in stale) work.relayoutRun(id)
+        return Placement(work.n, work.dirty.toMap())
+    }
+
     /**
      * Releases the pending segments and ops of uploads based on a version older than [version] (all of them when null),
      * limited to the uploads in [uploads] (client ids; all when null): their strokes become ordinary unsent ink again and
@@ -434,6 +453,12 @@ object RunPlacer {
                 )
             // Changed or not, the run is rendered again with the rest of the page (one size, nothing reused).
             put(i, run, replacing = old)
+        }
+
+        /** The run [lineId] fitted again at [TEXT_SCALE] where it stands (its row stays); rows below move as needed. */
+        fun relayoutRun(lineId: String) {
+            val (i, run) = checkNotNull(findRun(lineId))
+            put(i, run, replacing = run)
         }
 
         fun placeAtSegments(

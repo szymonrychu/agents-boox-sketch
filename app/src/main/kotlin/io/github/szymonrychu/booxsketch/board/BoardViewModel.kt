@@ -297,6 +297,17 @@ class BoardViewModel(
             swapTo(shelf, target, loaded, localId)
         }
 
+    /**
+     * A notebook saved by an older build may hold runs shrunk to fit; they are laid out again at the one text size
+     * before the board shows them (persisted by the save that follows the swap), so old pages match new ones.
+     */
+    private fun atOneTextSize(saved: Notebook): Notebook =
+        if (!RunPlacer.needsRelayout(saved)) {
+            saved
+        } else {
+            RunPlacer.relayout(saved, textLayers.layer.measure, NotebookGeometry(saved.canvas.w, saved.canvas.h)).notebook
+        }
+
     private suspend fun swapTo(
         shelf: NotebookFiles,
         target: NotebookStore,
@@ -305,7 +316,7 @@ class BoardViewModel(
     ) {
         val now = _notebook.value
         val adopted = loaded == null && now.conversationLocalId == null
-        val next = loaded ?: if (adopted) now else Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
+        val next = (loaded?.let(::atOneTextSize)) ?: if (adopted) now else Notebook(defaultCanvas, listOf(Page(emptyList(), false)), 0)
         store = target
         undoStack = UndoStack()
         _preview.value = null

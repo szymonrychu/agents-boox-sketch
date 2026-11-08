@@ -12,8 +12,10 @@ Lessons that outlive a session. Newest first.
 - Fix (the user asked to always render all text): every run is placed at the one `RunPlacer.TEXT_SCALE` (1, 40 px)
   and wraps at word boundaries when wider than its column, no shrink to fit (`MIN_SCALE` removed). Every kept run is
   marked changed on every version, and `NotebookSync` swaps the whole page (null dirty rect, one GU refresh, the mode
-  a text swap already used) whenever the shown page changed. Older notebooks with shrunk runs get scale 1 on the
-  next version. Hidden or consumed ink, revert and row shifts are unchanged.
+  a text swap already used) whenever the shown page changed. Older notebooks with shrunk runs are laid out
+  again at scale 1 when the conversation's notebook loads (`BoardViewModel.swapTo` -> `RunPlacer.relayout`, the same
+  `put` step as a version, no undo steps, applied version untouched) and saved at once, so it happens once; a revert
+  afterwards re-places every kept run at scale 1 anyway. Hidden or consumed ink, revert and row shifts are unchanged.
 - Tests changed: `RunPlacerTest.long_line_shrinks_to_85_percent` encoded the per-run shrink, replaced by
   `long_line_wraps_at_the_one_text_size`; `NotebookSyncTest.version_applies_runs_and_consumes` asserted a row-only
   dirty rect, now the whole page.
