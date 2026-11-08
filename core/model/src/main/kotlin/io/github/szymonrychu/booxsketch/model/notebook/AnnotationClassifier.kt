@@ -235,7 +235,7 @@ class AnnotationClassifier(
 
     /**
      * Note ops (contract 2.2.0) for the [margin] strokes: clusters of strokes whose boxes lie within [NOTE_GAP_CELLS]
-     * cells of each other, each with the arrows among [free] whose tail lies within [SNAP_RADIUS] of the cluster (an
+     * cells of each other, each with the arrows among [free] whose tail or tip lies within [SNAP_RADIUS] of the cluster (an
      * arrow touching several clusters joins them), so the note and its arrow are consumed together. Top to bottom,
      * strokes in drawing order; the rect bounds all of a note's strokes.
      */
@@ -258,7 +258,8 @@ class AnnotationClassifier(
 
         fun rect(ids: Set<String>) = ids.map { bounds(byId.getValue(it)) }.reduce(::unionOf)
         for (a in insertArrows(free)) {
-            val home = clusters.firstOrNull { pointGap(rect(it), a.tail) <= SNAP_RADIUS } ?: continue
+            val ends = listOf(a.tail, a.tip)
+            val home = clusters.firstOrNull { c -> ends.any { pointGap(rect(c), it) <= SNAP_RADIUS } } ?: continue
             val joined = clusters.filter { it == home || a.strokeIds.any { id -> id in it } }
             clusters.removeAll(joined)
             clusters += joined.flatten().toSet() + a.strokeIds

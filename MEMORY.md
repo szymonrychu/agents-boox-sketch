@@ -1,5 +1,14 @@
 # agents-boox-sketch memory
 
+- 2026-11-08 (T-78, fix/note-arrow-consumed): an applied margin note hid its text and loop but left its arrow. Cause
+  (reproduced, AnnotationClassifier.notes): an arrow joined a note cluster only when its tail lay within SNAP_RADIUS of
+  the cluster. Head strokes inside the margin were pulled into the note by the stroke-gap clustering, but a shaft whose
+  centre is in the text column and whose touching end is not the tail (arrow drawn towards the note) was left out, so
+  the note op's strokeIds lacked it and `RunPlacer.applyOps` never consumed it. Fix: the arrow joins the cluster that
+  either end (tail or tip) touches. Contract 2.2.0 unchanged (arrow strokes were already in the op's strokes). Applied,
+  revert and rejected paths needed no change; tests added for all three. Not covered: an arrow too curved or too far
+  from the note to be recognised as an arrow stays plain ink.
+
 Lessons that outlive a session. Newest first.
 
 ## 2026-11-08 One text size on the page, whole page redrawn on every version (fix/text-render-uniform, 0.19.3 report)

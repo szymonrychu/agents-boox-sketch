@@ -459,4 +459,55 @@ class AnnotationClassifierTest {
             )
         assertThat(r.notes.single().strokeIds).containsExactly("n1")
     }
+
+    @Test
+    fun looped_note_with_tool_arrow_without_text_runs_is_one_note_with_the_arrow() {
+        val r =
+            classify(
+                page(emptyList(), circle("L", 1150f, 450f, 100f), word("n1", 1080f, 1220f, 450f), arrow("A", 1050f, 450f, 240f, textY(4))),
+            )
+        assertThat(r.notes.single().strokeIds).containsExactly("L", "n1", "A")
+    }
+
+    @Test
+    fun looped_note_with_two_stroke_arrow_without_text_runs_is_one_note_with_the_arrow() {
+        val r =
+            classify(
+                page(
+                    emptyList(),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    *penArrow("A", 1050f, 450f, 240f, textY(4)).toTypedArray(),
+                ),
+            )
+        assertThat(r.notes.single().strokeIds).containsExactly("L", "n1", "A", "A-a", "A-b")
+    }
+
+    @Test
+    fun arrow_drawn_before_the_note_joins_the_note() {
+        val r =
+            classify(
+                page(
+                    emptyList(),
+                    *penArrow("A", 1030f, 450f, 700f, 450f).toTypedArray(),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                ),
+            )
+        assertThat(r.notes.single().strokeIds).containsExactly("L", "n1", "A", "A-a", "A-b")
+    }
+
+    @Test
+    fun arrow_whose_head_end_touches_the_loop_joins_the_note_with_its_shaft() {
+        val r =
+            classify(
+                page(
+                    emptyList(),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    *penArrow("A", 240f, textY(4), 1045f, 450f).toTypedArray(),
+                ),
+            )
+        assertThat(r.notes.single().strokeIds).containsExactly("L", "n1", "A", "A-a", "A-b")
+    }
 }
