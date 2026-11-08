@@ -1344,3 +1344,5 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   revert-restorable through the existing `RunPlacer.applyOps` path; rejected ones become `rejectedStrokes` and are never
   classified again. Why: the translator no longer applies margin ink that no op names, and without an op id the app
   could not hide the ink it applied, so the same note was re-sent and re-applied.
+
+- 2026-11-08: Diagnostics tab scrolls (verticalScroll inside the panel host weight(1f) Box) and lists the ink toggles and Refresh above the firmware brush/dump lines, so the long dump cannot push the controls off-screen.
