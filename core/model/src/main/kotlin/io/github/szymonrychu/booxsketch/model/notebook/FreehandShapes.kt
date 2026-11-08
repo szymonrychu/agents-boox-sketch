@@ -56,8 +56,10 @@ object FreehandShapes {
 
     private const val MAX_HEAD_STROKE = 0.6f * CELL
     private const val HEAD_TOUCH = 0.3f * CELL
-    private const val MIN_TICK_ARM = 5f
+    private const val MIN_TICK_ARM = 0.1f * CELL
     private const val MAX_TICK_ANGLE_DEG = 120.0
+    private const val MAX_TICK_BISECTOR_DEG = 60.0
+    private const val TICK_BACK_REACH = 0.5f * CELL
     private const val MAX_HEAD_STROKES = 2
 
     /** The loop drawn by [stroke], or null when it is not a freehand closed curve of at least ~1.5 cells. */
@@ -132,7 +134,7 @@ object FreehandShapes {
     }
 
     /** Straight shaft stroke plus a V head from one or two following strokes at either shaft end, or else a one-stroke
-     * tick or caret head (any orientation) whose sharp vertex sits on a shaft end. */
+     * tick or caret head whose sharp vertex sits on a shaft end. */
     private fun separateHeadArrow(
         strokes: List<Stroke>,
         startIndex: Int,
@@ -152,7 +154,10 @@ object FreehandShapes {
         }
         val next = rest.firstOrNull() ?: return null
         return ends.firstNotNullOfOrNull { (tip, tail) ->
-            FreehandArrow(listOf(shaftStroke.id, next.id), tail, tip).takeIf { isTickHead(next, tip) }
+            // Walk the shaft from the tip so a curved shaft is judged by its direction at the tip, not by its chord.
+            val fromTip = if (tip == shaft.last()) shaft.asReversed() else shaft
+            val back = fromTip.firstOrNull { dist(it, tip) >= TICK_BACK_REACH } ?: tail
+            FreehandArrow(listOf(shaftStroke.id, next.id), tail, tip).takeIf { isTickHead(next, tip, back) }
         }
     }
 
@@ -171,20 +176,26 @@ object FreehandShapes {
     }
 
     /** A tick or caret: at most two cells of path, its sharp interior vertex within [HEAD_TOUCH] of [tip], both arms at
-     * least [MIN_TICK_ARM] long and under [MAX_TICK_ANGLE_DEG] apart. The vertex check keeps curves and strokes that merely
-     * pass by out. */
+     * least [MIN_TICK_ARM] long, under [MAX_TICK_ANGLE_DEG] apart and opening back along the shaft (bisector within
+     * [MAX_TICK_BISECTOR_DEG] of the direction from [tip] to [back], a shaft point half a cell behind it). The vertex
+     * check keeps curves and strokes that merely pass by out. */
     private fun isTickHead(
         head: Stroke,
         tip: Vec,
+        back: Vec,
     ): Boolean {
-        if (head.tool.isShape || head.points.size < 3) return false
         val h = head.points.map { Vec(it.x, it.y) }
-        if (pathLength(h) > 2f * CELL) return false
+        if (head.tool.isShape || h.size < 3 || pathLength(h) > 2f * CELL) return false
         val v = h.indices.minBy { dist(h[it], tip) }
         if (dist(h[v], tip) > HEAD_TOUCH || v == 0 || v == h.lastIndex) return false
         val a = Vec(h.first().x - h[v].x, h.first().y - h[v].y)
         val b = Vec(h.last().x - h[v].x, h.last().y - h[v].y)
-        return hypot(a.x, a.y) >= MIN_TICK_ARM && hypot(b.x, b.y) >= MIN_TICK_ARM && angleDeg(a, b) < MAX_TICK_ANGLE_DEG
+        val la = hypot(a.x, a.y)
+        val lb = hypot(b.x, b.y)
+        if (la < MIN_TICK_ARM || lb < MIN_TICK_ARM || angleDeg(a, b) >= MAX_TICK_ANGLE_DEG) return false
+        // Both arms point back along the shaft: their bisector is roughly opposite the shaft direction at the tip.
+        val bisector = Vec(a.x / la + b.x / lb, a.y / la + b.y / lb)
+        return angleDeg(bisector, Vec(back.x - tip.x, back.y - tip.y)) <= MAX_TICK_BISECTOR_DEG
     }
 
     private fun isStraightShaft(pts: List<Vec>): Boolean {

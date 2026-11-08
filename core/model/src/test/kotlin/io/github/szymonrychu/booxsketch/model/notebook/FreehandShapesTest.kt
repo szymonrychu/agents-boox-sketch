@@ -166,8 +166,23 @@ class FreehandShapesTest {
     @Test
     fun straight_continuation_of_the_shaft_is_not_a_tick_head() {
         val shaft = pen("s", 100f, 500f, 400f, 500f)
-        val extension = pen("e", 400f, 500f, 440f, 500f)
+        val extension = pen("e", 380f, 500f, 400f, 500f, 440f, 500f)
         assertThat(FreehandShapes.arrow(listOf(shaft, extension), 0)).isNull()
+    }
+
+    @Test
+    fun separate_strokes_that_only_touch_a_shaft_end_are_not_tick_heads() {
+        val shaft = pen("s", 100f, 500f, 400f, 500f, 700f, 500f)
+        val shapes =
+            mapOf(
+                "L corner on the shaft end" to pen("t", 400f, 470f, 400f, 500f, 430f, 500f),
+                "L corner on the tail end" to pen("t", 700f, 470f, 700f, 500f, 730f, 500f),
+                "v across the shaft end" to pen("t", 685f, 470f, 700f, 500f, 715f, 470f),
+                "check mark" to pen("t", 690f, 490f, 700f, 500f, 740f, 450f),
+            )
+        for ((name, tick) in shapes) {
+            assertWithMessage(name).that(FreehandShapes.arrow(listOf(shaft, tick), 0)).isNull()
+        }
     }
 
     @Test
