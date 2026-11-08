@@ -130,17 +130,36 @@ class RunPlacerTest {
     }
 
     @Test
-    fun long_line_shrinks_to_85_percent() {
-        // 50 chars: 1000 px at scale 1 > 930 px column; 0.93 fits.
+    fun long_line_wraps_at_the_one_text_size() {
+        // 50 chars: 1000 px at scale 1 > 930 px column; no shrink to fit, it wraps at scale 1.
         val text = "a".repeat(50)
         val n = notebook(Page(emptyList(), false, text = listOf(run("L1", 2, "x"))))
         val r = apply(n, text, line("L1", 1, LineOrigin.Kept("L1"))).notebook.runs().single()
-        assertThat(r.wrapRows).isEqualTo(1)
-        assertThat(r.scale).isWithin(0.001f).of(0.93f)
-        // 60 chars never shrink below the floor: they wrap at 0.85.
+        assertThat(r.scale).isEqualTo(RunPlacer.TEXT_SCALE)
+        assertThat(r.wrapRows).isEqualTo(2)
         val wide = apply(n, "a".repeat(30) + " " + "b".repeat(29), line("L1", 1, LineOrigin.Kept("L1"))).notebook.runs().single()
-        assertThat(wide.scale).isEqualTo(RunPlacer.MIN_SCALE)
+        assertThat(wide.scale).isEqualTo(RunPlacer.TEXT_SCALE)
         assertThat(wide.wrapRows).isEqualTo(2)
+    }
+
+    @Test
+    fun every_line_gets_one_size_and_unchanged_lines_are_rendered_again() {
+        // Version 1 left L1 at an older shrunk size; version 2 changes only L2, to a line wider than the column.
+        val n =
+            notebook(
+                Page(
+                    emptyList(),
+                    false,
+                    text = listOf(run("L1", 2, "short").copy(scale = 0.9f), run("L2", 4, "x", sourceLine = 2)),
+                ),
+            )
+        val long = "word ".repeat(10) + "end"
+        val p = apply(n, "short\n$long", line("L1", 1, LineOrigin.Kept("L1")), line("L2", 2, LineOrigin.Kept("L2")))
+        val runs = p.notebook.runs()
+        assertThat(runs.map { it.scale }.toSet()).containsExactly(RunPlacer.TEXT_SCALE)
+        // The unchanged line is laid out and rendered again, not kept from the earlier render.
+        assertThat(p.changedRows[0]!!.contains(2)).isTrue()
+        assertThat(p.changedRows[0]!!.contains(4)).isTrue()
     }
 
     @Test

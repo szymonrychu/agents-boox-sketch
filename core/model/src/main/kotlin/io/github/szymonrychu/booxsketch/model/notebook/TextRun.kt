@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 /**
  * One rendered markdown source line placed on a notebook page. [display] is the source line with inline markup
  * stripped, [sourceMap] maps its offsets back to the source line, [wrapRows] is the number of rows a wrapped line
- * takes, [scale] the shrink factor (1 down to the 85 percent floor), [heading] marks a markdown heading (drawn bold).
+ * takes, [scale] the text scale (always [RunPlacer.TEXT_SCALE] once placed), [heading] marks a markdown heading (drawn bold).
  * [column] is the width in page px the placement fitted and wrapped the line in (0: up to the margin), so the text
  * layer wraps at the same offsets. [source] is the markdown source line itself (the text an op's quote is cut from);
  * it defaults to [display] for a line without markup.

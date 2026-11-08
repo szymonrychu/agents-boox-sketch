@@ -20,14 +20,15 @@ data class Placement(
  * Places the lines of a spec version on the notebook rows (spec 3.3, Q16 A). For every line in source order: a line
  * with a run keeps it (text, version and source line updated, refitted); a line from pending segments gets a new run
  * at the first segment's page, row and x0 and its strokes are consumed; any other line (origin null, OQ6 A; a kept
- * line with no run; an op line) gets a new row right after the previous line's run. Runs whose line is gone are
+ * line with no run; an op line) gets a new row right after the previous line's run. Every kept run is laid out and
+ * marked changed again, so the whole page text is rendered anew on every version. Runs whose line is gone are
  * removed first; on a revert their strokes become visible ink again (OQ2 A, the page counts as changed so Send picks
  * the ink up) and the old version's segment origins are ignored (segment ids repeat across uploads). Lines inside
  * fenced blocks, table rows and blank lines are never placed: their segments' strokes stay ink. A first shown line
  * with no anchor goes just above the next shown line's run or segment.
  *
- * Fit: at scale 1 when it fits the column (x0 to the margin, or to the next run or segment on the row), else shrunk
- * down to [MIN_SCALE], else wrapped at word boundaries at [MIN_SCALE]. A column narrower than [MIN_COLUMN_CELLS] cells
+ * Fit: every run at the one [TEXT_SCALE], wrapped at word boundaries when it is wider than the column (x0 to the
+ * margin, or to the next run or segment on the row). A column narrower than [MIN_COLUMN_CELLS] cells
  * is widened to that, moving x0 left when the margin is closer. Rows a line needs that hold other runs, ink or pending
  * segments move down by whole rows with everything below them; the ink moves through [UndoStack.shiftRows], which is
  * not an undo step and keeps the history aligned. An image region and its ink move (or overflow) as one unit. Rows
@@ -35,7 +36,8 @@ data class Placement(
  * above the earlier one there.
  */
 object RunPlacer {
-    const val MIN_SCALE = 0.85f
+    /** The one text scale of every run: lines never shrink to fit, so all text on the page has the same size. */
+    const val TEXT_SCALE = 1f
 
     /** The narrowest column a run is fitted in, in grid cells (about 15 characters at scale 1). */
     const val MIN_COLUMN_CELLS = 6
@@ -137,18 +139,15 @@ object RunPlacer {
         return rows.ifEmpty { listOf(0 until display.length) }
     }
 
-    /** Scale and row count of [display] in a [column] px wide column. */
+    /** Row count of [display] at [TEXT_SCALE] in a [column] px wide column. */
     fun fit(
         display: String,
         column: Float,
         measure: TextMeasure,
         bold: Boolean = false,
-    ): Pair<Float, Int> {
-        val full = measure.width(display, 1f, bold)
-        if (full <= column + FIT_SLACK) return 1f to 1
-        val scale = maxOf(MIN_SCALE, column / full)
-        if (measure.width(display, scale, bold) <= column + FIT_SLACK) return scale to 1
-        return MIN_SCALE to wrap(display, MIN_SCALE, column, measure, bold).size
+    ): Int {
+        if (measure.width(display, TEXT_SCALE, bold) <= column + FIT_SLACK) return 1
+        return wrap(display, TEXT_SCALE, column, measure, bold).size
     }
 
     private val HEADING = Regex("^\\s*#{1,6}\\s")
@@ -433,8 +432,8 @@ object RunPlacer {
                     heading = text.heading,
                     source = text.source,
                 )
-            val changed = run.display != old.display || run.colourSpans != old.colourSpans || run.heading != old.heading
-            put(i, run, replacing = old, dirty = changed)
+            // Changed or not, the run is rendered again with the rest of the page (one size, nothing reused).
+            put(i, run, replacing = old)
         }
 
         fun placeAtSegments(
@@ -449,7 +448,7 @@ object RunPlacer {
             val strokes = mine.flatMap { it.strokeIds }
             val p = page(i)
             setPage(i, p.copy(pendingSegments = p.pendingSegments - mine.toSet(), consumed = p.consumed + strokes))
-            put(i, newRun(lineId, text, first.row, first.x0, strokes), replacing = null, dirty = true)
+            put(i, newRun(lineId, text, first.row, first.x0, strokes), replacing = null)
         }
 
         fun placeAfter(
@@ -460,7 +459,7 @@ object RunPlacer {
             val anchor = findRun(prev)
             val i = anchor?.first ?: 0
             val row = anchor?.second?.let { it.row + it.wrapRows } ?: 0
-            put(i, newRun(lineId, text, row, g.textLeft.toFloat(), emptyList()), replacing = null, dirty = true, ownRowFree = false)
+            put(i, newRun(lineId, text, row, g.textLeft.toFloat(), emptyList()), replacing = null, ownRowFree = false)
         }
 
         /**
@@ -484,7 +483,7 @@ object RunPlacer {
             val (i, next) = anchor ?: (0 to 0)
             // The free row right above the anchor when there is one, so nothing moves.
             val row = if (next > 0 && !occupied(page(i), next - 1)) next - 1 else next
-            put(i, newRun(lineId, text, row, g.textLeft.toFloat(), emptyList()), replacing = null, dirty = true, ownRowFree = false)
+            put(i, newRun(lineId, text, row, g.textLeft.toFloat(), emptyList()), replacing = null, ownRowFree = false)
         }
 
         /**
@@ -495,20 +494,19 @@ object RunPlacer {
             i: Int,
             run: TextRun,
             replacing: TextRun?,
-            dirty: Boolean,
             ownRowFree: Boolean = true,
         ) {
             val others = page(i).text.filter { it !== replacing }
             val (x0, column) = column(run.x0, rightBound(page(i), run, others))
-            val (scale, rows) = fit(run.display, column, measure, run.heading)
-            val placed = run.copy(x0 = x0, column = column, scale = scale, wrapRows = rows)
+            val rows = fit(run.display, column, measure, run.heading)
+            val placed = run.copy(x0 = x0, column = column, scale = TEXT_SCALE, wrapRows = rows)
             setPage(i, page(i).copy(text = others))
             val from = if (ownRowFree) placed.row + 1 else placed.row
             val needed = from until placed.row + rows
             val firstTaken = needed.firstOrNull { occupied(page(i), it) }
             if (firstTaken != null) shift(i, firstTaken, placed.row + rows - firstTaken)
             setPage(i, page(i).copy(text = page(i).text + placed))
-            if (dirty || replacing?.wrapRows != rows) markDirty(i, placed.row until placed.row + maxOf(rows, replacing?.wrapRows ?: 0))
+            markDirty(i, placed.row until placed.row + maxOf(rows, replacing?.wrapRows ?: 0))
             // Only rows this placement pushed down (or a run placed past the foot) leave the page; ink the user wrote
             // in the foot stays where it is otherwise.
             if (firstTaken != null || placed.row + rows > g.rowCount) settleOverflow(i)
