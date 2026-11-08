@@ -169,11 +169,15 @@ object FreehandInsertMarks : InsertMarkFinder {
     }
 }
 
-/** The edit ops of a page, the strokes they use, and the margin strokes that are no op (sent as plain ink, OQ3 A). */
+/**
+ * The edit ops of a page, the strokes they use, the margin strokes that are no edit op, and the [OpKind.NOTE] ops that
+ * carry that margin ink (one per cluster, with the arrows drawn from it) to the translator.
+ */
 data class Classification(
     val ops: List<EditOp>,
     val opStrokeIds: Set<String>,
     val marginInk: List<String>,
+    val notes: List<EditOp> = emptyList(),
 )
 
 /**
@@ -184,8 +188,9 @@ data class Classification(
  * strikes over the same words of a run are one op), replaces (pen strokes centred in an annotation band, grouped by x
  * with a gap over one cell, over the words of a run on that row: replace those words). Targets are whole words, as
  * source offsets with the source text as quote. The ops come ordered by their line (row, then x0) and by x within a
- * line (Q13 A). Everything else is new handwriting for the [Segmenter]; margin strokes outside any insert are
- * [Classification.marginInk].
+ * line (Q13 A). Margin strokes outside any insert are [Classification.marginInk]; they become note ops before strikes
+ * and replaces run, so the arrow from a note is never read as a strike. Everything else is new handwriting for the
+ * [Segmenter].
  */
 class AnnotationClassifier(
     private val finders: List<InsertMarkFinder>,
@@ -215,12 +220,56 @@ class AnnotationClassifier(
                     ops += Placed(resolved.second, mark.tip.x) to op
                 }
             }
-            ops += strikes(candidates.filter { it.id !in used }, boxes, geometry, newId).onEach { used += it.second.strokeIds }
-            ops += replaces(candidates.filter { it.id !in used }, boxes, geometry, newId).onEach { used += it.second.strokeIds }
+        }
+        val margin = candidates.filter { it.id !in used && geometry.inMargin(centre(it).x) }
+        val notes = notes(margin, candidates.filter { it.id !in used }, geometry, newId)
+        val noted = notes.flatMap { it.strokeIds }.toSet()
+        if (boxes.isNotEmpty()) {
+            val free = { candidates.filter { it.id !in used && it.id !in noted } }
+            ops += strikes(free(), boxes, geometry, newId).onEach { used += it.second.strokeIds }
+            ops += replaces(free(), boxes, geometry, newId).onEach { used += it.second.strokeIds }
         }
         val ordered = ops.sortedWith(compareBy({ it.first.run.row }, { it.first.run.x0 }, { it.first.x })).map { it.second }
-        val margin = candidates.filter { it.id !in used && geometry.inMargin(centre(it).x) }.map { it.id }
-        return Classification(ordered, used, margin)
+        return Classification(ordered, used, margin.map { it.id }, notes)
+    }
+
+    /**
+     * Note ops (contract 2.2.0) for the [margin] strokes: clusters of strokes whose boxes lie within [NOTE_GAP_CELLS]
+     * cells of each other, each with the arrows among [free] whose tail lies within [SNAP_RADIUS] of the cluster (an
+     * arrow touching several clusters joins them), so the note and its arrow are consumed together. Top to bottom,
+     * strokes in drawing order; the rect bounds all of a note's strokes.
+     */
+    private fun notes(
+        margin: List<Stroke>,
+        free: List<Stroke>,
+        geometry: NotebookGeometry,
+        newId: () -> String,
+    ): List<EditOp> {
+        val gap = NOTE_GAP_CELLS * geometry.cell
+        val clusters = ArrayList<Set<String>>()
+        for (s in margin) {
+            val b = bounds(s)
+            val near = clusters.filter { c -> margin.any { it.id in c && rectGap(bounds(it), b) <= gap } }
+            clusters.removeAll(near)
+            clusters += near.flatten().toSet() + s.id
+        }
+        if (clusters.isEmpty()) return emptyList()
+        val byId = free.associateBy { it.id }
+
+        fun rect(ids: Set<String>) = ids.map { bounds(byId.getValue(it)) }.reduce(::unionOf)
+        for (a in insertArrows(free)) {
+            val home = clusters.firstOrNull { pointGap(rect(it), a.tail) <= SNAP_RADIUS } ?: continue
+            val joined = clusters.filter { it == home || a.strokeIds.any { id -> id in it } }
+            clusters.removeAll(joined)
+            clusters += joined.flatten().toSet() + a.strokeIds
+        }
+        return clusters
+            .map { it to rect(it) }
+            .sortedWith(compareBy({ it.second.t }, { it.second.l }))
+            .map { (ids, r) ->
+                val strokeIds = free.map { it.id }.filter { it in ids }
+                EditOp(newId(), OpKind.NOTE, strokeIds = strokeIds, rect = listOf(r.l, r.t, r.r - r.l, r.b - r.t))
+            }
     }
 
     /** Where an op sits for ordering: its line's run and its x. */
@@ -361,8 +410,32 @@ class AnnotationClassifier(
     private companion object {
         /** A stroke spanning more rows than this is drawing, as in [Segmenter]. */
         const val MAX_ROWS_SPANNED = 1.5f
+
+        /** Margin strokes this many grid cells apart or closer are one note. */
+        const val NOTE_GAP_CELLS = 1f
     }
 }
+
+/** Bounding box of a stroke's points. */
+private fun bounds(s: Stroke): RectF =
+    RectF(s.points.minOf { it.x }, s.points.minOf { it.y }, s.points.maxOf { it.x }, s.points.maxOf { it.y })
+
+private fun unionOf(
+    a: RectF,
+    b: RectF,
+): RectF = RectF(minOf(a.l, b.l), minOf(a.t, b.t), maxOf(a.r, b.r), maxOf(a.b, b.b))
+
+/** Distance between two boxes, 0 when they touch or overlap. */
+private fun rectGap(
+    a: RectF,
+    b: RectF,
+): Float = hypot(maxOf(0f, a.l - b.r, b.l - a.r), maxOf(0f, a.t - b.b, b.t - a.b))
+
+/** Distance from [p] to box [r], 0 inside it. */
+private fun pointGap(
+    r: RectF,
+    p: Vec,
+): Float = hypot(maxOf(0f, r.l - p.x, p.x - r.r), maxOf(0f, r.t - p.y, p.y - r.b))
 
 /** Centre of a stroke's bounding box. */
 internal fun centre(s: Stroke): Vec =

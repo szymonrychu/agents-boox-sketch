@@ -393,4 +393,70 @@ class AnnotationClassifierTest {
         assertThat(op.strokeIds).containsExactly("n1", "L", "A", "A-a", "A-b", "T-a", "T-b")
         assertThat(r.marginInk).isEmpty()
     }
+
+    @Test
+    fun bare_margin_note_with_arrow_into_text_is_one_note_op() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    word("n1", 1050f, 1200f, 450f),
+                    *penArrow("A", 1040f, 450f, 400f, textY(4)).toTypedArray(),
+                ),
+            )
+        assertThat(r.ops).isEmpty()
+        val note = r.notes.single()
+        assertThat(note.kind).isEqualTo(OpKind.NOTE)
+        assertThat(note.target).isNull()
+        assertThat(note.at).isNull()
+        assertThat(note.strokeIds).containsExactly("n1", "A", "A-a", "A-b")
+        // The rect bounds the note and its arrow: x 400..1200 from y 442 (the top of the note).
+        assertThat(note.rect!!.take(3)).containsExactly(400f, 442f, 800f).inOrder()
+        assertThat(r.marginInk).containsExactly("n1")
+    }
+
+    @Test
+    fun looped_note_is_insert_not_note() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    circle("L", 1150f, 450f, 100f),
+                    word("n1", 1080f, 1220f, 450f),
+                    *penArrow("A", 1050f, 450f, 240f, textY(4)).toTypedArray(),
+                ),
+            )
+        assertThat(r.ops.single().kind).isEqualTo(OpKind.INSERT)
+        assertThat(r.notes).isEmpty()
+    }
+
+    @Test
+    fun margin_clusters_split_by_gap_are_one_note_each_top_first() {
+        val r =
+            classify(
+                page(
+                    emptyList(),
+                    word("d3", 1000f, 1100f, 1600f),
+                    word("d1", 1000f, 1100f, 1200f),
+                    word("d2", 1120f, 1250f, 1210f),
+                ),
+            )
+        assertThat(r.ops).isEmpty()
+        assertThat(r.notes.map { it.kind }).containsExactly(OpKind.NOTE, OpKind.NOTE)
+        assertThat(r.notes.map { it.strokeIds }).containsExactly(listOf("d1", "d2"), listOf("d3")).inOrder()
+        assertThat(r.notes[0].rect).containsExactly(1000f, 1192f, 250f, 26f).inOrder()
+    }
+
+    @Test
+    fun arrow_far_from_any_margin_cluster_is_not_in_a_note() {
+        val r =
+            classify(
+                page(
+                    listOf(milk),
+                    word("n1", 1050f, 1200f, 450f),
+                    arrow("A", 1100f, 900f, 240f, textY(4)),
+                ),
+            )
+        assertThat(r.notes.single().strokeIds).containsExactly("n1")
+    }
 }

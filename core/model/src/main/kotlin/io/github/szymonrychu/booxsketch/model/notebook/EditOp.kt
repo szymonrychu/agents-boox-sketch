@@ -3,7 +3,7 @@ package io.github.szymonrychu.booxsketch.model.notebook
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class OpKind { REPLACE, DELETE, INSERT, IMAGE }
+enum class OpKind { REPLACE, DELETE, INSERT, IMAGE, NOTE }
 
 @Serializable
 enum class AtMode { INLINE, AFTER_LINE }

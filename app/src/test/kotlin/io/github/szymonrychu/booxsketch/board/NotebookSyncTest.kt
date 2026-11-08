@@ -254,9 +254,9 @@ class NotebookSyncTest {
     private val delete = EditOp("op-1", OpKind.DELETE, OpTarget("L1", 4, 14, "fresh milk"), strokeIds = listOf("s"))
 
     /** A board showing v1 ("buy fresh milk" on row 4) with a strike sent as op-1 in upload c1. */
-    private fun TestScope.struckBoard(): BoardViewModel {
+    private fun TestScope.struckBoard(op: EditOp = delete): BoardViewModel {
         val store = NotebookStore(File(tmp.root, "struck.json"))
-        val page = Page(listOf(strike), false, text = listOf(milk), pendingOps = listOf(PendingOp("c1", delete)))
+        val page = Page(listOf(strike), false, text = listOf(milk), pendingOps = listOf(PendingOp("c1", op)))
         store.save(Notebook(canvas, listOf(page), 0, appliedSpecVersion = 1))
         return BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
     }
@@ -341,6 +341,35 @@ class NotebookSyncTest {
             assertThat(latest.specVersion).isEqualTo(2)
             // The connector cursor ignores the local note.
             assertThat(db.feedbackDao().maxId("srv")).isEqualTo(1)
+        }
+
+    @Test
+    fun rejected_note_op_shows_the_translators_reason() =
+        runTest {
+            val vm = struckBoard(EditOp("op-1", OpKind.NOTE, strokeIds = listOf("s"), rect = listOf(0f, 0f, 10f, 10f)))
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            val layout =
+                """{"lines":[{"line_id":"L1","source_line":1,"origin":{"kept":"L1"}}],""" +
+                    """"ops":[{"id":"op-1","status":"rejected","note":"unreadable"}]}"""
+            db.specDao().upsert(SpecEntity("srv", 2, "buy fresh milk", "2026-11-07T00:00:00Z", "[]", layout))
+            NotebookSync(
+                db.specDao(),
+                vm,
+                holds,
+                main = dispatcher,
+                worker = dispatcher,
+                feedback = db.feedbackDao(),
+                now = { "2026-11-07T10:00:00Z" },
+            ).onVersion("srv", "local", 2)
+            val latest =
+                db
+                    .feedbackDao()
+                    .observe("srv")
+                    .first()
+                    .first()
+            assertThat(latest.text).isEqualTo("Note not applied: unreadable")
         }
 
     @Test

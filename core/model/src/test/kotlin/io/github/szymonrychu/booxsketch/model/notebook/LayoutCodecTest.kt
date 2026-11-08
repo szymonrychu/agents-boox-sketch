@@ -124,6 +124,17 @@ class LayoutCodecTest {
         assertThat(ops[1]["kind"]!!.jsonPrimitive.content).isEqualTo("image")
     }
 
+    @Test
+    fun note_op_carries_strokes_and_rect_only() {
+        val page = Page(listOf(stroke("a"), stroke("b"), stroke("c")), true)
+        val note = EditOp("n1", OpKind.NOTE, strokeIds = listOf("b", "c"), rect = listOf(990f, 300f, 200f, 90f))
+        val wire = parse(LayoutCodec.encode(page, geometry, emptyList(), listOf(note)))["ops"]!!.jsonArray.single().jsonObject
+        assertThat(wire["kind"]!!.jsonPrimitive.content).isEqualTo("note")
+        assertThat(indices(wire)).containsExactly(1, 2).inOrder()
+        assertThat(wire["rect"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("990.0", "300.0", "200.0", "90.0").inOrder()
+        assertThat(wire.keys).containsExactly("id", "kind", "strokes", "rect")
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun unknown_stroke_id_is_refused() {
         val page = Page(listOf(stroke("a")), true, consumed = setOf("a"))

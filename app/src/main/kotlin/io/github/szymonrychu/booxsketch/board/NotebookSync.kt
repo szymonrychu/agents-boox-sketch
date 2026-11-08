@@ -10,6 +10,7 @@ import io.github.szymonrychu.booxsketch.data.ThreadDao
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.notebook.LineOrigin
+import io.github.szymonrychu.booxsketch.model.notebook.OpKind
 import io.github.szymonrychu.booxsketch.model.notebook.OpStatusModel
 import io.github.szymonrychu.booxsketch.model.notebook.Placement
 import io.github.szymonrychu.booxsketch.model.notebook.SpecLayoutModel
@@ -179,12 +180,12 @@ class NotebookSync(
         for (status in layout.ops.filter { !it.applied }) {
             val (page, op) = sent[status.id] ?: continue
             val what = op.target?.let { "${op.kind.name.lowercase()} \"${it.quote}\"" } ?: op.kind.name.lowercase()
-            val text =
-                "Edit not applied ($what)" +
-                    status.note
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { ": $it" }
-                        .orEmpty()
+            val reason =
+                status.note
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { ": $it" }
+                    .orEmpty()
+            val text = if (op.kind == OpKind.NOTE) "Note not applied$reason" else "Edit not applied ($what)$reason"
             val id = minOf(0, dao.minId(conversationServerId) ?: 0) - 1
             dao.upsert(FeedbackEntity(conversationServerId, id, "note", text, "page ${page + 1}", version, now()))
         }

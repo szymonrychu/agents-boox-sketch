@@ -195,7 +195,7 @@ data class RegionDto(
     @SerialName("after_line") val afterLine: String? = null,
 )
 
-/** The `EditOp` schema; [kind] is `replace`, `delete`, `insert` or `image`. */
+/** The `EditOp` schema; [kind] is `replace`, `delete`, `insert`, `image` or `note` (strokes and rect only). */
 @Serializable
 data class EditOpDto(
     val id: String,

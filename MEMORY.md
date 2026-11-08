@@ -1299,3 +1299,14 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   un-consumes the op strokes consumed by versions after N, marks the page changed and the rows dirty. Keyed on the version,
   not on a line vanishing, because an inline insert has no run. Why: segment ink was already restored on revert (OQ2 A);
   op ink stayed hidden forever and the user lost handwriting.
+- 2026-11-08 (T-78): margin ink goes to the translator as `note` ops (connector contract 2.2.0, route 2 of the
+  stroke-removal research). `AnnotationClassifier` clusters the margin strokes no insert claims (`marginInk`) by box gap
+  of up to one cell, adds each arrow (tool or freehand) whose tail lies within `SNAP_RADIUS` of a cluster (an arrow
+  touching two clusters joins them), and returns one `OpKind.NOTE` op per cluster in `Classification.notes` (strokes in
+  drawing order, rect = bounds of all its strokes, top to bottom). Notes run after inserts and before strikes and
+  replaces, so a note's arrow head is never read as a strike. `notes` is a separate field so `ops` and `opStrokeIds`
+  keep meaning edit ops with a target. `SendUseCase` sends notes after the edit ops only on a page that has a layout
+  anyway (segments, runs or edit/image ops): a plain drawing page stays a picture. Applied notes are consumed and
+  revert-restorable through the existing `RunPlacer.applyOps` path; rejected ones become `rejectedStrokes` and are never
+  classified again. Why: the translator no longer applies margin ink that no op names, and without an op id the app
+  could not hide the ink it applied, so the same note was re-sent and re-applied.
