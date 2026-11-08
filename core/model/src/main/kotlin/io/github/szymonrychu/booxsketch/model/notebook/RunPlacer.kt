@@ -64,7 +64,8 @@ object RunPlacer {
                 .toSet()
         val revert = layout.revertedFrom != null
         work.dropRuns(shown, unconsume = revert)
-        work.applyOps(layout.ops)
+        layout.revertedFrom?.let { work.restoreOpStrokes(it) }
+        work.applyOps(layout.ops, version)
         work.dropUnreferencedRegions(ImageRegions.referencedIds(markdown).toSet())
 
         // A revert copies the old version's origins: its segment ids may match new, unanswered handwriting.
@@ -250,10 +251,28 @@ object RunPlacer {
         }
 
         /**
-         * Reported ops leave the pending list; a rejected op keeps its ink. An applied op's strokes are consumed, except
-         * an image op's: its ink is the picture and stays, its region stroke becomes an applied region (spec 3.6).
+         * A revert to version [target] undoes the edit ops applied by later versions: their strokes are visible ink
+         * again and the page counts as changed, so Send re-offers them (the OQ2 A rule, keyed on the version).
          */
-        fun applyOps(ops: List<OpStatusModel>) {
+        fun restoreOpStrokes(target: Int) {
+            for (i in n.pages.indices) {
+                val p = page(i)
+                val back = p.opConsumedAt.filterValues { it > target }.keys
+                if (back.isEmpty()) continue
+                setPage(i, p.copy(consumed = p.consumed - back, opConsumedAt = p.opConsumedAt - back, changedSinceSend = true))
+                markDirty(i, 0 until g.rowCount)
+            }
+        }
+
+        /**
+         * Reported ops leave the pending list; a rejected op keeps its ink. An applied op's strokes are consumed (and
+         * recorded as consumed by [version]), except an image op's: its ink is the picture and stays, its region stroke
+         * becomes an applied region (spec 3.6).
+         */
+        fun applyOps(
+            ops: List<OpStatusModel>,
+            version: Int,
+        ) {
             if (ops.isEmpty()) return
             val byId = ops.associateBy { it.id }
             for (i in n.pages.indices) {
@@ -279,6 +298,7 @@ object RunPlacer {
                     p.copy(
                         pendingOps = p.pendingOps - done.toSet(),
                         consumed = p.consumed + edits.flatMap { it.op.strokeIds },
+                        opConsumedAt = p.opConsumedAt + edits.flatMap { it.op.strokeIds }.associateWith { version },
                         // A rejected image op returns its region to pending (sent again); its ink is not rejected ink.
                         rejectedStrokes = p.rejectedStrokes + rejected.filter { it.op.kind != OpKind.IMAGE }.flatMap { it.op.strokeIds },
                         appliedRegions = p.appliedRegions + regions,

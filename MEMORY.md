@@ -1249,3 +1249,9 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   (Q12 C). The classifier's `used` set stops two finders claiming the same strokes; non-insert margin ink stays
   ordinary ink (OQ3 A).
 - Device number to record: misses over 10 freehand loop plus arrow tries (docs/device-checklist.md).
+- 2026-11-08 (T-78): strokes consumed by an applied edit op (replace, delete, insert) stay hidden but are restored on a
+  revert that undoes the edit (option C of the stroke-removal research). `Page.opConsumedAt` (stroke id -> version that
+  consumed it, default empty so old notebook JSON loads) is set in `RunPlacer.applyOps`; a layout with `reverted_from` = N
+  un-consumes the op strokes consumed by versions after N, marks the page changed and the rows dirty. Keyed on the version,
+  not on a line vanishing, because an inline insert has no run. Why: segment ink was already restored on revert (OQ2 A);
+  op ink stayed hidden forever and the user lost handwriting.

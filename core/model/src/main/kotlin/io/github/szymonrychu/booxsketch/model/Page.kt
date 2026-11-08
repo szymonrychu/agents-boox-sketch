@@ -24,6 +24,11 @@ data class Page(
      * references `images/<region id>.png` (a revert or a rewrite): the region is pending again.
      */
     val appliedRegions: Map<String, String> = emptyMap(),
+    /**
+     * Stroke id to the spec version whose applied edit op consumed it. A revert to a version older than that one
+     * un-consumes the stroke again (inline inserts have no run to key on).
+     */
+    val opConsumedAt: Map<String, Int> = emptyMap(),
 ) {
     /** The strokes that are drawn and exported: [strokes] minus [consumed] and the [appliedRegions] frames. */
     val visibleStrokes: List<Stroke>

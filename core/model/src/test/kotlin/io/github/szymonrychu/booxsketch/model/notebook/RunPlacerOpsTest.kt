@@ -73,6 +73,50 @@ class RunPlacerOpsTest {
         assertThat(p.changedRows[0]!!.contains(4)).isTrue()
     }
 
+    private fun consumedByOpAt2(): Notebook {
+        val above = mark("w", g.rowTop(4) + 26f)
+        val op = EditOp("op1", OpKind.REPLACE, OpTarget("L1", 4, 9, "fresh"), strokeIds = listOf("w"))
+        val n = withOp(notebook(Page(listOf(above), false, text = listOf(run("L1", 4, "buy fresh milk")))), op)
+        return applyOps(n, "buy organic milk", listOf(OpStatusModel("op1", true)), line("L1", 1, LineOrigin.Kept("L1"))).notebook
+    }
+
+    private fun revertTo(
+        n: Notebook,
+        from: Int,
+    ) = RunPlacer.apply(
+        n,
+        3,
+        "buy fresh milk",
+        SpecLayoutModel(listOf(line("L1", 1, LineOrigin.Kept("L1"))), revertedFrom = from),
+        measure,
+        g,
+    )
+
+    @Test
+    fun applied_op_records_the_version_that_consumed_its_strokes() {
+        assertThat(consumedByOpAt2().pages[0].opConsumedAt).containsExactly("w", 2)
+    }
+
+    @Test
+    fun revert_to_a_version_before_the_op_restores_its_strokes() {
+        val p = revertTo(consumedByOpAt2(), 1)
+        val page = p.notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.opConsumedAt).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("w")
+        assertThat(page.changedSinceSend).isTrue()
+        assertThat(p.changedRows[0]).isNotNull()
+    }
+
+    @Test
+    fun revert_to_a_version_after_the_op_keeps_its_strokes_hidden() {
+        val p = revertTo(consumedByOpAt2(), 2)
+        val page = p.notebook.pages[0]
+        assertThat(page.consumed).containsExactly("w")
+        assertThat(page.opConsumedAt).containsExactly("w", 2)
+        assertThat(page.changedSinceSend).isFalse()
+    }
+
     @Test
     fun rejected_op_keeps_ink() {
         val above = mark("w", g.rowTop(4) + 26f)

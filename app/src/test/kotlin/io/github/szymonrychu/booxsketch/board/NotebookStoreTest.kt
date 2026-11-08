@@ -33,6 +33,14 @@ class NotebookStoreTest {
     }
 
     @Test
+    fun round_trips_the_version_that_consumed_op_strokes() {
+        val store = NotebookStore(File(tmp.root, "notebook.json"))
+        val page = notebook.pages[0].copy(consumed = setOf("a"), opConsumedAt = mapOf("a" to 3))
+        store.save(notebook.copy(pages = listOf(page, notebook.pages[1])))
+        assertThat(store.load()!!.pages[0].opConsumedAt).containsExactly("a", 3)
+    }
+
+    @Test
     fun load_is_null_without_file_or_with_garbage() {
         val f = File(tmp.root, "notebook.json")
         val store = NotebookStore(f)
@@ -73,6 +81,7 @@ class NotebookStoreTest {
         assertThat(nb.pages[0].consumed).isEmpty()
         assertThat(nb.pages[0].pendingSegments).isEmpty()
         assertThat(nb.pages[0].pendingOps).isEmpty()
+        assertThat(nb.pages[0].opConsumedAt).isEmpty()
         assertThat(nb.conversationLocalId).isNull()
     }
 }
