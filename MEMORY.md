@@ -1350,10 +1350,12 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
 ## 2026-11-08 Live ink toggles removed, stale firmware pen config cleared (T-78)
 
 - Probable cause of the pressure-sensitive live ink: a stale firmware region pen config left behind by v0.18.x/v0.19.0,
-  which shipped the "Region pen config" toggle on and never cleared the config after a process death. The user's tablet
-  reboot cleared it and v0.19.2 was then correct.
-- Confirmed only by "works after reboot on v0.19.2", not by a toggle A/B test; the toggles had no visible effect after the
-  reboot.
+  which shipped the "Region pen config" toggle on and never cleared the config after a process death. The user did not
+  reboot. On v0.19.2 the live ink was correct after the user flipped the Diagnostics toggles (flipping "Region pen
+  config" calls the firmware clear) and/or after installing v0.19.2, so one of those most likely cleared the stale
+  config.
+- Not proven: this is not a controlled toggle test, so the effect of each toggle flip and of the v0.19.2 install is not
+  isolated.
 - Removed the "Vendor resume order" and "Region pen config" toggles completely (InkExperiments, InkExperimentPrefs, the
   Diagnostics buttons, the vendor resume order path with its 500 ms colour-device delay, the region config write path).
   The pen is exactly v0.19.2 with both toggles off, keeping the forced pause after every open and the pen-release dismiss.
