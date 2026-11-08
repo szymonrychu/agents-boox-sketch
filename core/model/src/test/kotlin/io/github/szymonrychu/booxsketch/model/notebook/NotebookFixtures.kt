@@ -5,6 +5,12 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /** Notebook pages for the annotation tests: the board geometry, a 20 px per char measure, runs and strokes. */
 object NotebookFixtures {
@@ -124,4 +130,34 @@ object NotebookFixtures {
         runs: List<TextRun>,
         vararg strokes: Stroke,
     ) = Page(strokes.toList(), true, text = runs)
+
+    /** The strokes of the recorded freehand fixture `/freehand/[name].json`, ids `<name>-<index>`. */
+    fun freehand(name: String): List<Stroke> {
+        val text =
+            checkNotNull(NotebookFixtures::class.java.getResourceAsStream("/freehand/$name.json")) { "missing $name" }
+                .bufferedReader()
+                .readText()
+        val root: JsonObject = Json.parseToJsonElement(text).jsonObject
+        val strokes: JsonArray = root.getValue("strokes").jsonArray
+        return strokes.mapIndexed { i, s ->
+            Stroke(
+                id = "$name-$i",
+                tool = Tool.BALLPOINT,
+                width = 3f,
+                points =
+                    s.jsonArray.mapIndexed { j, p ->
+                        Point(
+                            p.jsonArray[0]
+                                .jsonPrimitive.content
+                                .toFloat(),
+                            p.jsonArray[1]
+                                .jsonPrimitive.content
+                                .toFloat(),
+                            0.5f,
+                            j * 8L,
+                        )
+                    },
+            )
+        }
+    }
 }
