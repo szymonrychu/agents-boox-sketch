@@ -121,7 +121,7 @@ class NotebookSync(
         layout: SpecLayoutModel?,
         measure: TextMeasure,
         answered: Set<String>,
-    ) = layout?.let { placeVersion(version, markdown, it, measure, answered) } ?: previewRelease(version, answered)
+    ) = layout?.let { placeVersion(version, markdown, it, measure, answered) } ?: previewRelease(version, answered, markdown)
 
     private fun BoardViewModel.place(
         version: Int,
@@ -129,7 +129,7 @@ class NotebookSync(
         layout: SpecLayoutModel?,
         measure: TextMeasure,
         answered: Set<String>,
-    ) = layout?.let { applyVersion(version, markdown, it, measure, answered) } ?: releasePending(version, answered)
+    ) = layout?.let { applyVersion(version, markdown, it, measure, answered) } ?: releasePending(version, answered, markdown)
 
     /** The client ids of the uploads whose stored sketch id is among the [sketchIds] (JSON list) a version was made from. */
     private suspend fun answeredUploads(sketchIds: String): Set<String> {

@@ -311,4 +311,42 @@ class RunPlacerRegionTest {
         assertThat(twice.pages[0].strokes.map { it.id }).containsExactly("a", "ink5")
         assertThat(undo.redo(undo.redo(twice)).pages[0].strokes).isEqualTo(placed.pages[0].strokes)
     }
+
+    private fun pictureBoard() =
+        notebook(Page(listOf(regionStroke("r", 4, 9), stroke("in", 6)), false, pendingOps = listOf(imageOp("op1", "r", "in"))))
+
+    @Test
+    fun picture_referenced_by_a_version_without_ops_is_applied() {
+        val p =
+            RunPlacer.apply(
+                pictureBoard(),
+                1,
+                "![image](images/reg-op1.png)",
+                SpecLayoutModel(listOf(line("L1", 1, null)), emptyList()),
+                measure,
+                g,
+                answeredUploads = setOf("c1"),
+            )
+        val after = p.notebook.pages[0]
+        assertThat(after.appliedRegions).containsExactly("r", "reg-op1")
+        assertThat(after.pendingOps).isEmpty()
+    }
+
+    @Test
+    fun release_applies_referenced_pictures_without_a_layout() {
+        val p = RunPlacer.releasePending(pictureBoard(), 1, g, setOf("c1"), setOf("reg-op1"))
+        val after = p.notebook.pages[0]
+        assertThat(after.appliedRegions).containsExactly("r", "reg-op1")
+        assertThat(after.pendingOps).isEmpty()
+    }
+
+    @Test
+    fun unreferenced_picture_is_released_for_a_resend() {
+        val p = RunPlacer.releasePending(pictureBoard(), 1, g, setOf("c1"), emptySet())
+        val after = p.notebook.pages[0]
+        assertThat(after.appliedRegions).isEmpty()
+        assertThat(after.pendingOps).isEmpty()
+        assertThat(after.changedSinceSend).isTrue()
+        assertThat(ImageRegions.unsent(after).map { it.id }).containsExactly("r")
+    }
 }
