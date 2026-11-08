@@ -39,11 +39,20 @@ data class PairedDto(
     override fun toString() = "PairedDto(deviceId=$deviceId, name=$name, plugin=$plugin, token=***)"
 }
 
-/** One page entry of the upload `meta`: its index and canvas. */
+/** A freehand picture of a page: [rect] is `[x, y, w, h]` in page px, [part] the form part holding its PNG crop. */
+@Serializable
+data class PictureRegionDto(
+    val id: String,
+    val rect: List<Float>,
+    val part: String,
+)
+
+/** One page entry of the upload `meta`: its index, canvas and picture regions. */
 @Serializable
 data class PageMetaDto(
     val page: Int,
     val canvas: Canvas,
+    val regions: List<PictureRegionDto> = emptyList(),
 )
 
 /** The `meta` form field of a sketch upload. [conversation] is `current` or `new`. */
