@@ -26,6 +26,7 @@ import io.github.szymonrychu.booxsketch.model.notebook.OpKind
 import io.github.szymonrychu.booxsketch.model.notebook.OpTarget
 import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
+import io.github.szymonrychu.booxsketch.model.notebook.RegionRef
 import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.testing.FreezingInput
@@ -495,6 +496,33 @@ class NotebookSyncTest {
             assertThat(vm.overlayFor(vm.notebook.value)).hasSize(1)
         }
 
+    @Test
+    fun first_version_referencing_a_picture_marks_it_applied() =
+        runTest {
+            val store = NotebookStore(File(tmp.root, "picture.json"))
+            val region = Stroke("r", Tool.IMAGE_REGION, 3f, listOf(Point(100f, 400f, 1f, 0L), Point(700f, 900f, 1f, 1L)))
+            val op =
+                EditOp(
+                    "op1",
+                    OpKind.IMAGE,
+                    strokeIds = listOf("r"),
+                    rect = listOf(100f, 400f, 600f, 500f),
+                    region = RegionRef("reg-1", "region.0.0.png", null),
+                )
+            store.save(Notebook(canvas, listOf(Page(listOf(region), false, pendingOps = listOf(PendingOp("c1", op)))), 0))
+            val vm = BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
+            sendFrom("c1", "sk1")
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime })
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            advanceTimeBy(1_000)
+            db.specDao().upsert(SpecEntity("srv", 1, "![image](images/reg-1.png)\n", "2026-11-07T00:00:00Z", """["sk1"]""", null))
+            NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher, threads = db.threadDao())
+                .onVersion("srv", "local", 1)
+            val page = vm.notebook.value.pages[0]
+            assertThat(page.appliedRegions).containsExactly("r", "reg-1")
+            assertThat(page.pendingOps).isEmpty()
+        }
+
     /** The upload [clientId] was acknowledged by the connector as sketch [sketchId]. */
     private suspend fun sendFrom(
         clientId: String,
@@ -554,7 +582,7 @@ class NotebookSyncTest {
         runTest {
             val vm = struckBoard()
             advanceTimeBy(1_000)
-            vm.releasePending(null)
+            vm.releasePending(null, null, "")
             val page = vm.notebook.value.pages[0]
             assertThat(page.pendingOps).isEmpty()
             assertThat(page.visibleStrokes.map { it.id }).containsExactly("s")

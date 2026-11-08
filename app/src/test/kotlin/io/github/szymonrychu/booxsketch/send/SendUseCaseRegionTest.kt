@@ -241,44 +241,75 @@ class SendUseCaseRegionTest {
         }
 
     @Test
-    fun without_a_spec_version_regions_go_as_drawing_without_ops() =
+    fun first_send_regions_become_meta_pictures_not_ops() =
         runBlocking<Unit> {
             db.specDao().deleteFor("srv-1")
             board.notebook =
                 Notebook(CANVAS, listOf(Page(listOf(region("r", 4, 9), writing("in", 6, 200f, 400f), writing("w", 12)), true)), 0)
             val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
-            // The connector needs base_version for any op: no op, no region part, but the picture is still not transcribed.
+            // No base version, so no op: the layout has the segments only and the picture rides the page meta.
             val layout = layoutOf(clientId)
             assertThat(layout.ops).isEmpty()
             assertThat(layout.segments.flatMap { it.strokes }).containsExactly(2)
-            assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
-            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+            val picture =
+                Payload
+                    .readPages(dir(clientId))
+                    .pages[0]
+                    .regions
+                    .single()
+            assertThat(picture.part).isEqualTo("region.0.0.png")
+            assertThat(picture.rect).containsExactly(100f, g.rowTop(4).toFloat(), 600f, (g.rowTop(9) - g.rowTop(4)).toFloat()).inOrder()
+            assertThat(File(dir(clientId), "region.0.0.png").readBytes()).isEqualTo(ByteArray(32) { 7 })
+            assertThat(
+                board.notebook.pages[0]
+                    .pendingOps
+                    .single()
+                    .op.region!!
+                    .id,
+            ).isEqualTo(picture.id)
+            OutboxRunner(db, { client }, onNeedsPairing = {}, schedule = {}).drain()
+            val upload = requests.single { it.path.orEmpty().endsWith("/sketches") }
+            assertThat(partsOf(upload)).contains("region.0.0.png")
+            assertThat(upload.body.clone().readUtf8()).contains("\"regions\":[{")
         }
 
     @Test
-    fun region_sent_as_op_after_first_version_without_other_changes() =
+    fun a_picture_already_sent_is_not_sent_again() =
+        runBlocking<Unit> {
+            db.specDao().deleteFor("srv-1")
+            board.notebook = Notebook(CANVAS, listOf(Page(listOf(region("r", 4, 9), writing("in", 6, 200f, 400f)), true)), 0)
+            useCase.send(all = false, caption = null)
+            val second = (useCase.send(all = true, caption = null) as SendOutcome.Queued).clientId
+            assertThat(Payload.readPages(dir(second)).pages[0].regions).isEmpty()
+            assertThat(File(dir(second), "region.0.0.png").exists()).isFalse()
+            assertThat(crops).containsExactly("r")
+        }
+
+    @Test
+    fun picture_released_after_the_first_version_is_sent_as_an_op() =
         runBlocking<Unit> {
             db.specDao().deleteFor("srv-1")
             board.notebook = Notebook(CANVAS, listOf(Page(listOf(region("r", 4, 9), writing("in", 6, 200f, 400f)), true)), 0)
             useCase.send(all = false, caption = null)
             assertThat(board.notebook.pages[0].changedSinceSend).isFalse()
-            // A version now exists: the region waiting as plain drawing is sent as its image op, though nothing else changed.
+            // The first version did not reference the picture: a release drops its pending op and marks the page changed.
+            board.notebook =
+                board.notebook.copy(pages = listOf(board.notebook.pages[0].copy(pendingOps = emptyList(), changedSinceSend = true)))
             spec(1, """{"lines":[{"line_id":"L1","source_line":1,"origin":null}]}""")
             val second = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
             assertThat(layoutOf(second).ops.single().kind).isEqualTo("image")
-            // And once the op is pending, nothing is left to send.
+            assertThat(Payload.readPages(dir(second)).pages[0].regions).isEmpty()
             assertThat(useCase.send(all = false, caption = null)).isEqualTo(SendOutcome.NothingToSend)
         }
 
     @Test
-    fun five_regions_without_a_spec_version_are_not_refused() =
+    fun fifth_region_refused_without_a_spec_version() =
         runBlocking<Unit> {
             db.specDao().deleteFor("srv-1")
             val regions = (0 until 5).map { region("r$it", it * 3, it * 3 + 2) }
             board.notebook = Notebook(CANVAS, listOf(Page(regions + writing("w", 20), true)), 0)
-            val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
-            assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
-            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+            assertThat(useCase.send(all = false, caption = null)).isEqualTo(SendOutcome.TooManyRegions(0, SendUseCase.MAX_REGIONS_PER_PAGE))
+            assertThat(db.outboxDao().forConversation("local-1")).isEmpty()
         }
 
     @Test
@@ -316,13 +347,14 @@ class SendUseCaseRegionTest {
         }
 
     @Test
-    fun strokes_over_the_cap_send_the_region_as_drawing_without_an_op() =
+    fun strokes_over_the_cap_send_the_region_as_a_meta_picture() =
         runBlocking<Unit> {
             cfg = ConfigCache.DEFAULT.copy(maxStrokesBytes = 1)
             board.notebook = Notebook(CANVAS, listOf(Page(listOf(region("r", 4, 9), writing("in", 6, 200f, 400f)), true)), 0)
             val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
-            assertThat(File(dir(clientId), "region.0.0.png").exists()).isFalse()
-            assertThat(board.notebook.pages[0].pendingOps).isEmpty()
+            assertThat(File(dir(clientId), "layout.0.json").exists()).isFalse()
+            assertThat(Payload.readPages(dir(clientId)).pages[0].regions).hasSize(1)
+            assertThat(File(dir(clientId), "region.0.0.png").exists()).isTrue()
         }
 
     /** 20 px per char, like [SendUseCaseOpsTest]: "buy fresh milk" from x 53 has fresh 133-233 and milk 253-333. */

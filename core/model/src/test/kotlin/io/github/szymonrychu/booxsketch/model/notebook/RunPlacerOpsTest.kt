@@ -339,7 +339,7 @@ class RunPlacerOpsTest {
 
     @Test
     fun release_all_clears_every_pending() {
-        val p = RunPlacer.releasePending(pendingBoard(5), null, g)
+        val p = RunPlacer.releasePending(pendingBoard(5), null, g, null, emptySet())
         assertThat(p.notebook.pages[0].pendingOps).isEmpty()
         assertThat(p.notebook.pages[0].pendingSegments).isEmpty()
         assertThat(p.notebook.pages[0].changedSinceSend).isTrue()

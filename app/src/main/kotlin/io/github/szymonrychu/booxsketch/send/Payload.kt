@@ -4,6 +4,7 @@ import io.github.szymonrychu.booxsketch.api.AnnotatesDto
 import io.github.szymonrychu.booxsketch.api.HandoffDto
 import io.github.szymonrychu.booxsketch.api.MessageIn
 import io.github.szymonrychu.booxsketch.api.PageMetaDto
+import io.github.szymonrychu.booxsketch.api.PictureRegionDto
 import io.github.szymonrychu.booxsketch.api.SketchMetaDto
 import io.github.szymonrychu.booxsketch.model.Canvas
 import kotlinx.serialization.builtins.ListSerializer
@@ -96,6 +97,7 @@ object Payload {
         caption: String?,
         indices: List<Int>,
         canvas: Canvas,
+        pictures: Map<Int, List<PictureRegionDto>> = emptyMap(),
         annotates: AnnotatesDto? = null,
         baseVersion: Int? = null,
     ) {
@@ -103,7 +105,7 @@ object Payload {
             buildJsonObject {
                 put("client_id", clientId)
                 put("caption", caption?.let(::JsonPrimitive) ?: JsonNull)
-                put("pages", json.encodeToJsonElement(pageList, indices.map { PageMetaDto(it, canvas) }))
+                put("pages", json.encodeToJsonElement(pageList, indices.map { PageMetaDto(it, canvas, pictures[it].orEmpty()) }))
                 annotates?.let { put("annotates", json.encodeToJsonElement(AnnotatesDto.serializer(), it)) }
                 baseVersion?.let { put("base_version", it) }
             }

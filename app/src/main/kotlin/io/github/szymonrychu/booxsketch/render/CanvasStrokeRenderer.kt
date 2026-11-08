@@ -153,7 +153,7 @@ class CanvasStrokeRenderer(
         paint.alpha = alpha
     }
 
-    private companion object {
+    companion object {
         /**
          * Ballpoint width at zero pressure, as a share of the stroke width. The live pencil style draws in the vendor
          * native layer, so its curve is not in the SDK bytecode; this is a modest ramp (0.6x to 1x).

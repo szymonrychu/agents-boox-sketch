@@ -63,24 +63,17 @@ private val BUTTON_MIN_HEIGHT = 48.dp
 /** Test tag of the swatch for [color]. */
 internal fun colorTag(color: PenColor) = "color_${color.wire}"
 
-/** Test tag of the shape button for [tool] in the shape popup. */
-internal fun shapeTag(tool: Tool) = "shape_${tool.wire}"
-
 /** Test tag of the pen type button for [tool]. */
 internal fun penTag(tool: Tool) = "pen_${tool.wire}"
 
 /** The pen types, in the order of the pen popup grid. */
 private val PENS = Tool.entries.filter { !it.isShape }
 
-/** The shapes, in the order of the shape popup row. */
-private val SHAPES = Tool.entries.filter { it.isShape }
-
 /**
  * The popup of [kind], a white bordered box sized to its content (no scrolling), placed by the dock next to
  * the strip. PEN: the six pen types and the width slider with a live sample line (drags report unsettled
- * changes, the release a settled one). ERASER: a hint and Clear page. SHAPE: the shapes (rectangle,
- * arrow, image region) over the colour grid; COLOUR: the colour grid (shapes have a fixed width, so no
- * slider). PAGES: previous, next, add, delete and the page label.
+ * changes, the release a settled one). ERASER: a hint and Clear page. SHAPE and COLOUR: the colour grid (the
+ * shapes are strip buttons of their own and have a fixed width, so no slider). PAGES: previous, next, add, delete and the page label.
  * SEND: the caption (kept in [state]) and the send buttons; [onSend] gets `all = false` from the first
  * button (long press: all pages) and `all = true` from "Send all pages", the caption null when blank, and
  * the popup closes after it. Every change is reported to [ui].
@@ -113,7 +106,6 @@ fun ToolPopupContent(
             }
 
             ToolPopup.SHAPE -> {
-                ShapeRow(vm, ui)
                 ColourGrid(vm, ui)
             }
 
@@ -196,37 +188,6 @@ private fun PenPopup(
             strokeWidth = width * density / 2,
             cap = StrokeCap.Round,
         )
-    }
-}
-
-/** One 48 dp button per shape tool, the selected one framed like a swatch. */
-@Composable
-private fun ShapeRow(
-    vm: BoardViewModel,
-    ui: UiRefresh,
-) {
-    val tool by vm.tool.collectAsState()
-    val eraser by vm.eraser.collectAsState()
-    Row {
-        for (t in SHAPES) {
-            val selected = !eraser && tool == t
-            Box(
-                Modifier
-                    .size(SWATCH_TARGET)
-                    .testTag(shapeTag(t))
-                    .semantics { contentDescription = t.wire }
-                    .selectable(
-                        selected = selected,
-                        interactionSource = null,
-                        indication = null,
-                        role = Role.RadioButton,
-                        onClick = ui.act { vm.setTool(t) },
-                    ).then(if (selected) Modifier.border(SWATCH_FRAME, Color.Black, RoundedCornerShape(8.dp)) else Modifier),
-                contentAlignment = Alignment.Center,
-            ) {
-                ToolIcon(t.iconKind(), Modifier.size(32.dp))
-            }
-        }
     }
 }
 

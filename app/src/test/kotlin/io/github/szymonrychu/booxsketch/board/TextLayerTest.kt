@@ -191,18 +191,25 @@ class TextLayerTest {
         )
 
     @Test
-    fun applied_region_gets_a_thin_solid_frame_and_an_image_label() {
+    fun applied_region_gets_a_thin_frame_and_an_image_label() {
         val b = layer.render(regionPage(applied = true), null)
         val frame = checkNotNull(box(b, inked))
         assertThat(frame.left).isWithin(2f).of(200f)
         assertThat(frame.top).isWithin(2f).of(400f)
         assertThat(frame.right).isWithin(2f).of(800f)
         assertThat(frame.bottom).isWithin(2f).of(900f)
-        // Solid: every pixel along the top edge is inked.
-        assertThat((210 until 790).all { inked(b.getPixel(it, 400)) }).isTrue()
         // The label sits inside the top left corner.
         assertThat((205 until 300).any { x -> (405 until 430).any { y -> inked(b.getPixel(x, y)) } }).isTrue()
         assertThat(b.getPixel(500, 650)).isEqualTo(Color.TRANSPARENT)
+    }
+
+    @Test
+    fun applied_region_frame_is_dashed() {
+        val b = layer.render(regionPage(applied = true), null)
+        val dash = io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer.DASH
+        val samples = generateSequence(200f + dash / 2) { it + dash }.takeWhile { it < 800f }.map { b.getPixel(it.toInt(), 400) }.toList()
+        assertThat(samples.any { inked(it) }).isTrue()
+        assertThat(samples.any { !inked(it) }).isTrue()
     }
 
     @Test

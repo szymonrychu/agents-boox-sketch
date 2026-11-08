@@ -163,6 +163,17 @@ class ContractTest {
     }
 
     @Test
+    fun picture_region_matches_openapi() {
+        check<PictureRegionDto>(schema("PictureRegion"))
+    }
+
+    @Test
+    fun upload_meta_documents_page_regions() {
+        val meta = schema("SketchUpload")["properties"]!!.jsonObject["meta"]!!.jsonObject["description"]!!.toString()
+        assertWithMessage("meta documents regions").that(meta).contains("regions")
+    }
+
+    @Test
     fun upload_form_parts_match_schema() {
         val parts = schema("SketchUpload")["properties"]!!.jsonObject.keys
         assertWithMessage("meta and first page png are documented").that(parts).containsAtLeast("meta", "sketch.0.png")

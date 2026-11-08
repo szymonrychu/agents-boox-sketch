@@ -1,6 +1,10 @@
 package io.github.szymonrychu.booxsketch.board
 
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -189,22 +193,16 @@ class ToolPopupsTest {
     }
 
     @Test
-    fun shape_popup_has_image_region() {
+    fun shape_popup_has_only_colours() {
         val vm = vm()
         vm.setTool(Tool.RECTANGLE)
         show(ToolPopup.SHAPE, vm)
-        compose.onNodeWithTag(shapeTag(Tool.RECTANGLE)).assertIsSelected()
-        compose.onNodeWithTag(shapeTag(Tool.ARROW)).assertIsNotSelected()
-        compose
-            .onNodeWithTag(shapeTag(Tool.IMAGE_REGION))
-            .assertWidthIsAtLeast(48.dp)
-            .assertHeightIsAtLeast(48.dp)
-            .assertIsNotSelected()
-            .performClick()
-        assertThat(vm.tool.value).isEqualTo(Tool.IMAGE_REGION)
-        assertThat(vm.effectiveWidth.value).isEqualTo(BoardViewModel.SHAPE_WIDTH)
-        compose.onNodeWithTag(shapeTag(Tool.IMAGE_REGION)).assertIsSelected()
-        // The colour grid stays below the shapes.
         compose.onNodeWithTag(colorTag(PenColor.RED)).assertExists()
+        val shapeTag =
+            SemanticsMatcher("tag starts with shape_") {
+                it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("shape_") ==
+                    true
+            }
+        compose.onAllNodes(shapeTag).assertCountEquals(0)
     }
 }

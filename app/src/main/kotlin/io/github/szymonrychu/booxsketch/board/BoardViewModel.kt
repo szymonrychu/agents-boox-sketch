@@ -11,6 +11,7 @@ import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
 import io.github.szymonrychu.booxsketch.model.hitStrokes
+import io.github.szymonrychu.booxsketch.model.notebook.ImageRegions
 import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.Placement
@@ -207,21 +208,27 @@ class BoardViewModel(
         ops: Map<Int, List<PendingOp>> = emptyMap(),
     ) = update { it.addPending(pending, ops) }
 
-    /** Releases the pending segments and ops of [uploads] (all when null) based on a version below [version] (any when null). */
+    /**
+     * Releases the pending segments and ops of [uploads] (all when null) based on a version below [version] (any when null);
+     * the pictures [markdown] embeds are applied instead.
+     */
     fun releasePending(
         version: Int?,
-        uploads: Set<String>? = null,
+        uploads: Set<String>?,
+        markdown: String,
     ): Placement {
         var placement: Placement? = null
-        update { n -> RunPlacer.releasePending(n, version, geometry(), uploads).also { placement = it }.notebook }
+        val referenced = ImageRegions.referencedIds(markdown).toSet()
+        update { n -> RunPlacer.releasePending(n, version, geometry(), uploads, referenced).also { placement = it }.notebook }
         return checkNotNull(placement)
     }
 
     /** What [releasePending] would do to the shown notebook, without changing it. */
     fun previewRelease(
         version: Int?,
-        uploads: Set<String>? = null,
-    ): Placement = RunPlacer.releasePending(_notebook.value, version, geometry(), uploads)
+        uploads: Set<String>?,
+        markdown: String,
+    ): Placement = RunPlacer.releasePending(_notebook.value, version, geometry(), uploads, ImageRegions.referencedIds(markdown).toSet())
 
     /** The upload [clientId] failed: its pending segments go, its pages count as changed again (marks kept). */
     fun dropPending(clientId: String) = update { it.dropPending(clientId) }

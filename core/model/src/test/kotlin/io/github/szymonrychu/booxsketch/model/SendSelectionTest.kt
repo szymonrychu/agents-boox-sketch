@@ -59,10 +59,8 @@ class SendSelectionTest {
         )
 
     @Test
-    fun an_unsent_region_counts_as_changed_only_when_a_version_exists() {
+    fun an_unsent_region_counts_as_changed() {
         val n = nb(withRegion(changed = false))
-        assertThat(selectPagesForSend(n, all = false, maxPages = 4)).isEqualTo(SendSelection.NothingToSend)
-        assertThat(selectPagesForSend(n, all = false, maxPages = 4, regionsSendable = true))
-            .isEqualTo(SendSelection.Pages(listOf(0)))
+        assertThat(selectPagesForSend(n, all = false, maxPages = 4)).isEqualTo(SendSelection.Pages(listOf(0)))
     }
 }

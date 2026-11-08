@@ -67,8 +67,10 @@ object RunPlacer {
         val revert = layout.revertedFrom != null
         work.dropRuns(shown, unconsume = revert)
         layout.revertedFrom?.let { work.restoreOpStrokes(it) }
+        val referenced = ImageRegions.referencedIds(markdown).toSet()
         work.applyOps(layout.ops, version)
-        work.dropUnreferencedRegions(ImageRegions.referencedIds(markdown).toSet())
+        work.applyPictures(referenced, answeredUploads)
+        work.dropUnreferencedRegions(referenced)
 
         // A revert copies the old version's origins: its segment ids may match new, unanswered handwriting.
         fun segmentsOf(line: SpecLineModel) = if (revert) emptyList() else (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
@@ -119,15 +121,18 @@ object RunPlacer {
     /**
      * Releases the pending segments and ops of uploads based on a version older than [version] (all of them when null),
      * limited to the uploads in [uploads] (client ids; all when null): their strokes become ordinary unsent ink again and
-     * their pages count as changed.
+     * their pages count as changed. A pending picture whose region id is in [referenced] (the image ids the answering
+     * version's markdown embeds) is applied first, so only the unreferenced ones are sent again.
      */
     fun releasePending(
         notebook: Notebook,
         version: Int?,
         geometry: NotebookGeometry,
-        uploads: Set<String>? = null,
+        uploads: Set<String>?,
+        referenced: Set<String>,
     ): Placement {
         val work = Work(notebook, geometry, TextMeasure { text, scale -> text.length * scale }, null)
+        work.applyPictures(referenced, uploads)
         work.release(version, uploads)
         return Placement(work.n, work.dirty.toMap())
     }
@@ -299,18 +304,7 @@ object RunPlacer {
                 if (done.isEmpty()) continue
                 val (applied, rejected) = done.partition { byId.getValue(it.op.id).applied }
                 val (images, edits) = applied.partition { it.op.kind == OpKind.IMAGE }
-                val regionIds =
-                    p.strokes
-                        .filter { it.tool == Tool.IMAGE_REGION }
-                        .map { it.id }
-                        .toSet()
-                val regions =
-                    images.flatMap { d ->
-                        val regionId = d.op.region?.id
-                        d.op.strokeIds
-                            .filter { it in regionIds && regionId != null }
-                            .map { it to regionId.orEmpty() }
-                    }
+                val regions = appliedRegionsOf(p, images)
                 setPage(
                     i,
                     p.copy(
@@ -322,6 +316,44 @@ object RunPlacer {
                         appliedRegions = p.appliedRegions + regions,
                     ),
                 )
+                markDirty(i, 0 until g.rowCount)
+            }
+        }
+
+        /** Region stroke id to region id of the IMAGE ops [images] of page [p]. */
+        private fun appliedRegionsOf(
+            p: Page,
+            images: List<PendingOp>,
+        ): List<Pair<String, String>> {
+            val regionIds =
+                p.strokes
+                    .filter { it.tool == Tool.IMAGE_REGION }
+                    .map { it.id }
+                    .toSet()
+            return images.flatMap { d ->
+                val regionId = d.op.region?.id
+                d.op.strokeIds
+                    .filter { it in regionIds && regionId != null }
+                    .map { it to regionId.orEmpty() }
+            }
+        }
+
+        /**
+         * A picture sent as page meta has no op status: the pending IMAGE op of an upload in [uploads] (all when null)
+         * whose region id is in [referenced] leaves the pending list and its region is applied, as an applied image op.
+         */
+        fun applyPictures(
+            referenced: Set<String>,
+            uploads: Set<String>?,
+        ) {
+            for (i in n.pages.indices) {
+                val p = page(i)
+                val done =
+                    p.pendingOps.filter {
+                        it.op.kind == OpKind.IMAGE && it.op.region?.id in referenced && (uploads == null || it.clientId in uploads)
+                    }
+                if (done.isEmpty()) continue
+                setPage(i, p.copy(pendingOps = p.pendingOps - done.toSet(), appliedRegions = p.appliedRegions + appliedRegionsOf(p, done)))
                 markDirty(i, 0 until g.rowCount)
             }
         }

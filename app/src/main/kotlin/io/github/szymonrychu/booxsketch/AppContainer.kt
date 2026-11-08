@@ -363,7 +363,7 @@ class AppContainer(
                     .distinctUntilChanged()
                     .collectLatest { waiting ->
                         // A translation that never answers must not leave the strokes pending forever.
-                        if (waiting.isNotEmpty()) pollPending(conversations::refresh) { boardViewModel.releasePending(null) }
+                        if (waiting.isNotEmpty()) pollPending(conversations::refresh) { boardViewModel.releasePending(null, null, "") }
                     }
             }
         }

@@ -17,7 +17,8 @@ Language: Kotlin. Modules: `:core:model`, `:core:api`, `:ink:onyx`, `:app`.
   the notebook, in `strokes.json` and in the exported PNG. On the Onyx raw path the live ink is
   asked for in the selected colour; if the panel draws it grey, the stroke takes its colour once
   the pen lifts.
-- Shapes: pick "rectangle" or "arrow" and drag with the pen. A preview follows the pen and the
+- Shapes: pick "box" (a diagram node), "picture" (a dashed frame around a freehand drawing, sent as an
+  image on every Send) or "arrow" and drag with the pen. A preview follows the pen and the
   shape is committed when you lift. Arrow ends snap to the corners and side midpoints of
   rectangles on the page within 40 page pixels, so boxes connect like in draw.io. While a shape
   tool is selected the Onyx raw ink is off, so no freehand line is drawn along the drag.
