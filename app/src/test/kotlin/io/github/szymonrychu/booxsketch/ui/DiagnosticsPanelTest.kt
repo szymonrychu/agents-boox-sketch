@@ -18,7 +18,6 @@ import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.ink.InputPath
 import io.github.szymonrychu.booxsketch.ink.InputStatus
 import io.github.szymonrychu.booxsketch.ink.ShapeDragCounts
-import io.github.szymonrychu.booxsketch.onyx.InkExperiments
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -107,29 +106,10 @@ class DiagnosticsPanelTest {
         compose.onNodeWithText("PenButton: TIP=0", substring = true).assertIsDisplayed()
     }
 
-    @Test
-    fun the_ink_experiment_toggles_show_their_state_and_flip_one_at_a_time() {
-        var toggles by mutableStateOf(InkExperiments(vendorResumeOrder = true, regionPenConfig = false))
-        compose.setContent {
-            DiagnosticsPanel(
-                InputStatus(InputPath.ONYX_RAW, null),
-                rawEnabled = { true },
-                inkExperiments = toggles,
-                onInkExperiments = { toggles = it },
-            )
-        }
-        compose.onNodeWithText("Vendor resume order: on").assertIsDisplayed()
-        compose.onNodeWithText("Region pen config: off").performClick()
-        assertThat(toggles).isEqualTo(InkExperiments(vendorResumeOrder = true, regionPenConfig = true))
-        compose.onNodeWithText("Vendor resume order: on").performClick()
-        assertThat(toggles).isEqualTo(InkExperiments(vendorResumeOrder = false, regionPenConfig = true))
-        compose.onNodeWithText("Vendor resume order: off").assertIsDisplayed()
-    }
-
     private val longDump = (1..200).joinToString("\n") { "line $it" } + "\nDUMP-END"
 
     @Test
-    fun the_toggles_and_refresh_come_before_the_firmware_dump() {
+    fun refresh_comes_before_the_firmware_dump() {
         compose.setContent {
             Box(Modifier.width(300.dp).height(400.dp)) {
                 DiagnosticsPanel(
@@ -137,15 +117,12 @@ class DiagnosticsPanelTest {
                     rawEnabled = { true },
                     firmwareBrush = "ok",
                     firmwareDump = longDump,
-                    inkExperiments = InkExperiments(vendorResumeOrder = false, regionPenConfig = false),
                 )
             }
         }
         val dumpTop = compose.onNodeWithText("Firmware API dump", substring = true).getUnclippedBoundsInRoot().top
-        for (label in listOf("Vendor resume order: off", "Region pen config: off", "Refresh")) {
-            compose.onNodeWithText(label).assertIsDisplayed()
-            assertThat(compose.onNodeWithText(label).getUnclippedBoundsInRoot().top).isLessThan(dumpTop)
-        }
+        compose.onNodeWithText("Refresh").assertIsDisplayed()
+        assertThat(compose.onNodeWithText("Refresh").getUnclippedBoundsInRoot().top).isLessThan(dumpTop)
     }
 
     @Test
@@ -156,11 +133,10 @@ class DiagnosticsPanelTest {
                     InputStatus(InputPath.ONYX_RAW, null),
                     rawEnabled = { true },
                     firmwareDump = longDump,
-                    inkExperiments = InkExperiments(vendorResumeOrder = false, regionPenConfig = false),
                 )
             }
         }
-        compose.onNodeWithText("Vendor resume order: off").assertIsDisplayed()
+        compose.onNodeWithText("Refresh").assertIsDisplayed()
         compose.onNodeWithText("DUMP-END", substring = true).performScrollTo().assertIsDisplayed()
     }
 }

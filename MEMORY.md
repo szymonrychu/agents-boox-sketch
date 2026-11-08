@@ -1346,3 +1346,20 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   could not hide the ink it applied, so the same note was re-sent and re-applied.
 
 - 2026-11-08: Diagnostics tab scrolls (verticalScroll inside the panel host weight(1f) Box) and lists the ink toggles and Refresh above the firmware brush/dump lines, so the long dump cannot push the controls off-screen.
+
+## 2026-11-08 Live ink toggles removed, stale firmware pen config cleared (T-78)
+
+- Probable cause of the pressure-sensitive live ink: a stale firmware region pen config left behind by v0.18.x/v0.19.0,
+  which shipped the "Region pen config" toggle on and never cleared the config after a process death. The user did not
+  reboot. On v0.19.2 the live ink was correct after the user flipped the Diagnostics toggles (flipping "Region pen
+  config" calls the firmware clear) and/or after installing v0.19.2, so one of those most likely cleared the stale
+  config.
+- Not proven: this is not a controlled toggle test, so the effect of each toggle flip and of the v0.19.2 install is not
+  isolated.
+- Removed the "Vendor resume order" and "Region pen config" toggles completely (InkExperiments, InkExperimentPrefs, the
+  Diagnostics buttons, the vendor resume order path with its 500 ms colour-device delay, the region config write path).
+  The pen is exactly v0.19.2 with both toggles off, keeping the forced pause after every open and the pen-release dismiss.
+- `OnyxStrokeInput.start` now calls `RawDrawing.clearRegionPenConfig()` once per new session, before the first raw open,
+  never mid-stroke, so a device where an older build left a config is protected. The Firmware brush API line and the
+  firmware dump stay on the Diagnostics tab.
+- The orphan `ink_experiments` SharedPreferences file is left alone (no cleanup pattern in the codebase); it is never read.

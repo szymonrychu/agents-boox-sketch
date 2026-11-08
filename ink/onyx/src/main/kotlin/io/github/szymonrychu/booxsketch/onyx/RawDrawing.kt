@@ -33,31 +33,16 @@ interface RawDrawing {
     /** How long after a pen-up without a new stroke the SDK reports the pen idle (`onPenUpRefresh`). */
     fun setPenUpRefreshTimeMs(ms: Int) = Unit
 
-    /** `TouchHelper.setBrushRawDrawingEnabled`: the firmware brush (not eraser) raw drawing, [InkExperiments.vendorResumeOrder]. */
-    fun setBrushRawDrawingEnabled(enabled: Boolean) = Unit
-
-    /** Writes the firmware's own parameters of stroke [style] back (`Device.setStrokeParameters`), as the vendor demo does. */
-    fun applyStrokeParameters(style: Int) = Unit
-
     /** `TouchHelper.forceSetRawDrawingEnabled`: the transition without the SDK's cached-flag short cut. */
     fun forceSetEnabled(enabled: Boolean) = Unit
 
-    /** `TouchHelper.setRawDrawingRenderEnabled`: the vendor demo's render off/on around a brush change. */
-    fun setRenderEnabled(enabled: Boolean) = Unit
-
-    /** The firmware's per-pen-button region config for [limit] (host view pixels), [InkExperiments.regionPenConfig]. */
-    fun setRegionPenConfig(
-        limit: Rect,
-        configs: List<PenStrokeConfig>,
-    ) = Unit
-
+    /** Clears the firmware's per-pen-button region config (`EpdController.clearScreenHandWritingRegionConfig`). */
     fun clearRegionPenConfig() = Unit
 }
 
 /** [RawDrawing] backed by one vendor [TouchHelper]. */
 class TouchHelperRawDrawing(
     private val helper: TouchHelper,
-    private val view: View? = null,
 ) : RawDrawing {
     override fun setLimitRect(
         limit: Rect,
@@ -92,34 +77,8 @@ class TouchHelperRawDrawing(
         helper.setPenUpRefreshTimeMs(ms)
     }
 
-    override fun setBrushRawDrawingEnabled(enabled: Boolean) {
-        helper.setBrushRawDrawingEnabled(enabled)
-    }
-
-    override fun applyStrokeParameters(style: Int) {
-        Epd.strokeParameters(style)?.let { Epd.setStrokeParameters(style, it) }
-    }
-
     override fun forceSetEnabled(enabled: Boolean) {
         helper.forceSetRawDrawingEnabled(enabled)
-    }
-
-    override fun setRenderEnabled(enabled: Boolean) {
-        helper.setRawDrawingRenderEnabled(enabled)
-    }
-
-    /** The region config takes no view, so [limit] is moved to screen pixels as the SDK does for the limit rect. */
-    override fun setRegionPenConfig(
-        limit: Rect,
-        configs: List<PenStrokeConfig>,
-    ) {
-        val screen = Rect(limit)
-        view?.let {
-            val at = IntArray(2)
-            it.getLocationOnScreen(at)
-            screen.offset(at[0], at[1])
-        }
-        Epd.setRegionPenConfig(screen, configs)
     }
 
     override fun clearRegionPenConfig() {
@@ -130,6 +89,6 @@ class TouchHelperRawDrawing(
         fun create(
             view: View,
             callback: RawInputCallback,
-        ): RawDrawing = TouchHelperRawDrawing(TouchHelper.create(view, callback), view)
+        ): RawDrawing = TouchHelperRawDrawing(TouchHelper.create(view, callback))
     }
 }
