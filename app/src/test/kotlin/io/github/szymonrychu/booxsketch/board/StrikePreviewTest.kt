@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
@@ -66,6 +67,18 @@ class StrikePreviewTest {
     private val strike =
         Stroke("s", Tool.BALLPOINT, 3f, (0..20).map { Point(60f + it * 15f, g.textBandTop(4) + 30f, 0.5f, it * 10L) })
 
+    /** Records each uiChanged with whether raw drawing was off and how many swaps had happened by then. */
+    private class RecordingUi(
+        private val input: FreezingInput,
+        private val surface: RecordingSurface,
+    ) : UiRefresh {
+        val calls = mutableListOf<Pair<Boolean, Int>>()
+
+        override fun uiChanged(settled: Boolean) {
+            calls += (input.held > 0) to surface.swaps.size
+        }
+    }
+
     private fun TestScope.board(): BoardViewModel {
         val store = NotebookStore(File(tmp.root, "n.json"))
         store.save(Notebook(canvas, listOf(Page(emptyList(), false, text = listOf(milk))), 0))
@@ -108,6 +121,23 @@ class StrikePreviewTest {
             // Nothing changed: no second swap.
             sync.refresh()
             assertThat(surface.swaps).hasSize(1)
+        }
+
+    @Test
+    fun strike_swap_requests_ui_refresh_while_held() =
+        runTest {
+            val vm = board()
+            val input = FreezingInput()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime }).also { it.input = input }
+            val surface = RecordingSurface(input).also { holds.surface = it }
+            val ui = RecordingUi(input, surface).also { holds.ui = it }
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val sync = StrikePreviewSync(vm, holds, main = dispatcher, worker = dispatcher)
+            advanceTimeBy(1_000)
+            vm.onStroke(strike)
+            sync.refresh()
+            // One refresh request, made while raw drawing was held off and after the swap.
+            assertThat(ui.calls).containsExactly(true to 1)
         }
 
     @Test

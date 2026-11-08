@@ -13,6 +13,7 @@ import io.github.szymonrychu.booxsketch.data.FeedbackEntity
 import io.github.szymonrychu.booxsketch.data.SpecEntity
 import io.github.szymonrychu.booxsketch.data.ThreadItemEntity
 import io.github.szymonrychu.booxsketch.data.ThreadKind
+import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
@@ -77,6 +78,18 @@ class NotebookSyncTest {
         }
     }
 
+    /** Records each uiChanged with whether raw drawing was off and how many swaps had happened by then. */
+    private class RecordingUi(
+        private val input: FreezingInput,
+        private val surface: RecordingSurface,
+    ) : UiRefresh {
+        val calls = mutableListOf<Pair<Boolean, Int>>()
+
+        override fun uiChanged(settled: Boolean) {
+            calls += (input.held > 0) to surface.swaps.size
+        }
+    }
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -134,6 +147,23 @@ class NotebookSyncTest {
             sync.onVersion("srv", "local", 1)
             assertThat(surface.swaps).hasSize(1)
             assertThat(input.held).isEqualTo(0)
+        }
+
+    @Test
+    fun version_swap_requests_ui_refresh_while_held() =
+        runTest {
+            storeVersion()
+            val vm = board()
+            val input = FreezingInput()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime }).also { it.input = input }
+            val surface = RecordingSurface(input).also { holds.surface = it }
+            val ui = RecordingUi(input, surface).also { holds.ui = it }
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
+            advanceTimeBy(1_000)
+            sync.onVersion("srv", "local", 1)
+            // One refresh request, made while raw drawing was held off and after the swap.
+            assertThat(ui.calls).containsExactly(true to 1)
         }
 
     @Test
