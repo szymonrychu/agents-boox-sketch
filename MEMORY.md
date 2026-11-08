@@ -24,7 +24,11 @@ Lessons that outlive a session. Newest first.
     `EpdController.setScreenHandWritingRegionConfig(limit in screen pixels, StrokeConfig per PenButton name from the
     dump)` with the current style, width and colour; `clearScreenHandWritingRegionConfig` on close and stop (only if
     one was set). Failures are logged under InkDiag, never thrown; no pen buttons found logs a skip.
-  - Both toggles persist (`InkExperimentPrefs`, SharedPreferences `ink_experiments`), take effect at the next open,
+  - Review fixes (2026-11-08): the delayed vendor enable re-checks every 100 ms while the pen is down (no SDK call mid-stroke);
+  `refresh` re-enables without the 500 ms delay (only resumes are delayed); turning toggle B off clears the region config at
+  once (`OnyxStrokeInput.experimentsChanged`, wired through `InkExperimentPrefs.onChange`); `FirmwareBrushApi.read` also
+  catches `LinkageError`.
+- Both toggles persist (`InkExperimentPrefs`, SharedPreferences `ink_experiments`), take effect at the next open,
     enable or brush change, and default from one constant, `InkExperiments.DEFAULT_ON` (true; flip it for a build
     that ships them off). `OnyxStrokeInput`'s own default env is `InkExperiments.OFF` so a bare construction (tests)
     keeps the v0.18.0 sequence; the app wires the prefs.

@@ -153,6 +153,9 @@ object FirmwareBrushApi {
             null
         }
 
+    /** Reads a static field; replaced by tests, as a class whose initialiser fails cannot be built in a unit test. */
+    internal var staticGetter: (Field) -> Any? = { it.get(null) }
+
     private fun staticField(
         type: Class<*>,
         name: String,
@@ -169,10 +172,12 @@ object FirmwareBrushApi {
     private fun read(f: Field): Any? =
         try {
             f.isAccessible = true
-            f.get(null)
+            staticGetter(f)
         } catch (e: RuntimeException) {
             null
         } catch (e: IllegalAccessException) {
+            null
+        } catch (e: LinkageError) {
             null
         }
 }

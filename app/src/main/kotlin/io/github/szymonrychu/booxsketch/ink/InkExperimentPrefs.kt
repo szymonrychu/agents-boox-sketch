@@ -23,6 +23,13 @@ class InkExperimentPrefs(
 
     fun current(): InkExperiments = read()
 
+    private val listeners = mutableListOf<() -> Unit>()
+
+    /** Runs [listener] after every [set], once the new toggles are readable through [current]. */
+    fun onChange(listener: () -> Unit) {
+        listeners += listener
+    }
+
     fun set(toggles: InkExperiments) {
         prefs
             .edit()
@@ -30,6 +37,7 @@ class InkExperimentPrefs(
             .putBoolean(REGION_PEN_CONFIG, toggles.regionPenConfig)
             .apply()
         state.value = toggles
+        listeners.forEach { it() }
     }
 
     private fun read(): InkExperiments {

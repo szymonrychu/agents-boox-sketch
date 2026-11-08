@@ -22,6 +22,16 @@ class InkExperimentPrefsTest {
     }
 
     @Test
+    fun a_listener_runs_after_every_set_with_the_new_toggles_readable() {
+        val prefs = InkExperimentPrefs(ctx)
+        val seen = mutableListOf<InkExperiments>()
+        prefs.onChange { seen += prefs.current() }
+        val off = InkExperiments(vendorResumeOrder = false, regionPenConfig = false)
+        prefs.set(off)
+        assertThat(seen).containsExactly(off)
+    }
+
+    @Test
     fun a_toggle_set_through_one_instance_persists_and_reaches_another() {
         val ui = InkExperimentPrefs(ctx)
         val pen = InkExperimentPrefs(ctx)

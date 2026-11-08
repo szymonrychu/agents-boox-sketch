@@ -105,9 +105,7 @@ class AppContainer(
     private val app: Application,
     private val dir: File = app.filesDir,
     private val probe: () -> ProbeResult = OnyxProbe::available,
-    private val onyxFactory: () -> StrokeInput = {
-        OnyxStrokeInput(app, experiments = InkExperimentEnv(toggles = InkExperimentPrefs(app)::current))
-    },
+    onyxFactory: (() -> StrokeInput)? = null,
     private val keyProvider: KeyProvider = AndroidKeystoreKeyProvider(),
     private val httpFactory: () -> OkHttpClient = { OkHttpClient() },
     /** Extra hook run by [repaired] after a successful (re)pairing (tests count calls). */
@@ -186,6 +184,12 @@ class AppContainer(
     /** The Diagnostics tab's live ink toggles; the pen input reads the same preferences. */
     val inkExperiments: InkExperimentPrefs by lazy { InkExperimentPrefs(app) }
 
+    private val penFactory: () -> StrokeInput =
+        onyxFactory ?: {
+            OnyxStrokeInput(app, experiments = InkExperimentEnv(toggles = inkExperiments::current))
+                .also { pen -> inkExperiments.onChange(pen::experimentsChanged) }
+        }
+
     @Suppress("TooGenericExceptionCaught")
     val inputSelector: InputSelector by lazy {
         InputSelector(
@@ -206,7 +210,7 @@ class AppContainer(
                     _onyxFailure.value = it
                 },
             scope = appScope,
-            onyxFactory = onyxFactory,
+            onyxFactory = penFactory,
             touchFactory = { touchInput },
         )
     }

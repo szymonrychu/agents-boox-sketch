@@ -116,6 +116,19 @@ class FirmwareBrushApiTest {
     }
 
     @Test
+    fun a_field_read_that_throws_a_linkage_error_is_reported_null_not_thrown() {
+        FirmwareBrushApi.staticGetter = { throw ExceptionInInitializerError("boom") }
+        try {
+            val dump = FirmwareBrushApi.dump(null, FakePenButton::class.java, RegionDevice(), colorType = 1, penState = 2)
+            assertThat(dump).contains("sMethodSetStrokeStyle=null")
+            assertThat(dump).contains("PenButton: \n")
+            assertThat(FirmwareBrushApi.status(LookedUpDevice())).isEqualTo("missing (LookedUpDevice: setStrokeStyle, setStrokeColor)")
+        } finally {
+            FirmwareBrushApi.staticGetter = { it.get(null) }
+        }
+    }
+
+    @Test
     fun the_dump_names_what_is_absent() {
         val dump = FirmwareBrushApi.dump(helper = null, penButton = null, device = null, colorType = null, penState = null)
         assertThat(dump.lines())

@@ -346,6 +346,62 @@ class OnyxInkExperimentsTest {
         assertThat(delayed).isEmpty()
     }
 
+    private fun colourStrokeResume(): ArrayDeque<Pair<Runnable, Long>> {
+        toggles = InkExperiments(vendorResumeOrder = true, regionPenConfig = false)
+        color = true
+        started()
+        return delayed
+    }
+
+    @Test
+    fun a_delayed_enable_while_the_pen_is_down_makes_no_sdk_call_until_the_stroke_ends() {
+        colourStrokeResume()
+        cb!!.onBeginRawDrawing(false, point)
+        log.clear()
+        delayed.removeFirst().first.run()
+        assertThat(log).isEmpty()
+        assertThat(delayed.single().second).isEqualTo(OnyxStrokeInput.PEN_DOWN_RECHECK_MS)
+        delayed.removeFirst().first.run()
+        assertThat(log).isEmpty()
+        cb!!.onEndRawDrawing(false, point)
+        delayed.removeFirst().first.run()
+        assertThat(log).containsExactly("brushRaw:true", ballpoint, ballpointParams, "enabled:true", "force:true").inOrder()
+    }
+
+    @Test
+    fun a_delayed_enable_after_stop_makes_no_sdk_call() {
+        colourStrokeResume()
+        input.stop()
+        log.clear()
+        delayed.removeFirst().first.run()
+        assertThat(log).isEmpty()
+    }
+
+    @Test
+    fun a_ui_refresh_on_a_colour_device_re_enables_at_once_without_the_resume_delay() {
+        colourStrokeResume()
+        delayed.removeFirst().first.run()
+        log.clear()
+        input.refresh { log += "redraw" }
+        assertThat(log)
+            .containsExactly("enabled:false", "redraw", "brushRaw:true", ballpoint, ballpointParams, "enabled:true", "force:true")
+            .inOrder()
+        assertThat(delayed).isEmpty()
+    }
+
+    @Test
+    fun turning_the_region_toggle_off_clears_the_config_at_once_and_only_once() {
+        toggles = InkExperiments(vendorResumeOrder = false, regionPenConfig = true)
+        started()
+        log.clear()
+        toggles = InkExperiments(vendorResumeOrder = false, regionPenConfig = false)
+        input.experimentsChanged()
+        input.experimentsChanged()
+        assertThat(log).containsExactly("clearRegion")
+        input.stop()
+        assertThat(log).containsExactly("clearRegion", "close").inOrder()
+    }
+
     @Test
     fun the_default_toggles_are_on() {
         assertThat(InkExperiments()).isEqualTo(InkExperiments(vendorResumeOrder = true, regionPenConfig = true))
