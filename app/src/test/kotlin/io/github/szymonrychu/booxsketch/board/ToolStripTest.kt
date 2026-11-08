@@ -44,7 +44,7 @@ internal class CallLog : UiRefresh {
     }
 }
 
-private val STRIP_NAMES = listOf("pen", "eraser", "rectangle", "arrow", "colour", "undo", "redo", "pages", "send", "hide")
+private val STRIP_NAMES = listOf("pen", "eraser", "box", "picture", "arrow", "colour", "undo", "redo", "pages", "send", "hide")
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w600dp-h900dp-xhdpi")
@@ -75,31 +75,53 @@ class ToolStripTest {
     fun strip_has_all_buttons_and_no_text_chips() {
         show()
         for (n in STRIP_NAMES) compose.onNodeWithTag(stripTag(n)).assertExists()
-        for (label in listOf("Eraser", "Undo", "Redo", "Send", "Rectangle", "Arrow")) {
+        for (label in listOf("Eraser", "Undo", "Redo", "Send", "Box", "Picture", "Arrow")) {
             compose.onAllNodesWithText(label).assertCountEquals(0)
         }
     }
 
     @Test
-    fun first_tap_on_rectangle_selects_without_popup() {
+    fun first_tap_on_box_selects_without_popup() {
         val vm = vm()
         show(vm)
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         assertThat(vm.tool.value).isEqualTo(Tool.RECTANGLE)
         assertThat(state.popup).isNull()
-        compose.onNodeWithTag(stripTag("rectangle")).assertIsSelected()
+        compose.onNodeWithTag(stripTag("box")).assertIsSelected()
         compose.onNodeWithTag(stripTag("pen")).assertIsNotSelected()
+    }
+
+    @Test
+    fun first_tap_on_picture_selects_the_picture_tool_without_popup() {
+        val vm = vm()
+        show(vm)
+        compose.onNodeWithTag(stripTag("picture")).performClick()
+        assertThat(vm.tool.value).isEqualTo(Tool.IMAGE_REGION)
+        assertThat(state.popup).isNull()
+        compose.onNodeWithTag(stripTag("picture")).assertIsSelected()
+        compose.onNodeWithTag(stripTag("box")).assertIsNotSelected()
+    }
+
+    @Test
+    fun box_and_picture_are_separate_buttons() {
+        val vm = vm()
+        show(vm)
+        compose.onNodeWithTag(stripTag("picture")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
+        assertThat(vm.tool.value).isEqualTo(Tool.RECTANGLE)
+        compose.onNodeWithTag(stripTag("box")).assertIsSelected()
+        compose.onNodeWithTag(stripTag("picture")).assertIsNotSelected()
     }
 
     @Test
     fun second_tap_opens_shape_popup_with_colour_grid_and_no_slider() {
         show()
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         assertThat(state.popup).isEqualTo(ToolPopup.SHAPE)
         compose.onNodeWithTag(colorTag(PenColor.RED)).assertExists()
         compose.onNodeWithTag(TAG_WIDTH_SLIDER).assertDoesNotExist()
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         assertThat(state.popup).isNull()
     }
 
@@ -107,8 +129,8 @@ class ToolStripTest {
     fun tapping_the_other_shape_selects_it_and_closes_the_popup() {
         val vm = vm()
         show(vm)
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         compose.onNodeWithTag(stripTag("arrow")).performClick()
         assertThat(vm.tool.value).isEqualTo(Tool.ARROW)
         assertThat(state.popup).isNull()
@@ -120,7 +142,7 @@ class ToolStripTest {
         show(vm)
         vm.setTool(Tool.MARKER)
         compose.waitForIdle()
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         compose.onNodeWithTag(stripTag("pen")).performClick()
         assertThat(vm.tool.value).isEqualTo(Tool.MARKER)
         compose.onNodeWithTag(stripTag("pen")).assertIsSelected()
@@ -172,9 +194,9 @@ class ToolStripTest {
     @Test
     fun every_state_change_calls_ui_changed() {
         show()
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         assertThat(ui.calls).containsExactly("ui")
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         assertThat(ui.calls).containsExactly("ui", "chrome").inOrder()
         compose.onNodeWithTag(stripTag("undo")).performClick()
         assertThat(ui.calls).containsExactly("ui", "chrome").inOrder()

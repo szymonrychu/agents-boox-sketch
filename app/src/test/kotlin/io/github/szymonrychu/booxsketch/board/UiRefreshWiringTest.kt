@@ -56,7 +56,7 @@ class UiRefreshWiringTest {
         val state = ToolboxState()
         val vm = vm()
         compose.setContent { ToolStrip(vm, state, {}, ui) }
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         compose.onNodeWithTag(stripTag("eraser")).performClick()
         compose.onNodeWithTag(stripTag("pen")).performClick()
         assertThat(ui.calls).containsExactly(true, true, true)
@@ -87,7 +87,7 @@ class UiRefreshWiringTest {
         compose.waitForIdle()
         assertThat(input.log).containsExactly("hold", "release").inOrder()
 
-        compose.onNodeWithTag(stripTag("rectangle")).performClick()
+        compose.onNodeWithTag(stripTag("box")).performClick()
         compose.waitForIdle()
         // The harness traverses the view tree only on a layout request (the old chips' ripple did that): ask for one.
         compose.runOnUiThread { host!!.rootView.requestLayout() }
@@ -111,7 +111,7 @@ class UiRefreshWiringTest {
         // Robolectric draws the first frame during setContent, so a toolbar change provides the
         // outstanding hold: the click and leaving the board run in one main-thread task, before
         // that change's frame is drawn.
-        val click = compose.onNodeWithTag(stripTag("rectangle")).fetchSemanticsNode().config[SemanticsActions.OnClick]
+        val click = compose.onNodeWithTag(stripTag("box")).fetchSemanticsNode().config[SemanticsActions.OnClick]
         compose.runOnUiThread {
             click.action?.invoke()
             assertThat(input.log.count { it == "hold" }).isGreaterThan(input.log.count { it == "release" })
@@ -152,7 +152,7 @@ class UiRefreshWiringTest {
         }
         compose.waitForIdle()
         input.log.clear()
-        for (name in listOf("rectangle", "arrow", "eraser", "pen")) {
+        for (name in listOf("box", "arrow", "eraser", "pen")) {
             compose.onNodeWithTag(stripTag(name)).performClick()
             compose.waitForIdle()
             compose.runOnUiThread { host!!.rootView.requestLayout() }

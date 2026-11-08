@@ -42,7 +42,7 @@ import io.github.szymonrychu.booxsketch.model.Tool
 internal val STRIP_WIDTH = 56.dp
 internal val STRIP_BUTTON = 48.dp
 internal val SWATCH_FRAME = 3.dp
-private const val BUTTON_COUNT = 10
+private const val BUTTON_COUNT = 11
 private val LocalButtonHeight = compositionLocalOf { STRIP_BUTTON }
 
 /** Test tag of a strip button. */
@@ -63,7 +63,7 @@ internal fun UiRefresh.act(block: () -> Unit): () -> Unit =
 
 /**
  * The BOOX Notes style tool strip: a [STRIP_WIDTH] wide column of icon buttons, top to bottom pen (the
- * selected pen type), eraser, rectangle, arrow, colour, undo, redo, pages (with "2/3"), send and a hide
+ * selected pen type), eraser, box, picture, arrow, colour, undo, redo, pages (with "2/3"), send and a hide
  * chevron. The selected tool has a [SWATCH_FRAME] black frame. A tap on an unselected tool selects it; a tap
  * on the selected tool, colour, pages or send opens or closes its popup ([ToolboxState]). Every state
  * change is reported to [ui]: a popup change as a full refresh, anything else as a settled change.
@@ -99,9 +99,8 @@ fun ToolStrip(
         state.onToolChanged(selected)
     }
     val pen = if (tool.isShape) state.lastPen else tool
-    // The box button stands for the rectangle and the image region (picked in the shape popup) and shows the one in use.
-    val rectangle = !eraser && tool.isBox
-    val box = if (tool == Tool.IMAGE_REGION) Tool.IMAGE_REGION else Tool.RECTANGLE
+    val box = !eraser && tool == Tool.RECTANGLE
+    val picture = !eraser && tool == Tool.IMAGE_REGION
     val arrow = !eraser && tool == Tool.ARROW
 
     BoxWithConstraints(modifier.width(STRIP_WIDTH).fillMaxHeight()) {
@@ -119,9 +118,12 @@ fun ToolStrip(
                 StripButton("eraser", "Eraser", eraser, onClick = { y ->
                     state.press(ToolPopup.ERASER, eraser, y, ui) { vm.setEraser(true) }
                 }) { ToolIcon(IconKind.ERASER) }
-                StripButton("rectangle", "Rectangle", rectangle, onClick = { y ->
-                    state.press(ToolPopup.SHAPE, rectangle, y, ui) { vm.setTool(box) }
-                }) { ToolIcon(box.iconKind()) }
+                StripButton("box", "Box", box, onClick = { y ->
+                    state.press(ToolPopup.SHAPE, box, y, ui) { vm.setTool(Tool.RECTANGLE) }
+                }) { ToolIcon(Tool.RECTANGLE.iconKind()) }
+                StripButton("picture", "Picture", picture, onClick = { y ->
+                    state.press(ToolPopup.SHAPE, picture, y, ui) { vm.setTool(Tool.IMAGE_REGION) }
+                }) { ToolIcon(Tool.IMAGE_REGION.iconKind()) }
                 StripButton("arrow", "Arrow", arrow, onClick = { y ->
                     state.press(ToolPopup.SHAPE, arrow, y, ui) { vm.setTool(Tool.ARROW) }
                 }) { ToolIcon(IconKind.ARROW) }
