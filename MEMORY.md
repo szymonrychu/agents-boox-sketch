@@ -2,6 +2,50 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-08 Red live ink diagnostic build: firmware API dump, vendor resume order, region pen config (T-78, fix/live-ink-firmware-pen)
+
+- Four fixes (#58, #59, #60, #67) only reordered `setStrokeStyle/Width/Color` and none held on the device. Our firmware
+  calls are a superset of v0.13.2's, so this build tells the hypotheses apart instead of guessing a fifth order
+  (research: `.scratchpad/boox-fixes/research-red-ink.md` in the workbench, sections 4 to 6).
+- What the build adds:
+  - Diagnostics "Firmware API dump" (`FirmwareBrushApi.dump`, also logged as `InkDiag firmware API: ...`): device
+    class, `getColorType`, `getPenState`, every declared method of `android.onyx.ViewUpdateHelper`, the
+    `android.onyx.handwriting.PenButton` int constants, and set/null/absent of the device class's
+    `sMethodSetStroke{Style,Color,Width,Parameters}`, `sMethod{Set,Clear}ScreenHandWritingRegionConfig`, `sPenButtonClass`.
+  - InkDiag `pen down shortcut=<bool> stroke=<n>` on every `onBeginRawDrawing`, n counting pen-downs since the last brush
+    (logging only, no SDK call inside a stroke).
+  - Toggle A "Vendor resume order" (`InkExperiments.vendorResumeOrder`, H2): enable is `setBrushRawDrawingEnabled(true)`,
+    brush, `setStrokeParameters` (the firmware's own params of the style written back), `setRawDrawingEnabled(true)`,
+    `forceSetRawDrawingEnabled(true)`; on colour screens (`getColorType() > 0`) it runs 500 ms later
+    (`NoteConstant.COLOR_DEVICE_PEN_RESUME_DELAY_TIME_MS`) and only if no disable, close or newer enable came in
+    between and raw drawing may still be on. A tool or colour change while live adds `setRawDrawingRenderEnabled`
+    false then true.
+  - Toggle B "Region pen config" (`regionPenConfig`, H1): after every open, enable and brush change,
+    `EpdController.setScreenHandWritingRegionConfig(limit in screen pixels, StrokeConfig per PenButton name from the
+    dump)` with the current style, width and colour; `clearScreenHandWritingRegionConfig` on close and stop (only if
+    one was set). Failures are logged under InkDiag, never thrown; no pen buttons found logs a skip.
+  - Review fixes (2026-11-08): the delayed vendor enable re-checks every 100 ms while the pen is down (no SDK call mid-stroke);
+  `refresh` re-enables without the 500 ms delay (only resumes are delayed); turning toggle B off clears the region config at
+  once (`OnyxStrokeInput.experimentsChanged`, wired through `InkExperimentPrefs.onChange`); `FirmwareBrushApi.read` also
+  catches `LinkageError`.
+- Both toggles persist (`InkExperimentPrefs`, SharedPreferences `ink_experiments`), take effect at the next open,
+    enable or brush change, and default from one constant, `InkExperiments.DEFAULT_ON` (true; flip it for a build
+    that ships them off). `OnyxStrokeInput`'s own default env is `InkExperiments.OFF` so a bare construction (tests)
+    keeps the v0.18.0 sequence; the app wires the prefs.
+- Reading the device result:
+  - Dump shows `sMethodSetStrokeColor=null` or `absent`: H4 (colour never lands); the region config methods null too
+    means toggle B cannot help either.
+  - Red with both toggles off, right with B on (A off): H1, the firmware reloads a stored per-pen-button config; make
+    B the default brush path.
+  - Right with A on (B off): H2, vendor order and timing; make A the default.
+  - `pen down shortcut=true` on the red strokes: H5, the side-button shortcut pen.
+  - Red with every combination and v0.13.2 from Releases also red: H3, device state (the BOOX Notes pen); still try B.
+- The tests (`OnyxInkExperimentsTest`, `FirmwareBrushApiTest` dump cases, `InkExperimentPrefsTest`,
+  `DiagnosticsPanelTest`) prove the model of the calls, not the firmware: toggle A order and its colour delay,
+  toggle B carrying the current brush and limit and clearing on close, no SDK call between pen-down and pen-up with
+  both on, toggles off reproducing the v0.18.0 sequence call for call, and the dump format. Only the device answers
+  which hypothesis holds.
+
 ## 2026-11-07 The left strip never hides on its own (fix/live-ink-toolbar, 0.17.0 report)
 
 - User, verbatim: "I liked that left toolbar stayed open initially. Keep it like this. Never autohide". This
