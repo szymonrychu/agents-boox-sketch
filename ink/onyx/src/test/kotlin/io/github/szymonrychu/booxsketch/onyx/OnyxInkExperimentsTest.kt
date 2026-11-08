@@ -137,7 +137,7 @@ class OnyxInkExperimentsTest {
         return "region:${limit.toShortString()}:TIP/$one,SIDE_BUTTON/$one"
     }
 
-    /** Every member a session can see, run with both toggles off. */
+    /** Every member a session can see, run with the default toggles (both off). */
     private fun session(): List<String> {
         started()
         input.setTool(Tool.FOUNTAIN, 4f)
@@ -158,14 +158,17 @@ class OnyxInkExperimentsTest {
         return log.toList()
     }
 
+    /** The v0.18.0 call sequence plus the vendor demo's forced pause after every open (T-78, the tap-to-dismiss regression). */
     @Test
-    fun both_toggles_off_reproduce_the_v0_18_0_call_sequence() {
+    fun the_default_toggles_off_sequence_pauses_after_every_open() {
+        toggles = InkExperiments()
         val fountain = brushOf(Tool.FOUNTAIN, PenColor.BLACK)
         val fountainBlue = brushOf(Tool.FOUNTAIN, PenColor.BLUE)
         assertThat(session())
             .containsExactly(
                 "limit",
                 "open",
+                "force:false",
                 "idle:${OnyxStrokeInput.PEN_IDLE_MS}",
                 ballpoint,
                 "enabled:false",
@@ -177,6 +180,7 @@ class OnyxInkExperimentsTest {
                 "enabled:false",
                 "limit",
                 "open",
+                "force:false",
                 "idle:${OnyxStrokeInput.PEN_IDLE_MS}",
                 fountainBlue,
                 "enabled:false",
@@ -273,6 +277,7 @@ class OnyxInkExperimentsTest {
             .containsExactly(
                 "limit",
                 "open",
+                "force:false",
                 "idle:${OnyxStrokeInput.PEN_IDLE_MS}",
                 ballpoint,
                 region(Tool.BALLPOINT, PenColor.BLACK),
@@ -307,7 +312,7 @@ class OnyxInkExperimentsTest {
 
     @Test
     fun both_toggles_together_write_the_region_config_after_the_vendor_transition() {
-        toggles = InkExperiments()
+        toggles = InkExperiments(vendorResumeOrder = true, regionPenConfig = true)
         input.start(view, limit, emptyList())
         log.clear()
         draws.removeFirst().run()
@@ -325,7 +330,7 @@ class OnyxInkExperimentsTest {
 
     @Test
     fun no_sdk_call_between_pen_down_and_pen_up_with_both_toggles_on() {
-        toggles = InkExperiments()
+        toggles = InkExperiments(vendorResumeOrder = true, regionPenConfig = true)
         color = true
         started()
         delayed.removeFirst().first.run()
@@ -403,9 +408,9 @@ class OnyxInkExperimentsTest {
     }
 
     @Test
-    fun the_default_toggles_are_on() {
-        assertThat(InkExperiments()).isEqualTo(InkExperiments(vendorResumeOrder = true, regionPenConfig = true))
-        assertThat(InkExperiments.DEFAULT_ON).isTrue()
+    fun the_default_toggles_are_off() {
+        assertThat(InkExperiments()).isEqualTo(InkExperiments.OFF)
+        assertThat(InkExperiments.DEFAULT_ON).isFalse()
     }
 
     @Test
