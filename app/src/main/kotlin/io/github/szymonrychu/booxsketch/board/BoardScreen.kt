@@ -161,11 +161,13 @@ internal fun BoardScreenWith(
     val dockVisible = chrome?.visible ?: true
     val control = OverlayControl(chrome, holds, toolbox, hasPanel = panel != null)
     val boardSurface = remember { arrayOfNulls<TextLayerSurface>(1) }
-    DisposableEffect(input, vm) {
+    DisposableEffect(input, ui, vm) {
         vm.textHolds.input = input
+        vm.textHolds.ui = ui
         boardSurface[0]?.let { vm.textHolds.surface = it }
         onDispose {
             vm.textHolds.input = null
+            vm.textHolds.ui = null
             vm.textHolds.surface = null
         }
     }

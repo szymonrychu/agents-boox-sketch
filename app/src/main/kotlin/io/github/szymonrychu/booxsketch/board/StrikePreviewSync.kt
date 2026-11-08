@@ -42,6 +42,7 @@ class StrikePreviewSync(
                     holds.hold {
                         board.setStrikeOverlay(n.current, rects)
                         holds.surface?.swapText(shownStrokes(n), bitmap, rows(NotebookGeometry(n.canvas.w, n.canvas.h), shown + rects))
+                        holds.ui?.uiChanged()
                     }
                     true
                 }

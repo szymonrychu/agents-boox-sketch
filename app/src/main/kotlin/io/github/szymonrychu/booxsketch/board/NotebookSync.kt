@@ -154,7 +154,10 @@ class NotebookSync(
             val n = placed.notebook
             board.setStrikeOverlay(n.current, overlay)
             // The whole page is drawn again (null dirty rect), never only the changed rows over an earlier render.
-            if (n.current in placed.changedRows || n.current != base.current) holds.surface?.swapText(shownStrokes(n), bitmap, null)
+            if (n.current in placed.changedRows || n.current != base.current) {
+                holds.surface?.swapText(shownStrokes(n), bitmap, null)
+                holds.ui?.uiChanged()
+            }
         }
         return true
     }

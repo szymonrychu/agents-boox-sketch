@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import android.os.SystemClock
 import io.github.szymonrychu.booxsketch.ink.StrokeInput
+import io.github.szymonrychu.booxsketch.ink.UiRefresh
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
 import kotlinx.coroutines.delay
@@ -35,6 +36,9 @@ class TextLayerHolds(
     @Volatile var input: StrokeInput? = null
 
     @Volatile var surface: TextLayerSurface? = null
+
+    /** Asked, inside a hold after a swap, to get the swap onto the frozen panel (the refresh waits for a draw). */
+    @Volatile var ui: UiRefresh? = null
 
     @Volatile private var lastActivity: Long? = null
 
