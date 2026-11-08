@@ -1,8 +1,8 @@
 package io.github.szymonrychu.booxsketch.documents
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -227,7 +227,11 @@ class DocumentsFlowTest {
             specMarkdown = "LOGIN\n\n![image](images/$region.png)\n"
             val red = android.graphics.Bitmap.createBitmap(60, 30, android.graphics.Bitmap.Config.ARGB_8888)
             red.eraseColor(android.graphics.Color.RED)
-            imageBytes = java.io.ByteArrayOutputStream().also { red.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            imageBytes =
+                java.io
+                    .ByteArrayOutputStream()
+                    .also { red.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    .toByteArray()
             repo.refresh()
             val row = rows { it.isNotEmpty() }.single()
             val images = SpecImageCache(tmp.newFolder("inline-images")) { client }
@@ -237,7 +241,9 @@ class DocumentsFlowTest {
                     row.serverId,
                     db,
                     { md ->
-                        MarkdownPaginator(layout, images = { id -> images.cached(row.serverId, id)?.let { BitmapFactory.decodeFile(it.path) } })
+                        MarkdownPaginator(layout, images = { id ->
+                            images.cached(row.serverId, id)?.let { BitmapFactory.decodeFile(it.path) }
+                        })
                             .paginate(md)
                     },
                     store,
@@ -250,7 +256,10 @@ class DocumentsFlowTest {
             assertThat(images.cached(row.serverId, region)).isNotNull()
             // The picture is drawn into the page: red pixels exist, text alone is black.
             val bitmap = BitmapFactory.decodeFile(page.path)
-            val pixels = IntArray(bitmap.width * bitmap.height).also { bitmap.getPixels(it, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height) }
+            val pixels =
+                IntArray(
+                    bitmap.width * bitmap.height,
+                ).also { bitmap.getPixels(it, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height) }
             assertThat(pixels.any { it == android.graphics.Color.RED }).isTrue()
         }
 

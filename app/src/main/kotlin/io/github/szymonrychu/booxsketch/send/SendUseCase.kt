@@ -195,8 +195,9 @@ class SendUseCase(
                     part.layout?.let { l -> Payload.layout(it, n).writeBytes(l) }
                     part.regions.forEachIndexed { k, png -> Payload.region(it, n, k).writeBytes(png) }
                 }
+                val indices = parts.map { p -> p.index }
                 val pictures = parts.associate { p -> p.index to p.pictureMeta }
-                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, pictures, baseVersion = base?.version)
+                Payload.writePages(it, clientId, caption, indices, notebook.canvas, pictures, baseVersion = base?.version)
             }
             conversations.titleFromCaption(conversation.localId, caption)
             board.markSent(indices.associateWith { notebook.pages[it] })
@@ -328,7 +329,8 @@ class SendUseCase(
                     val notebookPart =
                         kept?.let {
                             withContext(worker) {
-                                notebookLayout(clientId, page, geometry, n, base?.lines.orEmpty(), if (asOps) images.map { it.first } else emptyList())
+                                val imageOps = if (asOps) images.map { it.first } else emptyList()
+                                notebookLayout(clientId, page, geometry, n, base?.lines.orEmpty(), imageOps)
                             }
                         }
                     val ops = notebookPart?.ops.orEmpty()
@@ -354,7 +356,8 @@ class SendUseCase(
     /**
      * One image op per region of [page] not sent yet (spec 4.3 rule 1) with its crop: the region's rect `[x, y, w, h]`
      * in page px, its members as strokes, part `region.<part>.<k>.png` and, as `after_line`, the run of a [baseLines]
-     * line ending nearest above the rect (none for a picture: the caller passes no lines). Null when a region is degenerate or its crop cannot fit the PNG cap.
+     * line ending nearest above the rect (none for a picture: the caller passes no lines).
+     * Null when a region is degenerate or its crop cannot fit the PNG cap.
      */
     @Suppress("LongParameterList")
     private suspend fun regions(

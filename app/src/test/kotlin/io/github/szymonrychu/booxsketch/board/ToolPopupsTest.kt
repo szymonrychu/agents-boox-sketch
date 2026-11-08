@@ -198,7 +198,11 @@ class ToolPopupsTest {
         vm.setTool(Tool.RECTANGLE)
         show(ToolPopup.SHAPE, vm)
         compose.onNodeWithTag(colorTag(PenColor.RED)).assertExists()
-        val shapeTag = SemanticsMatcher("tag starts with shape_") { it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("shape_") == true }
+        val shapeTag =
+            SemanticsMatcher("tag starts with shape_") {
+                it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("shape_") ==
+                    true
+            }
         compose.onAllNodes(shapeTag).assertCountEquals(0)
     }
 }

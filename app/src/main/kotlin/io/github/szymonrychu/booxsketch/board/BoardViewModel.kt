@@ -208,7 +208,10 @@ class BoardViewModel(
         ops: Map<Int, List<PendingOp>> = emptyMap(),
     ) = update { it.addPending(pending, ops) }
 
-    /** Releases the pending segments and ops of [uploads] (all when null) based on a version below [version] (any when null); the pictures [markdown] embeds are applied instead. */
+    /**
+     * Releases the pending segments and ops of [uploads] (all when null) based on a version below [version] (any when null);
+     * the pictures [markdown] embeds are applied instead.
+     */
     fun releasePending(
         version: Int?,
         uploads: Set<String>?,

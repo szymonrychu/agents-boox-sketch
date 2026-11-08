@@ -501,7 +501,14 @@ class NotebookSyncTest {
         runTest {
             val store = NotebookStore(File(tmp.root, "picture.json"))
             val region = Stroke("r", Tool.IMAGE_REGION, 3f, listOf(Point(100f, 400f, 1f, 0L), Point(700f, 900f, 1f, 1L)))
-            val op = EditOp("op1", OpKind.IMAGE, strokeIds = listOf("r"), rect = listOf(100f, 400f, 600f, 500f), region = RegionRef("reg-1", "region.0.0.png", null))
+            val op =
+                EditOp(
+                    "op1",
+                    OpKind.IMAGE,
+                    strokeIds = listOf("r"),
+                    rect = listOf(100f, 400f, 600f, 500f),
+                    region = RegionRef("reg-1", "region.0.0.png", null),
+                )
             store.save(Notebook(canvas, listOf(Page(listOf(region), false, pendingOps = listOf(PendingOp("c1", op)))), 0))
             val vm = BoardViewModel(store, this, StandardTestDispatcher(testScheduler), canvas)
             sendFrom("c1", "sk1")

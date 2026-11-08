@@ -251,7 +251,12 @@ class SendUseCaseRegionTest {
             val layout = layoutOf(clientId)
             assertThat(layout.ops).isEmpty()
             assertThat(layout.segments.flatMap { it.strokes }).containsExactly(2)
-            val picture = Payload.readPages(dir(clientId)).pages[0].regions.single()
+            val picture =
+                Payload
+                    .readPages(dir(clientId))
+                    .pages[0]
+                    .regions
+                    .single()
             assertThat(picture.part).isEqualTo("region.0.0.png")
             assertThat(picture.rect).containsExactly(100f, g.rowTop(4).toFloat(), 600f, (g.rowTop(9) - g.rowTop(4)).toFloat()).inOrder()
             assertThat(File(dir(clientId), "region.0.0.png").readBytes()).isEqualTo(ByteArray(32) { 7 })

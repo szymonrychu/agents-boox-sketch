@@ -21,6 +21,30 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-08 Box and Picture tools, pictures on every Send (feat/square-split, connector 2.3.0)
+
+- Q1 A: two strip buttons, "Box" (Tool.RECTANGLE, diagram node) and "Picture" (Tool.IMAGE_REGION, freehand drawing); the shape
+  popup keeps only the colour grid. 11 buttons shrink below 48 dp only on windows under 528 dp tall (accepted risk).
+- Q2 A: a picture reaches the spec on every Send, the first included. Rule: a page's unsent regions go as image ops when a
+  base version exists and the strokes part fits (`kept != null`); otherwise as `pages[n].regions` meta pictures
+  (`PictureRegionDto(id, rect, part)`) with the same app-side crop as `region.<n>.<k>.png` (Q5 A, no connector rendering).
+  The 4-per-page cap now applies whatever the base (a first send of 5 regions is refused, not silently dropped).
+  Why: line ops need `base_version` and a layout that indexes the strokes part; the first version had no way to carry the picture
+  and the translator transcribed the drawing.
+- A sent picture is recorded as a pending IMAGE op (`PagePart.pictures`), so `ImageRegions.unsent` skips it and the page is not
+  resent. A plain turn reports no op status, so it is applied by reference: `Work.applyPictures` applies a pending IMAGE op when
+  the answering version's markdown embeds `images/<region id>.png` (also on the no-layout `releasePending` path, which gained a
+  required `referenced` set); any other is released by the normal release and goes again on the next Send.
+- Q4 A: the dashed frame is drawn on the board only (applied regions now dashed too, `TextLayer.drawRegionFrame` with
+  `CanvasStrokeRenderer.DASH`); the crop stays clean (`RegionCropper` unchanged).
+- `PageMetaDto.regions` defaults to empty and is encoded as `[]` (encodeDefaults); the connector drops empty regions from the
+  idempotency fingerprint, so an outbox retry across the release is not a mismatch.
+- Tests replaced because they were no longer accurate: SendSelectionTest 1 (regionsSendable gone), SendUseCaseRegionTest 4
+  (first-send as drawing without ops, five regions without a spec, strokes over the cap as drawing, region op after first
+  version), ToolPopupsTest `shape_popup_has_image_region`, the `rectangle` strip tag renamed `box` in ToolStripTest and
+  UiRefreshWiringTest, and `TextLayerTest` applied-frame test lost its "solid top edge" assertion (the frame is dashed now).
+  `openapi.json` was copied from the connector worktree before its v2.3.0 tag existed.
+
 ## 2026-11-08 One text size on the page, whole page redrawn on every version (fix/text-render-uniform, 0.19.3 report)
 
 - Device report: the lines changed by the latest version had a different text size than the unchanged ones. Cause:
