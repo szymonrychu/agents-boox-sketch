@@ -235,9 +235,11 @@ class AnnotationClassifier(
 
     /**
      * Note ops (contract 2.2.0) for the [margin] strokes: clusters of strokes whose boxes lie within [NOTE_GAP_CELLS]
-     * cells of each other, each with the arrows among [free] whose tail lies within [SNAP_RADIUS] of the cluster (an
-     * arrow touching several clusters joins them), so the note and its arrow are consumed together. Top to bottom,
-     * strokes in drawing order; the rect bounds all of a note's strokes.
+     * cells of each other, each with the arrows among [free] whose tail or tip lies within [SNAP_RADIUS] of one of the
+     * cluster's own margin strokes (their points, never the box of the cluster and never an arrow already joined, so a
+     * later unrelated arrow cannot chain on), so the note and its arrow are consumed together. An arrow touching several
+     * clusters joins only one: the cluster nearest to its tail or tip, the topmost then the leftmost on a tie; the others
+     * stay as they were. Top to bottom, strokes in drawing order; the rect bounds all of a note's strokes.
      */
     private fun notes(
         margin: List<Stroke>,
@@ -246,25 +248,38 @@ class AnnotationClassifier(
         newId: () -> String,
     ): List<EditOp> {
         val gap = NOTE_GAP_CELLS * geometry.cell
-        val clusters = ArrayList<Set<String>>()
+        val seeds = ArrayList<Set<String>>()
         for (s in margin) {
             val b = bounds(s)
-            val near = clusters.filter { c -> margin.any { it.id in c && rectGap(bounds(it), b) <= gap } }
-            clusters.removeAll(near)
-            clusters += near.flatten().toSet() + s.id
+            val near = seeds.filter { c -> margin.any { it.id in c && rectGap(bounds(it), b) <= gap } }
+            seeds.removeAll(near)
+            seeds += near.flatten().toSet() + s.id
         }
-        if (clusters.isEmpty()) return emptyList()
+        if (seeds.isEmpty()) return emptyList()
         val byId = free.associateBy { it.id }
+        val marginById = margin.associateBy { it.id }
+        // Per cluster: its margin strokes (the only thing an arrow is measured against) and all its strokes.
+        var clusters = seeds.map { it to it }
 
         fun rect(ids: Set<String>) = ids.map { bounds(byId.getValue(it)) }.reduce(::unionOf)
+
+        fun reach(
+            c: Set<String>,
+            a: InsertArrow,
+        ) = c.minOf { id -> listOf(a.tail, a.tip).minOf { pointToStroke(it, marginById.getValue(id)) } }
         for (a in insertArrows(free)) {
-            val home = clusters.firstOrNull { pointGap(rect(it), a.tail) <= SNAP_RADIUS } ?: continue
-            val joined = clusters.filter { it == home || a.strokeIds.any { id -> id in it } }
-            clusters.removeAll(joined)
-            clusters += joined.flatten().toSet() + a.strokeIds
+            val home =
+                clusters
+                    .map { it to reach(it.first, a) }
+                    .filter { it.second <= SNAP_RADIUS }
+                    .minWithOrNull(compareBy({ it.second }, { rect(it.first.second).t }, { rect(it.first.second).l }))
+                    ?.first ?: continue
+            val joined = clusters.filter { it == home || a.strokeIds.any { id -> id in it.second } }
+            val merged = joined.flatMap { it.first }.toSet() to joined.flatMap { it.second }.toSet() + a.strokeIds
+            clusters = clusters - joined.toSet() + merged
         }
         return clusters
-            .map { it to rect(it) }
+            .map { it.second to rect(it.second) }
             .sortedWith(compareBy({ it.second.t }, { it.second.l }))
             .map { (ids, r) ->
                 val strokeIds = free.map { it.id }.filter { it in ids }
@@ -431,11 +446,21 @@ private fun rectGap(
     b: RectF,
 ): Float = hypot(maxOf(0f, a.l - b.r, b.l - a.r), maxOf(0f, a.t - b.b, b.t - a.b))
 
-/** Distance from [p] to box [r], 0 inside it. */
-private fun pointGap(
-    r: RectF,
+/** Distance from [p] to the polyline of [s]. */
+private fun pointToStroke(
     p: Vec,
-): Float = hypot(maxOf(0f, r.l - p.x, p.x - r.r), maxOf(0f, r.t - p.y, p.y - r.b))
+    s: Stroke,
+): Float {
+    val pts = s.points
+    if (pts.size == 1) return hypot(p.x - pts[0].x, p.y - pts[0].y)
+    return pts.zipWithNext().minOf { (a, b) ->
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 == 0f) 0f else (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).coerceIn(0f, 1f)
+        hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+}
 
 /** Centre of a stroke's bounding box. */
 internal fun centre(s: Stroke): Vec =

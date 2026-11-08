@@ -186,6 +186,47 @@ class RunPlacerOpsTest {
         assertThat(page.pendingOps).isEmpty()
     }
 
+    /** A note "n" with its loop "L" and a two-stroke arrow (shaft "A", head "A-h") as sent by the classifier, reported [applied]. */
+    private fun loopedNoteReportedAt2(applied: Boolean): Placement {
+        fun s(
+            id: String,
+            vararg xy: Float,
+        ) = Stroke(id, Tool.BALLPOINT, 2f, xy.toList().chunked(2).mapIndexed { i, (x, y) -> Point(x, y, 0.5f, i * 10L) })
+        val strokes =
+            listOf(
+                s("n", 1050f, 450f, 1200f, 450f),
+                s("L", 1020f, 400f, 1250f, 400f, 1250f, 500f, 1020f, 500f, 1020f, 400f),
+                s("A", 1020f, 450f, 400f, g.rowTop(4) + 80f),
+                s("A-h", 430f, g.rowTop(4) + 60f, 400f, g.rowTop(4) + 80f, 430f, g.rowTop(4) + 100f),
+            )
+        val op = EditOp("op1", OpKind.NOTE, strokeIds = strokes.map { it.id }, rect = listOf(400f, 400f, 850f, 110f))
+        val n = withOp(notebook(Page(strokes, false, text = listOf(run("L1", 4, "buy fresh milk")))), op)
+        val markdown = if (applied) "buy fresh milk today" else "buy fresh milk"
+        val status = OpStatusModel("op1", applied, "no line".takeUnless { applied })
+        return applyOps(n, markdown, listOf(status), line("L1", 1, LineOrigin.Kept("L1")))
+    }
+
+    @Test
+    fun applied_looped_note_hides_its_loop_and_every_arrow_stroke() {
+        val page = loopedNoteReportedAt2(applied = true).notebook.pages[0]
+        assertThat(page.consumed).containsExactly("n", "L", "A", "A-h")
+        assertThat(page.visibleStrokes).isEmpty()
+    }
+
+    @Test
+    fun revert_restores_the_loop_and_every_arrow_stroke_of_a_note() {
+        val page = revertTo(loopedNoteReportedAt2(applied = true).notebook, 1).notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("n", "L", "A", "A-h")
+    }
+
+    @Test
+    fun rejected_looped_note_leaves_its_arrow_visible_like_the_note() {
+        val page = loopedNoteReportedAt2(applied = false).notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("n", "L", "A", "A-h")
+    }
+
     @Test
     fun rejected_op_keeps_ink() {
         val above = mark("w", g.rowTop(4) + 26f)
@@ -302,5 +343,49 @@ class RunPlacerOpsTest {
         assertThat(p.notebook.pages[0].pendingOps).isEmpty()
         assertThat(p.notebook.pages[0].pendingSegments).isEmpty()
         assertThat(p.notebook.pages[0].changedSinceSend).isTrue()
+    }
+
+    /**
+     * A page with a boxed margin note and a recorded two-stroke hand-drawn arrow into row 4, classified for real (the
+     * insert op), then reported [applied] by version 2.
+     */
+    private fun classifiedInsertReportedAt2(applied: Boolean): Pair<EditOp, Placement> {
+        val raw = NotebookFixtures.freehand("arrow_two_strokes_v")
+        val found = checkNotNull(FreehandShapes.arrow(raw, 0))
+        val arrowStrokes = NotebookFixtures.freehand("arrow_two_strokes_v", 1050f - found.tail.x, NotebookFixtures.textY(4) - found.tip.y)
+        val tailY = checkNotNull(FreehandShapes.arrow(arrowStrokes, 0)).tail.y
+        val strokes =
+            listOf(
+                NotebookFixtures.rect("R", 1040f, tailY - 50f, 1300f, tailY + 50f),
+                NotebookFixtures.word("n", 1080f, 1250f, tailY),
+            ) + arrowStrokes
+        val page = Page(strokes, false, text = listOf(NotebookFixtures.run("L1", 4, "buy fresh milk")))
+        val op = AnnotationClassifier(listOf(ToolInsertMarks, FreehandInsertMarks)).classify(page, g, measure) { "op1" }.ops.single()
+        val n = withOp(notebook(page), op)
+        val markdown = if (applied) "buy fresh milk today" else "buy fresh milk"
+        val status = OpStatusModel("op1", applied, "no line".takeUnless { applied })
+        return op to applyOps(n, markdown, listOf(status), line("L1", 1, LineOrigin.Kept("L1")))
+    }
+
+    @Test
+    fun applied_insert_op_hides_the_box_the_note_and_every_arrow_stroke() {
+        val (op, p) = classifiedInsertReportedAt2(applied = true)
+        assertThat(op.kind).isEqualTo(OpKind.INSERT)
+        assertThat(op.strokeIds).containsExactly("R", "n", "arrow_two_strokes_v-0", "arrow_two_strokes_v-1", "arrow_two_strokes_v-2")
+        assertThat(p.notebook.pages[0].visibleStrokes).isEmpty()
+    }
+
+    @Test
+    fun revert_before_an_applied_insert_op_restores_the_arrow_too() {
+        val page = revertTo(classifiedInsertReportedAt2(applied = true).second.notebook, 1).notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).hasSize(5)
+    }
+
+    @Test
+    fun rejected_insert_op_leaves_the_arrow_visible() {
+        val page = classifiedInsertReportedAt2(applied = false).second.notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).hasSize(5)
     }
 }
