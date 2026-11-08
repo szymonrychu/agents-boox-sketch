@@ -2,6 +2,40 @@
 
 Lessons that outlive a session. Newest first.
 
+## 2026-11-08 Every open is paused for real: the tap-to-dismiss regression (T-78, fix/live-ink-held-open-pause)
+
+- Root cause (analysis: `.scratchpad/boox-fixes/fable-tap-dismiss-regression.md` in the workbench; medium-low
+  confidence, the firmware is a black box): since #57 the raw session the user writes in is in a state v0.13.2 never
+  produced. `openRawDrawing` leaves the firmware pen in START and a `setRawDrawingEnabled(false)` right after it is a
+  no-op (the SDK's cached flag is already off), so under a hold (popup or panel open) the pen stayed live; a pen tap on
+  the board that dismissed the overlay was drawn by the firmware in START and dropped by the app; the reopen for the
+  changed rects ran at the lift of that tap; the enable then went START -> DRAWING. v0.13.2 always went
+  PAUSE -> START -> DRAWING, never drew a stroke in START and never opened at a lift. The vendor demo
+  (`PenManager.java`) force-pauses after every open.
+- Fix: `OnyxStrokeInput.open` calls `forceSetEnabled(false)` right after every open (held or not), so every enable is
+  PAUSE -> DRAWING and a dismiss tap meets a paused pen (`dropsEvent` is now a safety net). `BoardView` no longer starts
+  the input at the lift of a swallowed gesture: `LaunchedEffect(exclude, swallowing)` applies the rect change once the
+  swallow ends, after the hold of the gesture is released. Toggles A and B (#70) stay, default OFF
+  (`InkExperiments.DEFAULT_ON = false`), as the analysis recommends.
+- Not done: the analysis's optional fix (3), one pause/resume at the first pen idle after an enable. It is marked the
+  least principled and droppable if (1)+(2) hold, and it is a brush write at pen idle, the shape #59 broke the device
+  with. Next step only if device check c below fails.
+- Tests: `OnyxBrushAfterOpenTest.SdkLikeRawDrawing` models the pen states (STOP, START, DRAWING, PAUSE) and logs every
+  SDK call; new `no_session_is_ever_enabled_from_start`, `a_held_reopen_ends_paused`, `a_held_first_start_ends_paused`,
+  `a_first_start_waiting_for_its_draw_is_paused`, `a_dismiss_tap_followed_by_a_stroke_goes_pause_start_drawing_..`
+  (no SDK call inside a stroke). Changed because they pinned the old behaviour: the two
+  `..under_an_outstanding_hold_leaves_the_live_firmware_pen..` tests (pen live in START under a hold, now paused);
+  `both_toggles_off_reproduce_the_v0_18_0_call_sequence` is `the_default_toggles_off_sequence_pauses_after_every_open`
+  (pins the default sequence, `force:false` after each open); `the_default_toggles_are_on` is `..are_off`; the
+  both-toggles tests name the toggles explicitly; the region config open sequence gains `force:false`;
+  `BoardDismissModeTest.a_swallowed_gesture_keeps_raw_drawing_held_and_not_reopened_until_the_lift` is
+  `..reopens_after_the_release` (the reopen ran under the gesture's hold at the lift, now after its release).
+- These prove the call sequence, not the firmware. Device check (toggles A and B off, `adb logcat -s InkDiag`):
+  a. launch, write 5 lines in black fountain without touching the strip; b. open a popup and close it with the same
+  strip button, write 5 lines; open a popup and close it with a pen tap on the board, write 5 lines; c. write a line,
+  hide and show the strip with its chevron, write 5 lines. Every line must be right in a and b, and c must change
+  nothing. Still red: next is toggle B on (region config), then a build with the grid off (`BoardGrid.draw`).
+
 ## 2026-11-08 Red live ink diagnostic build: firmware API dump, vendor resume order, region pen config (T-78, fix/live-ink-firmware-pen)
 
 - Four fixes (#58, #59, #60, #67) only reordered `setStrokeStyle/Width/Color` and none held on the device. Our firmware

@@ -213,8 +213,12 @@ class BoardDismissModeTest {
         assertThat(state.panelVisible).isFalse()
     }
 
+    /**
+     * T-78: the reopen for the rects that changed under the pen runs after the swallow's hold is released, never at the
+     * lift itself, right behind the tap the firmware just saw; the paused-after-open session then enables from PAUSE.
+     */
     @Test
-    fun a_swallowed_gesture_keeps_raw_drawing_held_and_not_reopened_until_the_lift() {
+    fun a_swallowed_gesture_keeps_raw_drawing_held_and_reopens_after_the_release() {
         val input = FreezingInput()
         show(input)
         input.log.clear()
@@ -228,8 +232,12 @@ class BoardDismissModeTest {
 
         up(MotionEvent.TOOL_TYPE_STYLUS)
         assertThat(lastStart(input)).isEqualTo(beforePanel)
-        // The reopen with the new rects runs under the hold; the lift releases it last.
-        assertThat(input.log.lastIndexOf(lastStart(input))).isLessThan(input.log.lastIndexOf("release"))
+        // One reopen for the rect change, after the holds of dismiss mode and the swallowed gesture are released: only
+        // the dismiss refresh (released after its draw) is still outstanding then.
+        assertThat(starts(input)).containsExactly(beforePanel)
+        val beforeStart = input.log.subList(0, input.log.indexOf(lastStart(input)))
+        assertThat(input.heldAtClear + beforeStart.count { it == "hold" } - beforeStart.count { it == "release" }).isEqualTo(1)
+        assertThat(input.log.last()).isEqualTo("release")
         assertThat(input.log.count { it == "release" } - input.log.count { it == "hold" }).isEqualTo(1)
     }
 

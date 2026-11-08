@@ -712,11 +712,7 @@ fun BoardView(
                 v.onFocus = gate::setFocused
                 v.onTap = { tapCb() }
                 v.onDismiss = { dismissCb() }
-                v.onSwallow = { on ->
-                    swallowing = on
-                    // Rects that changed under the pen take effect at the lift, still under the hold released next.
-                    if (!on) startOn(v)
-                }
+                v.onSwallow = { on -> swallowing = on }
                 v.strokeInProgress = { input.strokeInProgress }
                 v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> startOn(v) }
             }
@@ -728,7 +724,8 @@ fun BoardView(
         },
         onRelease = { input.stop() },
     )
-    LaunchedEffect(exclude) { surface[0]?.let { startOn(it) } }
+    // Rects that changed under the pen take effect after the lift, once the hold of the swallowed gesture is released.
+    LaunchedEffect(exclude, swallowing) { if (!swallowing) surface[0]?.let { startOn(it) } }
     // Dismiss mode and a swallowed gesture keep raw drawing off through the input's hold, as every overlay change does.
     HoldWhile(input, held)
     DisposableEffect(input) {
@@ -750,7 +747,7 @@ fun BoardView(
         input.events.collect { ev ->
             penActivity()
             if (ev is StrokeEvent.Cancelled) return@collect shapeCancelCb()
-            // The firmware pen can stay live under a swallowed gesture (a hold right after an open is a no-op): no stroke.
+            // A stroke the firmware still commits under a swallowed gesture is dropped (a safety net: opens are paused).
             val v = surface[0]?.takeUnless { it.dropsEvent(ev) } ?: return@collect
             val g = v.geometry()
             when (ev) {
@@ -781,7 +778,7 @@ private fun HoldWhile(
  * (Re)starts [input] on this view with [exclude] window rects. Does nothing while the surface does
  * not exist (a layout or exclude change after surfaceDestroyed must not reopen raw drawing) or the
  * view has no size; surfaceCreated calls it again. Nor during a swallowed gesture: a reopen would run
- * with the pen on the board, so the lift starts the input instead.
+ * with the pen on the board, so the exclude effect starts the input after the lift instead.
  */
 internal fun BoardSurfaceView.startInput(
     input: StrokeInput,
