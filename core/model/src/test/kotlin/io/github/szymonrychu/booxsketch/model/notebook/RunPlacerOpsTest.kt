@@ -148,6 +148,44 @@ class RunPlacerOpsTest {
         assertThat(page.changedSinceSend).isFalse()
     }
 
+    /** A margin note (pen "n" plus arrow "A" into row 4) sent as a note op, reported [applied] by version 2. */
+    private fun noteReportedAt2(applied: Boolean): Placement {
+        val note = Stroke("n", Tool.BALLPOINT, 2f, listOf(Point(1050f, 450f, 0.5f, 0L), Point(1200f, 450f, 0.5f, 10L)))
+        val arrow = Stroke("A", Tool.ARROW, 4f, listOf(Point(1040f, 450f, 1f, 0L), Point(400f, g.rowTop(4) + 80f, 1f, 10L)))
+        val op = EditOp("op1", OpKind.NOTE, strokeIds = listOf("n", "A"), rect = listOf(400f, 450f, 800f, 110f))
+        val n = withOp(notebook(Page(listOf(note, arrow), false, text = listOf(run("L1", 4, "buy fresh milk")))), op)
+        val markdown = if (applied) "buy fresh milk today" else "buy fresh milk"
+        val status = OpStatusModel("op1", applied, "no line".takeUnless { applied })
+        return applyOps(n, markdown, listOf(status), line("L1", 1, LineOrigin.Kept("L1")))
+    }
+
+    @Test
+    fun applied_note_op_hides_its_strokes() {
+        val page = noteReportedAt2(applied = true).notebook.pages[0]
+        assertThat(page.consumed).containsExactly("n", "A")
+        assertThat(page.opConsumedAt).containsExactly("n", 2, "A", 2)
+        assertThat(page.visibleStrokes).isEmpty()
+        assertThat(page.pendingOps).isEmpty()
+    }
+
+    @Test
+    fun revert_before_an_applied_note_op_restores_its_strokes() {
+        val p = revertTo(noteReportedAt2(applied = true).notebook, 1)
+        val page = p.notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("n", "A")
+        assertThat(page.changedSinceSend).isTrue()
+    }
+
+    @Test
+    fun rejected_note_op_stays_plain_ink() {
+        val page = noteReportedAt2(applied = false).notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.rejectedStrokes).containsExactly("n", "A")
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("n", "A")
+        assertThat(page.pendingOps).isEmpty()
+    }
+
     @Test
     fun rejected_op_keeps_ink() {
         val above = mark("w", g.rowTop(4) + 26f)

@@ -543,7 +543,8 @@ class SendUseCase(
      * [baseLines] are sent and annotated: the connector rejects (422) any run or op line id the base version's layout
      * does not have. The ink inside image regions is the picture of its [imageOps]: never classified, never a segment.
      * The other handwriting over those runs is classified first ([AnnotationClassifier]); its strokes are in no
-     * segment. Segment ids carry the upload part index. The image ops follow the classified ones.
+     * segment. Margin ink goes as note ops, only on a page that has a layout anyway (a plain drawing stays a picture).
+     * Segment ids carry the upload part index. The note ops follow the edit ops, the image ops follow both.
      */
     @Suppress("LongParameterList")
     private fun notebookLayout(
@@ -558,12 +559,15 @@ class SendUseCase(
         val shown = page.copy(text = runs)
         val inRegions = ImageRegions.excluded(page)
         val classified = measure?.let { classifier.classify(shown, geometry, it, inRegions, newId) }
+        val notes = classified?.notes.orEmpty()
+        val opStrokes = classified?.opStrokeIds.orEmpty() + notes.flatMap { it.strokeIds }
         val segments =
-            Segmenter.segment(page, geometry, part, exclude = inRegions + classified?.opStrokeIds.orEmpty()).segments.map {
+            Segmenter.segment(page, geometry, part, exclude = inRegions + opStrokes).segments.map {
                 PendingSegment(clientId, it.id, it.row, it.x0, it.x1, it.strokeIds)
             }
-        val ops = classified?.ops.orEmpty() + imageOps
-        if (segments.isEmpty() && runs.isEmpty() && ops.isEmpty()) return null
+        val edits = classified?.ops.orEmpty() + imageOps
+        if (segments.isEmpty() && runs.isEmpty() && edits.isEmpty()) return null
+        val ops = classified?.ops.orEmpty() + notes + imageOps
         return NotebookPart(LayoutCodec.encode(shown, geometry, segments, ops), segments, ops.map { PendingOp(clientId, it) })
     }
 

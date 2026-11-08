@@ -17,6 +17,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.serializer
@@ -134,6 +135,31 @@ class ContractTest {
         assertWithMessage("segment").that(dto.segments.single().strokes).containsExactly(0)
         assertWithMessage("op kind").that(dto.ops.single().kind).isEqualTo("insert")
         assertWithMessage("geometry").that(dto.geometry.marginLeft).isEqualTo(983)
+    }
+
+    @Test
+    fun every_op_kind_is_a_documented_edit_op_kind() {
+        val kinds =
+            schema("EditOp")["properties"]!!
+                .jsonObject["kind"]!!
+                .jsonObject["enum"]!!
+                .jsonArray
+                .map { it.jsonPrimitive.content }
+        assertWithMessage("op kinds").that(kinds).containsAtLeastElementsIn(OpKind.entries.map { it.name.lowercase() })
+    }
+
+    @Test
+    fun note_op_decodes_strictly_as_edit_op() {
+        val page = Page(listOf(Stroke("a", Tool.BALLPOINT, 2f, listOf(Point(1f, 2f, 0.5f, 0L)))), true)
+        val note = EditOp("33333333-3333-4333-8333-333333333333", OpKind.NOTE, strokeIds = listOf("a"), rect = listOf(1f, 2f, 3f, 4f))
+        val bytes = LayoutCodec.encode(page, NotebookGeometry(1404, 1872), emptyList(), listOf(note))
+        val dto = Json { ignoreUnknownKeys = false }.decodeFromString(PageLayoutDto.serializer(), String(bytes, Charsets.UTF_8))
+        val op = dto.ops.single()
+        assertWithMessage("kind").that(op.kind).isEqualTo("note")
+        assertWithMessage("strokes").that(op.strokes).containsExactly(0)
+        assertWithMessage("rect").that(op.rect).containsExactly(1f, 2f, 3f, 4f).inOrder()
+        assertWithMessage("no target").that(op.target).isNull()
+        assertWithMessage("no at").that(op.at).isNull()
     }
 
     @Test
