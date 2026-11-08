@@ -1,12 +1,19 @@
 package io.github.szymonrychu.booxsketch.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.ink.InputPath
 import io.github.szymonrychu.booxsketch.ink.InputStatus
@@ -117,5 +124,43 @@ class DiagnosticsPanelTest {
         compose.onNodeWithText("Vendor resume order: on").performClick()
         assertThat(toggles).isEqualTo(InkExperiments(vendorResumeOrder = false, regionPenConfig = true))
         compose.onNodeWithText("Vendor resume order: off").assertIsDisplayed()
+    }
+
+    private val longDump = (1..200).joinToString("\n") { "line $it" } + "\nDUMP-END"
+
+    @Test
+    fun the_toggles_and_refresh_come_before_the_firmware_dump() {
+        compose.setContent {
+            Box(Modifier.width(300.dp).height(400.dp)) {
+                DiagnosticsPanel(
+                    InputStatus(InputPath.ONYX_RAW, null),
+                    rawEnabled = { true },
+                    firmwareBrush = "ok",
+                    firmwareDump = longDump,
+                    inkExperiments = InkExperiments(vendorResumeOrder = false, regionPenConfig = false),
+                )
+            }
+        }
+        val dumpTop = compose.onNodeWithText("Firmware API dump", substring = true).getUnclippedBoundsInRoot().top
+        for (label in listOf("Vendor resume order: off", "Region pen config: off", "Refresh")) {
+            compose.onNodeWithText(label).assertIsDisplayed()
+            assertThat(compose.onNodeWithText(label).getUnclippedBoundsInRoot().top).isLessThan(dumpTop)
+        }
+    }
+
+    @Test
+    fun a_very_long_dump_scrolls_so_its_end_can_be_read() {
+        compose.setContent {
+            Box(Modifier.width(300.dp).height(400.dp)) {
+                DiagnosticsPanel(
+                    InputStatus(InputPath.ONYX_RAW, null),
+                    rawEnabled = { true },
+                    firmwareDump = longDump,
+                    inkExperiments = InkExperiments(vendorResumeOrder = false, regionPenConfig = false),
+                )
+            }
+        }
+        compose.onNodeWithText("Vendor resume order: off").assertIsDisplayed()
+        compose.onNodeWithText("DUMP-END", substring = true).performScrollTo().assertIsDisplayed()
     }
 }

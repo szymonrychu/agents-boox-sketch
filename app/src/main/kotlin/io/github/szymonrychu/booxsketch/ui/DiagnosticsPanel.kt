@@ -3,6 +3,8 @@ package io.github.szymonrychu.booxsketch.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,15 +79,13 @@ fun DiagnosticsPanel(
 ) {
     var tick by remember { mutableIntStateOf(0) }
     val raw = remember(tick, status) { rawEnabled() }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Input path: ${status.path?.label ?: "not selected yet"}", color = Color.Black)
         Text("Raw drawing enabled: ${if (raw) "yes" else "no"}", color = Color.Black)
         Text("Fallback reason: ${status.fallbackReason ?: "none"}", color = Color.Black)
         Text("Shape drag events: window ${shapeDrags.window}, view ${shapeDrags.view}", color = Color.Black)
         Text("Pen redraw fallbacks: $penFallbacks", color = Color.Black)
         if (penOffReason != null) Text(penOffReason, color = Color.Black)
-        if (firmwareBrush != null) Text("Firmware brush API: $firmwareBrush", color = Color.Black)
-        if (firmwareDump != null) Text("Firmware API dump:\n$firmwareDump", color = Color.Black)
         if (inkExperiments != null) {
             ExperimentToggle("Vendor resume order", inkExperiments.vendorResumeOrder) {
                 onInkExperiments(inkExperiments.copy(vendorResumeOrder = it))
@@ -97,6 +97,8 @@ fun DiagnosticsPanel(
         TextButton(onClick = { tick++ }, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
             Text("Refresh", color = Color.Black)
         }
+        if (firmwareBrush != null) Text("Firmware brush API: $firmwareBrush", color = Color.Black)
+        if (firmwareDump != null) Text("Firmware API dump:\n$firmwareDump", color = Color.Black)
     }
 }
 
