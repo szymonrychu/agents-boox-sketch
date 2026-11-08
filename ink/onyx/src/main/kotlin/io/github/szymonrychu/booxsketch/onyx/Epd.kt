@@ -61,41 +61,6 @@ object Epd {
         return params?.takeIf { it.isNotEmpty() }
     }
 
-    /** Writes [params] of stroke [style] to the firmware (`Device.setStrokeParameters`), as the vendor pen demo does. */
-    fun setStrokeParameters(
-        style: Int,
-        params: FloatArray,
-    ) {
-        safely { Device.currentDevice().setStrokeParameters(style, params) }
-    }
-
-    /** A colour screen (`getColorType() > 0`, the SDK's `DeviceInfoUtil.isColorDevice`); false when unknown. */
-    fun isColorDevice(): Boolean {
-        var color = false
-        safely { color = Device.currentDevice().colorType > 0 }
-        return color
-    }
-
-    /** `EpdController.setScreenHandWritingRegionConfig` for [screen] (screen pixels); a failure is logged, never thrown. */
-    fun setRegionPenConfig(
-        screen: Rect,
-        configs: List<PenStrokeConfig>,
-    ) {
-        logged("set region pen config") {
-            val strokes =
-                configs.map { c ->
-                    StrokeConfig().apply {
-                        penButton = c.penButton
-                        strokeStyle = c.style
-                        strokeWidth = c.width
-                        strokeColor = c.color
-                        params = strokeParameters(c.style) ?: FloatArray(0)
-                    }
-                }
-            EpdController.setScreenHandWritingRegionConfig(screen, strokes.toTypedArray())
-        }
-    }
-
     /** `EpdController.clearScreenHandWritingRegionConfig`; a failure is logged, never thrown. */
     fun clearRegionPenConfig() {
         logged("clear region pen config") { EpdController.clearScreenHandWritingRegionConfig() }

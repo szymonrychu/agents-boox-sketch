@@ -36,7 +36,6 @@ import io.github.szymonrychu.booxsketch.documents.ShareBundle
 import io.github.szymonrychu.booxsketch.documents.SourcesViewModel
 import io.github.szymonrychu.booxsketch.documents.SpecImageCache
 import io.github.szymonrychu.booxsketch.documents.SpecSync
-import io.github.szymonrychu.booxsketch.ink.InkExperimentPrefs
 import io.github.szymonrychu.booxsketch.ink.InputSelector
 import io.github.szymonrychu.booxsketch.ink.InputSettings
 import io.github.szymonrychu.booxsketch.ink.OnyxDiagnostics
@@ -46,7 +45,6 @@ import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.notebook.PendingOp
 import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
-import io.github.szymonrychu.booxsketch.onyx.InkExperimentEnv
 import io.github.szymonrychu.booxsketch.onyx.OnyxProbe
 import io.github.szymonrychu.booxsketch.onyx.OnyxStrokeInput
 import io.github.szymonrychu.booxsketch.onyx.ProbeResult
@@ -181,13 +179,9 @@ class AppContainer(
     /** Why the Onyx path was abandoned, null while it works; shown by the diagnostics screen. */
     val onyxFailure: StateFlow<String?> = _onyxFailure
 
-    /** The Diagnostics tab's live ink toggles; the pen input reads the same preferences. */
-    val inkExperiments: InkExperimentPrefs by lazy { InkExperimentPrefs(app) }
-
     private val penFactory: () -> StrokeInput =
         onyxFactory ?: {
-            OnyxStrokeInput(app, experiments = InkExperimentEnv(toggles = inkExperiments::current))
-                .also { pen -> inkExperiments.onChange(pen::experimentsChanged) }
+            OnyxStrokeInput(app)
         }
 
     @Suppress("TooGenericExceptionCaught")
@@ -528,7 +522,7 @@ class AppContainer(
         tabs.register(TabSpec(BOARD_TAB_ID, "Drawing", order = DRAWING_TAB_ORDER) { })
         tabs.register(TabSpec(TASKS_TAB_ID, "Tasks", order = TASKS_TAB_ORDER) { TasksTab(it) })
         // wave C: the Documents tab registers here (it is a panel tab until then)
-        PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector, inkExperiments) })
+        PanelTabs.register(PanelTab("diagnostics", "Diagnostics", DIAGNOSTICS_ORDER) { DiagnosticsTab(inputSelector) })
         PanelTabs.register(PanelTab(CONVERSATIONS_TAB_ID, "Conversations", order = 0) { ConversationsTab() })
         PanelTabs.register(PanelTab(DOCUMENTS_TAB_ID, "Documents", DOCUMENTS_PANEL_TAB_ORDER) { DocumentsTab() })
         PanelTabs.onOpenConversations = { PanelTabs.select(CONVERSATIONS_TAB_ID) }

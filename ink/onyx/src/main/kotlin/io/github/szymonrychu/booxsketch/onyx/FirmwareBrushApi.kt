@@ -120,9 +120,7 @@ object FirmwareBrushApi {
         ).joinToString("\n")
     }
 
-    /** The firmware pen button names (`PenButton` static int fields, by value), for the region pen config. */
-    fun penButtons(): List<String> = penButtons(penButtonClass(Epd.device()) ?: classOrNull(PEN_BUTTON))
-
+    /** The firmware pen button names (`PenButton` static int fields, by value) of [type]. */
     fun penButtons(type: Class<*>?): List<String> = type?.let { penButtonValues(it).map { (n, _) -> n } } ?: emptyList()
 
     /** The `PenButton` class the SDK's device class looked up into its `sPenButtonClass` field, if any. */
