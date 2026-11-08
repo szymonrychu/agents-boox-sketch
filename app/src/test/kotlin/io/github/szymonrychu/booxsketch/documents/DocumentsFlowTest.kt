@@ -1,6 +1,7 @@
 package io.github.szymonrychu.booxsketch.documents
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -71,6 +72,8 @@ class DocumentsFlowTest {
     private var offline = false
     private var specMarkdown = "# Title\n\nSome spec text.\n"
     private val layout = DocumentLayout(300, 400)
+    private var imageBytes = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10, 0)
+    private val imageRequests = Collections.synchronizedList(mutableListOf<String>())
 
     @Before
     fun setUp() {
@@ -88,10 +91,11 @@ class DocumentsFlowTest {
                         }
 
                         path.contains("/images/") -> {
+                            imageRequests += path
                             MockResponse()
                                 .setResponseCode(200)
                                 .setHeader("Content-Type", "image/png")
-                                .setBody(okio.Buffer().write(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10, 0)))
+                                .setBody(okio.Buffer().write(imageBytes))
                         }
 
                         path.endsWith("/sketches") -> {
@@ -214,6 +218,40 @@ class DocumentsFlowTest {
             assertThat(items.map { it.sketchId }).containsExactly("sk-1")
             assertThat(items.single().kind).isEqualTo(SourceKind.NOTES)
             assertThat(items.single().state).isEqualTo(SourceState.LOCAL)
+        }
+
+    @Test
+    fun first_send_picture_is_fetched_and_shown_inline() =
+        runBlocking<Unit> {
+            val region = "0b7f6a1e-2c3d-4e5f-8a9b-0c1d2e3f4a5b"
+            specMarkdown = "LOGIN\n\n![image](images/$region.png)\n"
+            val red = android.graphics.Bitmap.createBitmap(60, 30, android.graphics.Bitmap.Config.ARGB_8888)
+            red.eraseColor(android.graphics.Color.RED)
+            imageBytes = java.io.ByteArrayOutputStream().also { red.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            repo.refresh()
+            val row = rows { it.isNotEmpty() }.single()
+            val images = SpecImageCache(tmp.newFolder("inline-images")) { client }
+            val vm =
+                DocumentViewModel(
+                    row.conversationLocalId,
+                    row.serverId,
+                    db,
+                    { md ->
+                        MarkdownPaginator(layout, images = { id -> images.cached(row.serverId, id)?.let { BitmapFactory.decodeFile(it.path) } })
+                            .paginate(md)
+                    },
+                    store,
+                    layout,
+                    scope,
+                    prefetch = { md -> images.prefetch(row.serverId, md) },
+                )
+            val page = withTimeout(10_000) { vm.state.first { it.loaded } }.pages.first().file
+            assertThat(imageRequests).hasSize(1)
+            assertThat(images.cached(row.serverId, region)).isNotNull()
+            // The picture is drawn into the page: red pixels exist, text alone is black.
+            val bitmap = BitmapFactory.decodeFile(page.path)
+            val pixels = IntArray(bitmap.width * bitmap.height).also { bitmap.getPixels(it, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height) }
+            assertThat(pixels.any { it == android.graphics.Color.RED }).isTrue()
         }
 
     @Test
