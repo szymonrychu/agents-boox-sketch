@@ -1,8 +1,6 @@
 package io.github.szymonrychu.booxsketch.onyx
 
-import android.graphics.Rect
 import android.view.View
-import com.onyx.android.sdk.api.data.model.StrokeConfig
 import com.onyx.android.sdk.api.device.epd.EpdController
 import com.onyx.android.sdk.api.device.epd.UpdateMode
 import com.onyx.android.sdk.device.Device

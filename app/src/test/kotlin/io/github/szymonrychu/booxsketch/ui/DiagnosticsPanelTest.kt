@@ -121,10 +121,8 @@ class DiagnosticsPanelTest {
             }
         }
         val dumpTop = compose.onNodeWithText("Firmware API dump", substring = true).getUnclippedBoundsInRoot().top
-        for (label in listOf("Refresh")) {
-            compose.onNodeWithText(label).assertIsDisplayed()
-            assertThat(compose.onNodeWithText(label).getUnclippedBoundsInRoot().top).isLessThan(dumpTop)
-        }
+        compose.onNodeWithText("Refresh").assertIsDisplayed()
+        assertThat(compose.onNodeWithText("Refresh").getUnclippedBoundsInRoot().top).isLessThan(dumpTop)
     }
 
     @Test
