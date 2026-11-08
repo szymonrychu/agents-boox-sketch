@@ -3,46 +3,13 @@ package io.github.szymonrychu.booxsketch.model.notebook
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
-import io.github.szymonrychu.booxsketch.model.Point
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import io.github.szymonrychu.booxsketch.model.notebook.NotebookFixtures.pen
 import org.junit.Test
 
 class FreehandShapesTest {
-    private fun fixture(name: String): List<Stroke> {
-        val text =
-            checkNotNull(javaClass.getResourceAsStream("/freehand/$name.json")) { "missing $name" }
-                .bufferedReader()
-                .readText()
-        val root: JsonObject = Json.parseToJsonElement(text).jsonObject
-        val strokes: JsonArray = root.getValue("strokes").jsonArray
-        return strokes.mapIndexed { i, s ->
-            Stroke(
-                id = "$name-$i",
-                tool = Tool.BALLPOINT,
-                width = 3f,
-                points =
-                    s.jsonArray.mapIndexed { j, p ->
-                        Point(
-                            p.jsonArray[0]
-                                .jsonPrimitive.content
-                                .toFloat(),
-                            p.jsonArray[1]
-                                .jsonPrimitive.content
-                                .toFloat(),
-                            0.5f,
-                            j * 8L,
-                        )
-                    },
-            )
-        }
-    }
+    private fun fixture(name: String) = NotebookFixtures.freehand(name)
 
     private val loops =
         listOf(
@@ -175,6 +142,47 @@ class FreehandShapesTest {
     fun underline_is_not_arrow() {
         val strokes = fixture("neg_underline")
         assertThat(FreehandShapes.arrow(strokes, 0)).isNull()
+    }
+
+    @Test
+    fun curved_shafts_with_tick_heads_from_the_device_are_arrows() {
+        val strokes = fixture("arrows_tick_head_device_v0195")
+        // Four bubbles with their note text; each curved shaft is followed by its tick head.
+        for (shaft in listOf(5, 19, 25, 32)) {
+            val arrow = FreehandShapes.arrow(strokes, shaft)
+            assertWithMessage("shaft $shaft").that(arrow).isNotNull()
+            assertThat(arrow!!.strokeIds).containsExactly(strokes[shaft].id, strokes[shaft + 1].id)
+        }
+    }
+
+    @Test
+    fun tick_displaced_from_the_shaft_end_is_not_a_head() {
+        val strokes = fixture("arrows_tick_head_device_v0195")
+        val tick = strokes[6]
+        val away = tick.copy(points = tick.points.map { it.copy(x = it.x + 120f, y = it.y + 120f) })
+        assertThat(FreehandShapes.arrow(listOf(strokes[5], away), 0)).isNull()
+    }
+
+    @Test
+    fun straight_continuation_of_the_shaft_is_not_a_tick_head() {
+        val shaft = pen("s", 100f, 500f, 400f, 500f)
+        val extension = pen("e", 380f, 500f, 400f, 500f, 440f, 500f)
+        assertThat(FreehandShapes.arrow(listOf(shaft, extension), 0)).isNull()
+    }
+
+    @Test
+    fun separate_strokes_that_only_touch_a_shaft_end_are_not_tick_heads() {
+        val shaft = pen("s", 100f, 500f, 400f, 500f, 700f, 500f)
+        val shapes =
+            mapOf(
+                "L corner on the shaft end" to pen("t", 400f, 470f, 400f, 500f, 430f, 500f),
+                "L corner on the tail end" to pen("t", 700f, 470f, 700f, 500f, 730f, 500f),
+                "v across the shaft end" to pen("t", 685f, 470f, 700f, 500f, 715f, 470f),
+                "check mark" to pen("t", 690f, 490f, 700f, 500f, 740f, 450f),
+            )
+        for ((name, tick) in shapes) {
+            assertWithMessage(name).that(FreehandShapes.arrow(listOf(shaft, tick), 0)).isNull()
+        }
     }
 
     @Test

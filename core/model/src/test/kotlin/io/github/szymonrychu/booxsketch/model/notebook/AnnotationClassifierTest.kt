@@ -312,6 +312,28 @@ class AnnotationClassifierTest {
     }
 
     @Test
+    fun loops_with_curved_tick_headed_arrows_are_inline_inserts_consuming_the_arrows() {
+        // Four bubbles with note text from the v0.19.5 device upload, each followed by a curved shaft and its tick head.
+        val strokes = NotebookFixtures.freehand("arrows_tick_head_device_v0195")
+        val runs =
+            listOf(
+                run("L1", 1, "Test document :", 117f, 1),
+                run("L4", 3, "2) additional text", 198f, 4),
+                run("L5", 4, "3) testing text", 197f, 5),
+                run("L7", 5, "another sentence :", 127f, 7),
+                run("L10", 7, "* testing point", 191f, 10),
+            )
+        val r = classify(Page(strokes, true, text = runs))
+        assertThat(r.ops.map { it.kind }.distinct()).containsExactly(OpKind.INSERT)
+        assertThat(r.ops).hasSize(4)
+        assertThat(r.ops.all { it.at != null }).isTrue()
+        assertThat(r.notes).isEmpty()
+        for (arrowStroke in listOf(5, 6, 19, 20, 25, 26, 32, 33)) {
+            assertThat(r.opStrokeIds).contains(strokes[arrowStroke].id)
+        }
+    }
+
+    @Test
     fun tool_rect_with_freehand_arrow_makes_insert() {
         val r =
             classify(

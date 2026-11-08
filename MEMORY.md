@@ -1400,3 +1400,7 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   never mid-stroke, so a device where an older build left a config is protected. The Firmware brush API line and the
   firmware dump stay on the Diagnostics tab.
 - The orphan `ink_experiments` SharedPreferences file is left alone (no cleanup pattern in the codebase); it is never read.
+
+## 2026-11-08 Tick/caret arrow heads (T-78)
+
+- `FreehandShapes.separateHeadArrow` falls back to a one-stroke tick or caret head when no V head matches: path at most 2 cells, sharp interior vertex within `HEAD_TOUCH` of a shaft end, both arms at least 0.1 cell, angle between them under 120 degrees, and the arm bisector within 60 degrees of the direction from the tip back along the shaft (shaft point 0.5 cell behind the tip, so curved shafts use their local direction; chord direction failed the device fixture). Added 2026-11-08 after review: separate L, v and check-mark strokes touching a shaft end must not become arrows. Why: the user's four curved arrows (v0.19.5 upload) had tick heads that the V rules rejected (head path over the limit, arms opening upward), so the arrows fell to REPLACE ops, were rejected and stayed drawn. A looser rule without the vertex check broke 10 existing tests, so the vertex check stays.

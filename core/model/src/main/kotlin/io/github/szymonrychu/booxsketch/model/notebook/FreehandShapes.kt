@@ -31,6 +31,7 @@ data class FreehandArrow(
  * Recognises margin-insert marks drawn freehand with a pen: closed loops and arrows. Pure geometry over page
  * pixels; thresholds are in cells ([NotebookGeometry.CELL]) so they follow the page scale.
  */
+@Suppress("TooManyFunctions") // one small geometric check per shape (loop, hook, V head, tick head)
 object FreehandShapes {
     private const val CELL = NotebookGeometry.CELL.toFloat()
 
@@ -55,6 +56,10 @@ object FreehandShapes {
 
     private const val MAX_HEAD_STROKE = 0.6f * CELL
     private const val HEAD_TOUCH = 0.3f * CELL
+    private const val MIN_TICK_ARM = 0.1f * CELL
+    private const val MAX_TICK_ANGLE_DEG = 120.0
+    private const val MAX_TICK_BISECTOR_DEG = 60.0
+    private const val TICK_BACK_REACH = 0.5f * CELL
     private const val MAX_HEAD_STROKES = 2
 
     /** The loop drawn by [stroke], or null when it is not a freehand closed curve of at least ~1.5 cells. */
@@ -128,7 +133,8 @@ object FreehandShapes {
         return if (ok) FreehandArrow(listOf(stroke.id), pts[0], tip) else null
     }
 
-    /** Straight shaft stroke plus a V head from one or two following strokes at either shaft end. */
+    /** Straight shaft stroke plus a V head from one or two following strokes at either shaft end, or else a one-stroke
+     * tick or caret head whose sharp vertex sits on a shaft end. */
     private fun separateHeadArrow(
         strokes: List<Stroke>,
         startIndex: Int,
@@ -146,7 +152,13 @@ object FreehandShapes {
                 return FreehandArrow(listOf(shaftStroke.id) + (heads + second.orEmpty()).map { it.id }, tail, tip, second != null)
             }
         }
-        return null
+        val next = rest.firstOrNull() ?: return null
+        return ends.firstNotNullOfOrNull { (tip, tail) ->
+            // Walk the shaft from the tip so a curved shaft is judged by its direction at the tip, not by its chord.
+            val fromTip = if (tip == shaft.last()) shaft.asReversed() else shaft
+            val back = fromTip.firstOrNull { dist(it, tip) >= TICK_BACK_REACH } ?: tail
+            FreehandArrow(listOf(shaftStroke.id, next.id), tail, tip).takeIf { isTickHead(next, tip, back) }
+        }
     }
 
     /** [heads] when they form a V head of [count] strokes with its vertex at [tip], opening towards [tail]. */
@@ -161,6 +173,29 @@ object FreehandShapes {
         val limit = MAX_HEAD_STROKE * (3 - count)
         val usable = heads.size == count && heads.none { it.tool.isShape } && headPts.none { it.size < 2 || pathLength(it) >= limit }
         return heads.takeIf { usable && isVHead(headPts, tip, tail) }
+    }
+
+    /** A tick or caret: at most two cells of path, its sharp interior vertex within [HEAD_TOUCH] of [tip], both arms at
+     * least [MIN_TICK_ARM] long, under [MAX_TICK_ANGLE_DEG] apart and opening back along the shaft (bisector within
+     * [MAX_TICK_BISECTOR_DEG] of the direction from [tip] to [back], a shaft point half a cell behind it). The vertex
+     * check keeps curves and strokes that merely pass by out. */
+    private fun isTickHead(
+        head: Stroke,
+        tip: Vec,
+        back: Vec,
+    ): Boolean {
+        val h = head.points.map { Vec(it.x, it.y) }
+        if (head.tool.isShape || h.size < 3 || pathLength(h) > 2f * CELL) return false
+        val v = h.indices.minBy { dist(h[it], tip) }
+        if (dist(h[v], tip) > HEAD_TOUCH || v == 0 || v == h.lastIndex) return false
+        val a = Vec(h.first().x - h[v].x, h.first().y - h[v].y)
+        val b = Vec(h.last().x - h[v].x, h.last().y - h[v].y)
+        val la = hypot(a.x, a.y)
+        val lb = hypot(b.x, b.y)
+        if (la < MIN_TICK_ARM || lb < MIN_TICK_ARM || angleDeg(a, b) >= MAX_TICK_ANGLE_DEG) return false
+        // Both arms point back along the shaft: their bisector is roughly opposite the shaft direction at the tip.
+        val bisector = Vec(a.x / la + b.x / lb, a.y / la + b.y / lb)
+        return angleDeg(bisector, Vec(back.x - tip.x, back.y - tip.y)) <= MAX_TICK_BISECTOR_DEG
     }
 
     private fun isStraightShaft(pts: List<Vec>): Boolean {
