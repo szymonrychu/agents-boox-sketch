@@ -7,6 +7,7 @@ import io.github.szymonrychu.booxsketch.api.ConfigDto
 import io.github.szymonrychu.booxsketch.api.HandoffDto
 import io.github.szymonrychu.booxsketch.api.OutboxKind
 import io.github.szymonrychu.booxsketch.api.OutboxState
+import io.github.szymonrychu.booxsketch.api.PictureRegionDto
 import io.github.szymonrychu.booxsketch.board.NotebookSync
 import io.github.szymonrychu.booxsketch.conversations.ConversationRepository
 import io.github.szymonrychu.booxsketch.data.AppDatabase
@@ -194,12 +195,14 @@ class SendUseCase(
                     part.layout?.let { l -> Payload.layout(it, n).writeBytes(l) }
                     part.regions.forEachIndexed { k, png -> Payload.region(it, n, k).writeBytes(png) }
                 }
-                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, baseVersion = base?.version)
+                val pictures = parts.associate { p -> p.index to p.pictureMeta }
+                Payload.writePages(it, clientId, caption, parts.map { p -> p.index }, notebook.canvas, pictures, baseVersion = base?.version)
             }
             conversations.titleFromCaption(conversation.localId, caption)
             board.markSent(indices.associateWith { notebook.pages[it] })
             val pending = parts.filter { it.pending.isNotEmpty() }.associate { it.index to it.pending }
-            val ops = parts.filter { it.ops.isNotEmpty() }.associate { it.index to it.ops }
+            // A sent picture is a pending IMAGE op too: it is applied when a version references its image.
+            val ops = parts.filter { (it.ops + it.pictures).isNotEmpty() }.associate { it.index to it.ops + it.pictures }
             // Stamped with the base version: a newer version that does not answer them releases them (never pending forever).
             val from = base?.version ?: 0
             val stamped = pending.mapValues { (_, l) -> l.map { it.copy(baseVersion = from) } }
@@ -271,7 +274,7 @@ class SendUseCase(
                             u.index
                         },
                         canvasOf(upload),
-                        AnnotationSend.annotates(version, upload),
+                        annotates = AnnotationSend.annotates(version, upload),
                     )
                 }
             }
@@ -283,8 +286,8 @@ class SendUseCase(
     /**
      * Exports board pages [indices] of [notebook]: PNG, strokes and, for notebook pages, the layout with its segments
      * and image ops plus the region crops. Image ops need a [base] version (the connector requires `base_version` for
-     * any op); without one the regions go as plain drawing. More than [MAX_REGIONS_PER_PAGE] new regions on a page
-     * refuse the send.
+     * any op) and a strokes part for the layout to index into; otherwise the regions go as meta pictures
+     * (`pages[n].regions`) with the same crops. More than [MAX_REGIONS_PER_PAGE] new regions on a page refuse the send.
      */
     private suspend fun exportBoard(
         notebook: Notebook,
@@ -294,12 +297,9 @@ class SendUseCase(
         base: Base?,
     ): Prepared {
         val geometry = NotebookGeometry(notebook.canvas.w, notebook.canvas.h)
-        // The cap only matters when ops will be built: without a base version the regions go as plain drawing.
-        if (base != null) {
-            for (i in indices) {
-                if (ImageRegions.unsent(notebook.pages[i]).size > MAX_REGIONS_PER_PAGE) {
-                    return Prepared.Failed(SendOutcome.TooManyRegions(i, MAX_REGIONS_PER_PAGE))
-                }
+        for (i in indices) {
+            if (ImageRegions.unsent(notebook.pages[i]).size > MAX_REGIONS_PER_PAGE) {
+                return Prepared.Failed(SendOutcome.TooManyRegions(i, MAX_REGIONS_PER_PAGE))
             }
         }
         val parts = mutableListOf<PagePart>()
@@ -319,22 +319,32 @@ class SendUseCase(
                     val strokes = withContext(worker) { StrokesCodec.encode(notebook.canvas, page) }
                     val kept = strokes.takeIf { it.size <= cfg.maxStrokesBytes }
                     val n = parts.size
-                    // The layout's stroke indices point into the strokes part: no strokes part, no layout and no ops.
+                    // The layout's stroke indices point into the strokes part and its ops need a base version: without
+                    // both the regions cannot be image ops and go as pictures in the page meta.
+                    val asOps = kept != null && base != null
                     val images =
-                        if (kept == null || base == null) {
-                            emptyList()
-                        } else {
-                            regions(page, n, base.lines, layer, notebook.canvas, cfg)
-                                ?: return Prepared.Failed(SendOutcome.ExportFailed(i, REGION_TOO_BIG))
-                        }
+                        regions(page, n, if (asOps) base!!.lines else emptySet(), layer, notebook.canvas, cfg)
+                            ?: return Prepared.Failed(SendOutcome.ExportFailed(i, REGION_TOO_BIG))
                     val notebookPart =
                         kept?.let {
                             withContext(worker) {
-                                notebookLayout(clientId, page, geometry, n, base?.lines.orEmpty(), images.map { it.first })
+                                notebookLayout(clientId, page, geometry, n, base?.lines.orEmpty(), if (asOps) images.map { it.first } else emptyList())
                             }
                         }
                     val ops = notebookPart?.ops.orEmpty()
-                    parts += PagePart(i, r.png, kept, notebookPart?.bytes, notebookPart?.segments.orEmpty(), ops, images.map { it.second })
+                    val pictures = if (asOps) emptyList() else images.map { it.first }
+                    parts +=
+                        PagePart(
+                            i,
+                            r.png,
+                            kept,
+                            notebookPart?.bytes,
+                            notebookPart?.segments.orEmpty(),
+                            ops,
+                            images.map { it.second },
+                            pictures.map { PendingOp(clientId, it) },
+                            pictures.map { PictureRegionDto(it.region!!.id, it.rect.orEmpty(), it.region!!.part) },
+                        )
                 }
             }
         }
@@ -344,7 +354,7 @@ class SendUseCase(
     /**
      * One image op per region of [page] not sent yet (spec 4.3 rule 1) with its crop: the region's rect `[x, y, w, h]`
      * in page px, its members as strokes, part `region.<part>.<k>.png` and, as `after_line`, the run of a [baseLines]
-     * line ending nearest above the rect. Null when a region is degenerate or its crop cannot fit the PNG cap.
+     * line ending nearest above the rect (none for a picture: the caller passes no lines). Null when a region is degenerate or its crop cannot fit the PNG cap.
      */
     @Suppress("LongParameterList")
     private suspend fun regions(
@@ -611,6 +621,9 @@ class SendUseCase(
         val ops: List<PendingOp> = emptyList(),
         /** Region crops; crop k is the part `region.<part>.<k>.png`. */
         val regions: List<ByteArray> = emptyList(),
+        /** The regions sent as meta pictures instead of image ops (no base version or no layout), as pending IMAGE ops. */
+        val pictures: List<PendingOp> = emptyList(),
+        val pictureMeta: List<PictureRegionDto> = emptyList(),
     )
 
     companion object {
