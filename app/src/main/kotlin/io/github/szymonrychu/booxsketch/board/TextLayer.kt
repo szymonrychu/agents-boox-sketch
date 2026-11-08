@@ -3,6 +3,7 @@ package io.github.szymonrychu.booxsketch.board
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -12,13 +13,14 @@ import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.model.notebook.WordBoxes
 import io.github.szymonrychu.booxsketch.model.rectOf
+import io.github.szymonrychu.booxsketch.render.CanvasStrokeRenderer
 import io.github.szymonrychu.booxsketch.model.RectF as ModelRect
 
 /**
  * The page-sized text bitmap of a notebook page (spec 6, Q5 A): every [TextRun] in sans serif, 40 px at scale 1,
  * black with its colour spans in their pen colour, headings bold, the baseline 11 px above the row line; a grey tick
  * at the start of each row with pending segments (spec 3.3.6); [render]'s overlay rects in 50 percent grey (the P5
- * strike preview); a thin solid dark grey frame with a small "image" label for every applied image region (spec
+ * strike preview); a thin dashed dark grey frame with a small "image" label for every applied image region (spec
  * 3.6). The background is transparent: the board draws it over the grid and under the ink, the export over white.
  * [measure] uses the same paint settings, so the placement fits what is drawn.
  */
@@ -86,6 +88,7 @@ class TextLayer(
                 color = REGION_GREY
                 style = Paint.Style.STROKE
                 strokeWidth = REGION_FRAME
+                pathEffect = DashPathEffect(floatArrayOf(CanvasStrokeRenderer.DASH, CanvasStrokeRenderer.DASH), 0f)
             }
         canvas.drawRect(r.l, r.t, r.r, r.b, frame)
         val label =
@@ -182,7 +185,7 @@ class TextLayer(
         /** 50 percent grey: the strike preview over text. */
         const val OVERLAY_GREY = 0x80808080.toInt()
 
-        /** An applied image region: a [REGION_FRAME] px solid frame and a [REGION_LABEL_SIZE] px label, dark grey. */
+        /** An applied image region: a [REGION_FRAME] px dashed frame and a [REGION_LABEL_SIZE] px label, dark grey. */
         const val REGION_GREY = 0xFF555555.toInt()
         const val REGION_FRAME = 2f
         const val REGION_LABEL = "image"
