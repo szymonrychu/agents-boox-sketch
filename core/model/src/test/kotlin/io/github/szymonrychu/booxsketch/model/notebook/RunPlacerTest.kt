@@ -259,6 +259,38 @@ class RunPlacerTest {
     }
 
     @Test
+    fun op_consumed_stroke_that_overflows_keeps_its_version_and_is_restored_by_a_revert() {
+        val last = g.rowCount - 1
+        val n =
+            notebook(
+                Page(
+                    listOf(stroke("a", last - 1), stroke("foot", last)),
+                    false,
+                    text = listOf(run("L9", last, "tail", sourceLine = 2)),
+                    pendingSegments = listOf(pending("p0-r14-0", last - 1, "a", x0 = 53f)),
+                    consumed = setOf("foot"),
+                    opConsumedAt = mapOf("foot" to 1),
+                ),
+            )
+        val text = "w".repeat(40) + " " + "z".repeat(40)
+        val p = apply(n, "$text\ntail", line("L1", 1, LineOrigin.Segments(listOf("p0-r14-0"))), line("L9", 2, LineOrigin.Kept("L9")))
+        assertThat(p.notebook.pages[0].opConsumedAt).isEmpty()
+        assertThat(p.notebook.pages[1].opConsumedAt).containsExactly("foot", 1)
+        val back =
+            apply(
+                p.notebook,
+                "$text\ntail",
+                line("L1", 1, LineOrigin.Kept("L1")),
+                line("L9", 2, LineOrigin.Kept("L9")),
+                version = 3,
+                revertedFrom = 0,
+            )
+        val page = back.notebook.pages[1]
+        assertThat(page.opConsumedAt).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).contains("foot")
+    }
+
+    @Test
     fun fenced_lines_not_placed_ink_kept() {
         val n =
             notebook(
