@@ -7,9 +7,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.google.common.truth.Truth.assertThat
 import io.github.szymonrychu.booxsketch.ink.InputPath
 import io.github.szymonrychu.booxsketch.ink.InputStatus
 import io.github.szymonrychu.booxsketch.ink.ShapeDragCounts
+import io.github.szymonrychu.booxsketch.onyx.InkExperiments
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -83,5 +85,37 @@ class DiagnosticsPanelTest {
             )
         }
         compose.onNodeWithText("Firmware brush API: missing (SDMDevice: setStrokeColor)").assertIsDisplayed()
+    }
+
+    @Test
+    fun the_firmware_api_dump_is_shown() {
+        compose.setContent {
+            DiagnosticsPanel(
+                InputStatus(InputPath.ONYX_RAW, null),
+                rawEnabled = { true },
+                firmwareDump = "Device: SDMDevice colorType=1 penState=2\nPenButton: TIP=0",
+            )
+        }
+        compose.onNodeWithText("Device: SDMDevice colorType=1 penState=2", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("PenButton: TIP=0", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun the_ink_experiment_toggles_show_their_state_and_flip_one_at_a_time() {
+        var toggles by mutableStateOf(InkExperiments(vendorResumeOrder = true, regionPenConfig = false))
+        compose.setContent {
+            DiagnosticsPanel(
+                InputStatus(InputPath.ONYX_RAW, null),
+                rawEnabled = { true },
+                inkExperiments = toggles,
+                onInkExperiments = { toggles = it },
+            )
+        }
+        compose.onNodeWithText("Vendor resume order: on").assertIsDisplayed()
+        compose.onNodeWithText("Region pen config: off").performClick()
+        assertThat(toggles).isEqualTo(InkExperiments(vendorResumeOrder = true, regionPenConfig = true))
+        compose.onNodeWithText("Vendor resume order: on").performClick()
+        assertThat(toggles).isEqualTo(InkExperiments(vendorResumeOrder = false, regionPenConfig = true))
+        compose.onNodeWithText("Vendor resume order: off").assertIsDisplayed()
     }
 }

@@ -24,6 +24,42 @@ private class ColourLookupFailedDevice {
     }
 }
 
+/** Shaped like `android.onyx.ViewUpdateHelper`: static firmware methods. */
+@Suppress("unused", "UtilityClassWithPublicConstructor")
+private class FakeViewUpdateHelper {
+    companion object {
+        @JvmStatic fun setStrokeStyle(style: Int) = Unit
+
+        @JvmStatic fun setScreenHandWritingRegionConfig() = Unit
+    }
+}
+
+/** Shaped like `android.onyx.handwriting.PenButton`: static int constants per pen button. */
+@Suppress("unused", "UtilityClassWithPublicConstructor")
+private class FakePenButton {
+    companion object {
+        const val SIDE_BUTTON = 1
+
+        const val TIP = 0
+
+        const val LABEL = "not an int"
+    }
+}
+
+/** A device whose region config lookup failed and that has no clear method field at all. */
+@Suppress("UtilityClassWithPublicConstructor") // instantiated like the SDK device class
+private class RegionDevice {
+    companion object {
+        @JvmField var sMethodSetStrokeStyle: Method? = Any::class.java.getMethod("hashCode")
+
+        @JvmField var sMethodSetStrokeColor: Method? = Any::class.java.getMethod("hashCode")
+
+        @JvmField var sMethodSetScreenHandWritingRegionConfig: Method? = null
+
+        @JvmField var sPenButtonClass: Class<*>? = FakePenButton::class.java
+    }
+}
+
 /** A subclass inherits the fields of its device base class. */
 private class SubDevice : LookedUpDevice()
 
@@ -44,5 +80,50 @@ class FirmwareBrushApiTest {
     fun a_device_without_the_fields_or_no_device_is_unknown_or_missing() {
         assertThat(FirmwareBrushApi.status(Any())).isEqualTo("unknown (Object: no stroke method fields)")
         assertThat(FirmwareBrushApi.status(null)).isEqualTo("missing (no device)")
+    }
+
+    @Test
+    fun pen_buttons_are_the_static_int_fields_in_value_order() {
+        assertThat(FirmwareBrushApi.penButtons(FakePenButton::class.java)).containsExactly("TIP", "SIDE_BUTTON").inOrder()
+        assertThat(FirmwareBrushApi.penButtons(null)).isEmpty()
+    }
+
+    @Test
+    fun the_pen_button_class_comes_from_the_device_field() {
+        assertThat(FirmwareBrushApi.penButtonClass(RegionDevice())).isEqualTo(FakePenButton::class.java)
+        assertThat(FirmwareBrushApi.penButtonClass(Any())).isNull()
+    }
+
+    @Test
+    fun the_dump_lists_methods_pen_buttons_fields_and_device_state() {
+        val dump =
+            FirmwareBrushApi.dump(
+                helper = FakeViewUpdateHelper::class.java,
+                penButton = FakePenButton::class.java,
+                device = RegionDevice(),
+                colorType = 1,
+                penState = 2,
+            )
+        assertThat(dump.lines())
+            .containsExactly(
+                "Device: RegionDevice colorType=1 penState=2",
+                "ViewUpdateHelper methods: setScreenHandWritingRegionConfig, setStrokeStyle",
+                "PenButton: TIP=0, SIDE_BUTTON=1",
+                "sMethodSetStrokeStyle=set sMethodSetStrokeColor=set sMethodSetStrokeWidth=absent " +
+                    "sMethodSetStrokeParameters=absent sMethodSetScreenHandWritingRegionConfig=null " +
+                    "sMethodClearScreenHandWritingRegionConfig=absent sPenButtonClass=set",
+            ).inOrder()
+    }
+
+    @Test
+    fun the_dump_names_what_is_absent() {
+        val dump = FirmwareBrushApi.dump(helper = null, penButton = null, device = null, colorType = null, penState = null)
+        assertThat(dump.lines())
+            .containsExactly(
+                "Device: none colorType=? penState=?",
+                "ViewUpdateHelper: absent",
+                "PenButton: absent",
+                "sMethod fields: no device",
+            ).inOrder()
     }
 }

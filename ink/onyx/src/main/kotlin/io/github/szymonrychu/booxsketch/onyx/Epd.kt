@@ -1,11 +1,14 @@
 package io.github.szymonrychu.booxsketch.onyx
 
+import android.graphics.Rect
 import android.view.View
+import com.onyx.android.sdk.api.data.model.StrokeConfig
 import com.onyx.android.sdk.api.device.epd.EpdController
 import com.onyx.android.sdk.api.device.epd.UpdateMode
 import com.onyx.android.sdk.device.Device
 
 /** E-ink helpers; every call is a no-op (or 0) when the vendor controller is unavailable. */
+@Suppress("TooManyFunctions") // one member per vendor controller call
 object Epd {
     /** Fast pen-friendly refresh while drawing. */
     fun handwritingMode(view: View) {
@@ -58,11 +61,65 @@ object Epd {
         return params?.takeIf { it.isNotEmpty() }
     }
 
+    /** Writes [params] of stroke [style] to the firmware (`Device.setStrokeParameters`), as the vendor pen demo does. */
+    fun setStrokeParameters(
+        style: Int,
+        params: FloatArray,
+    ) {
+        safely { Device.currentDevice().setStrokeParameters(style, params) }
+    }
+
+    /** A colour screen (`getColorType() > 0`, the SDK's `DeviceInfoUtil.isColorDevice`); false when unknown. */
+    fun isColorDevice(): Boolean {
+        var color = false
+        safely { color = Device.currentDevice().colorType > 0 }
+        return color
+    }
+
+    /** `EpdController.setScreenHandWritingRegionConfig` for [screen] (screen pixels); a failure is logged, never thrown. */
+    fun setRegionPenConfig(
+        screen: Rect,
+        configs: List<PenStrokeConfig>,
+    ) {
+        logged("set region pen config") {
+            val strokes =
+                configs.map { c ->
+                    StrokeConfig().apply {
+                        penButton = c.penButton
+                        strokeStyle = c.style
+                        strokeWidth = c.width
+                        strokeColor = c.color
+                        params = strokeParameters(c.style) ?: FloatArray(0)
+                    }
+                }
+            EpdController.setScreenHandWritingRegionConfig(screen, strokes.toTypedArray())
+        }
+    }
+
+    /** `EpdController.clearScreenHandWritingRegionConfig`; a failure is logged, never thrown. */
+    fun clearRegionPenConfig() {
+        logged("clear region pen config") { EpdController.clearScreenHandWritingRegionConfig() }
+    }
+
     /** The SDK's device object (`Device.currentDevice()`), or null when it cannot be created. */
     fun device(): Any? {
         var d: Any? = null
         safely { d = Device.currentDevice() }
         return d
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private inline fun logged(
+        what: String,
+        block: () -> Unit,
+    ) {
+        try {
+            block()
+        } catch (e: RuntimeException) {
+            InkDiag.info("$what failed: $e")
+        } catch (e: LinkageError) {
+            InkDiag.info("$what failed: $e")
+        }
     }
 
     @Suppress("TooGenericExceptionCaught")

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Pen input through the Onyx raw drawing SDK: the SDK renders ink immediately while the pen is
@@ -47,7 +48,9 @@ import java.util.UUID
  * disable right after it is a no-op in the SDK, so under a hold the pen stays live with that reset style),
  * on every enable, and on a tool or colour change. Never from a stroke callback: those run after the firmware
  * has started the stroke, and a brush write then corrupts its live ink (v0.14.2). Opens, enables and brushes
- * are logged under [InkDiag].
+ * are logged under [InkDiag], and every pen-down with its shortcut flag and stroke ordinal since the last brush.
+ * The T-78 [InkExperiments] ([experiments]) change the enable order and add the region pen config; both off is
+ * the v0.18.0 call sequence.
  */
 @Suppress("TooManyFunctions") // every StrokeInput member plus the raw session steps (open, enable, disable, brush)
 class OnyxStrokeInput(
@@ -57,6 +60,7 @@ class OnyxStrokeInput(
     private val maxPressure: () -> Float = Epd::maxTouchPressure,
     private val afterNextDraw: (View, Runnable) -> Unit = { v, r -> v.afterNextDraw(Handler(Looper.getMainLooper()), r) },
     private val fullRefresh: (View) -> Unit = Epd::fullRefresh,
+    private val experiments: InkExperimentEnv = InkExperimentEnv(),
 ) : StrokeInput,
     RawActivitySource {
     private val channel = Channel<StrokeEvent>(Channel.UNLIMITED)
@@ -94,6 +98,15 @@ class OnyxStrokeInput(
     @Volatile
     private var eraser = false
 
+    /** Pen-downs since the last brush write, for the InkDiag pen-down line. */
+    private val strokesSinceBrush = AtomicInteger(0)
+
+    /** Bumped by every disable, close and new enable: a delayed vendor-order enable runs only if it is still current. */
+    private var resumeGeneration = 0
+    private var regionConfigSet = false
+    private val colorDevice by lazy { experiments.colorDevice() }
+    private val penButtons by lazy { experiments.penButtons() }
+
     private val callback =
         object : RawInputCallback() {
             override fun onBeginRawDrawing(
@@ -101,6 +114,7 @@ class OnyxStrokeInput(
                 point: TouchPoint,
             ) {
                 penDown = true
+                InkDiag.info("pen down shortcut=$shortcutDrawing stroke=${strokesSinceBrush.incrementAndGet()}")
                 activity()
             }
 
@@ -233,6 +247,7 @@ class OnyxStrokeInput(
         d.setPenUpRefreshTimeMs(PEN_IDLE_MS)
         InkDiag.info("raw open")
         applyBrush(d)
+        regionPenConfig(d)
     }
 
     /** Raw drawing may be on: not paused, no [holdUi] outstanding, no session awaiting its first draw, no shape tool, no eraser. */
@@ -257,7 +272,30 @@ class OnyxStrokeInput(
         val w = BrushMapping.width(tool, width)
         val argb = color.argb
         d.setBrush(style, w, argb)
+        strokesSinceBrush.set(0)
         InkDiag.info("setBrush style=$style width=$w color=#${"%08X".format(Locale.ROOT, argb)} tool=$tool")
+    }
+
+    /** A tool or colour change; in the vendor order a live pen also gets a render off/on pair to pick the brush up. */
+    private fun brushChanged(d: RawDrawing) {
+        applyBrush(d)
+        if (experiments.toggles().vendorResumeOrder && active()) {
+            d.setRenderEnabled(false)
+            d.setRenderEnabled(true)
+        }
+        regionPenConfig(d)
+    }
+
+    /** [InkExperiments.regionPenConfig]: the current brush for every firmware pen button, over the applied limit rect. */
+    private fun regionPenConfig(d: RawDrawing) {
+        val limit = appliedLimit ?: return
+        if (!experiments.toggles().regionPenConfig) return
+        if (penButtons.isEmpty()) return InkDiag.info("region pen config skipped: no pen buttons")
+        val style = BrushMapping.style(tool)
+        val w = BrushMapping.width(tool, width)
+        d.setRegionPenConfig(Rect(limit), penButtons.map { PenStrokeConfig(it, style, w, color.argb) })
+        regionConfigSet = true
+        InkDiag.info("region pen config ${limit.toShortString()} buttons=${penButtons.joinToString()}")
     }
 
     override fun setTool(
@@ -271,13 +309,13 @@ class OnyxStrokeInput(
         when {
             tool.isShape && !wasShape -> disable(d)
             !tool.isShape && wasShape && active() -> enable(d)
-            else -> applyBrush(d)
+            else -> brushChanged(d)
         }
     }
 
     override fun setColor(color: PenColor) {
         this.color = color
-        drawing?.let { applyBrush(it) }
+        drawing?.let { brushChanged(it) }
     }
 
     override fun setEraser(on: Boolean) {
@@ -333,19 +371,50 @@ class OnyxStrokeInput(
     private fun disable(d: RawDrawing) {
         syncHost()
         penDown = false
+        resumeGeneration++
         d.setEnabled(false)
     }
 
     private fun close(d: RawDrawing) {
         syncHost()
         penDown = false
+        resumeGeneration++
+        if (regionConfigSet) {
+            d.clearRegionPenConfig()
+            regionConfigSet = false
+            InkDiag.info("region pen config cleared")
+        }
         d.close()
     }
 
     private fun enable(d: RawDrawing) {
-        d.setEnabled(true)
-        InkDiag.info("raw enable")
+        if (!experiments.toggles().vendorResumeOrder) {
+            d.setEnabled(true)
+            InkDiag.info("raw enable")
+            applyBrush(d)
+            regionPenConfig(d)
+            return
+        }
+        val generation = ++resumeGeneration
+        if (!colorDevice) return vendorEnable(d)
+        experiments.postDelayed(
+            Runnable { if (generation == resumeGeneration && drawing === d && active()) vendorEnable(d) },
+            COLOR_DEVICE_RESUME_DELAY_MS,
+        )
+    }
+
+    /**
+     * [InkExperiments.vendorResumeOrder]: the brush before the transition into drawing, as the vendor pen demo
+     * resumes (`applyBrushTouchHelperParams`, then the forced enable).
+     */
+    private fun vendorEnable(d: RawDrawing) {
+        d.setBrushRawDrawingEnabled(true)
         applyBrush(d)
+        d.applyStrokeParameters(BrushMapping.style(tool))
+        d.setEnabled(true)
+        d.forceSetEnabled(true)
+        InkDiag.info("raw enable (vendor order)")
+        regionPenConfig(d)
     }
 
     override fun stop() {
@@ -361,6 +430,9 @@ class OnyxStrokeInput(
     companion object {
         private const val DEFAULT_WIDTH = 4f
         private const val MIN_ERASE_RADIUS = 8f
+
+        /** The vendor demo's pen resume delay on colour screens (`NoteConstant.COLOR_DEVICE_PEN_RESUME_DELAY_TIME_MS`). */
+        const val COLOR_DEVICE_RESUME_DELAY_MS = 500L
 
         /** Pen idle timeout: long enough that a pause between letters does not count as idle. */
         const val PEN_IDLE_MS = 700
