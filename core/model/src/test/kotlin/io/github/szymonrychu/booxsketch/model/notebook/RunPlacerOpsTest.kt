@@ -106,6 +106,37 @@ class RunPlacerOpsTest {
         assertThat(page.visibleStrokes.map { it.id }).containsExactly("w")
         assertThat(page.changedSinceSend).isTrue()
         assertThat(p.changedRows[0]).isNotNull()
+        assertThat(p.changedRows[0]!!.contains(4)).isTrue()
+    }
+
+    @Test
+    fun repeated_revert_is_idempotent() {
+        val once = revertTo(consumedByOpAt2(), 1).notebook
+        val twice = revertTo(once, 1)
+        val page = twice.notebook.pages[0]
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.opConsumedAt).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("w")
+    }
+
+    @Test
+    fun op_reapplied_after_a_revert_hides_the_strokes_again_at_the_new_version() {
+        val reverted = revertTo(consumedByOpAt2(), 1).notebook
+        val op = EditOp("op2", OpKind.REPLACE, OpTarget("L1", 4, 9, "fresh"), strokeIds = listOf("w"))
+        val again = withOp(reverted, op)
+        val p =
+            RunPlacer.apply(
+                again,
+                4,
+                "buy organic milk",
+                SpecLayoutModel(listOf(line("L1", 1, LineOrigin.Kept("L1"))), ops = listOf(OpStatusModel("op2", true)), baseVersion = 3),
+                measure,
+                g,
+            )
+        val page = p.notebook.pages[0]
+        assertThat(page.consumed).containsExactly("w")
+        assertThat(page.opConsumedAt).containsExactly("w", 4)
+        assertThat(page.visibleStrokes).isEmpty()
     }
 
     @Test

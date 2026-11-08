@@ -603,6 +603,7 @@ object RunPlacer {
                         strokes = p.strokes.filter { it.id !in ids },
                         pendingSegments = p.pendingSegments - segments.toSet(),
                         consumed = p.consumed - ids,
+                        opConsumedAt = p.opConsumedAt - ids,
                         appliedRegions = p.appliedRegions - ids,
                     ),
                 )
@@ -627,6 +628,7 @@ object RunPlacer {
                         strokes = t.strokes + shiftStrokes(strokes, Float.NEGATIVE_INFINITY, dy),
                         pendingSegments = t.pendingSegments + segments.map { it.copy(row = it.row - cut) },
                         consumed = t.consumed + p.consumed.intersect(ids),
+                        opConsumedAt = t.opConsumedAt + p.opConsumedAt.filterKeys { it in ids },
                         appliedRegions = t.appliedRegions + p.appliedRegions.filterKeys { it in ids },
                         changedSinceSend = t.changedSinceSend || strokes.any { it.id !in p.consumed },
                     ),
