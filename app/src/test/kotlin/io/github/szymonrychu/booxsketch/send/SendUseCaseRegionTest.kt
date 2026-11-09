@@ -397,6 +397,25 @@ class SendUseCaseRegionTest {
         }
 
     @Test
+    fun a_stray_box_with_the_only_diagram_below_the_picture_keeps_the_run_line() =
+        runBlocking<Unit> {
+            db.specDao().upsert(
+                SpecEntity(
+                    "srv-1",
+                    5,
+                    "intro\noutro\n```mermaid\nA-->B\n```",
+                    "2026-11-07T00:00:00Z",
+                    layout =
+                        """{"lines":[{"line_id":"L1","source_line":1,"origin":null},{"line_id":"L2","source_line":2,"origin":null},""" +
+                            """{"line_id":"L3","source_line":3,"origin":null},{"line_id":"L4","source_line":4,"origin":null},""" +
+                            """{"line_id":"L5","source_line":5,"origin":null}]}""",
+                ),
+            )
+            val page = Page(listOf(box("b", 5, 8), region("r", 12, 15)), true, text = listOf(run("L1", 2), run("L2", 18)))
+            assertThat(afterLineOf(page)).isEqualTo("L1")
+        }
+
+    @Test
     fun picture_between_text_lines_without_a_diagram_keeps_the_run_line() =
         runBlocking<Unit> {
             diagramSpec()

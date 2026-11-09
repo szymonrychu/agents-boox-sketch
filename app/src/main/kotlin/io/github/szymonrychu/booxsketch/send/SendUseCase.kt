@@ -397,7 +397,8 @@ class SendUseCase(
 
     /**
      * The closing fence line id of the first mermaid block after [above] in source order when box ink of a diagram
-     * lies between [above] and the region rect [r]; null when there is none (the caller keeps the run line).
+     * lies between [above] and the region rect [r] and the block closes before the first run below the picture; null
+     * when there is none (the caller keeps the run line).
      */
     @Suppress("LongParameterList")
     private fun diagramEnd(
@@ -409,7 +410,7 @@ class SendUseCase(
         base: Base,
     ): String? {
         val from = above?.let { base.sourceLines[it.lineId] } ?: 0
-        val fence = base.fences.firstOrNull { it.first > from } ?: return null
+        val fence = fenceAfter(page, r, geometry, base, from) ?: return null
         val top = above?.let { geometry.rowTop(it.row + it.wrapRows).toFloat() } ?: Float.NEGATIVE_INFINITY
         val members = ImageRegions.members(page, region).toSet()
         val boxAbove =
@@ -418,6 +419,24 @@ class SendUseCase(
                     rectOf(it).let { b -> b.t >= top && b.b <= r.t }
             }
         return fence.second.takeIf { boxAbove }
+    }
+
+    /** The first mermaid block opening after source line [from] and closing before the first run below the picture. */
+    private fun fenceAfter(
+        page: Page,
+        r: RectF,
+        geometry: NotebookGeometry,
+        base: Base,
+        from: Int,
+    ): Pair<Int, String>? {
+        val below =
+            page.text
+                .filter { it.lineId in base.sourceLines && geometry.rowTop(it.row + it.wrapRows) > r.t }
+                .minByOrNull { it.row }
+                ?.let { base.sourceLines[it.lineId] }
+        return base.fences.firstOrNull { f ->
+            f.first > from && (below == null || (base.sourceLines[f.second] ?: Int.MAX_VALUE) < below)
+        }
     }
 
     private fun exportBoardPage(
@@ -636,7 +655,10 @@ class SendUseCase(
         return Base(latest.version, lines, sourceLines, mermaidFences(latest.markdown, sourceLines))
     }
 
-    /** (opening source line, closing fence line id) of each mermaid block of [markdown] whose closing fence has a layout line. */
+    /**
+     * (opening source line, closing fence line id) of each mermaid block of [markdown] whose closing fence has a
+     * layout line.
+     */
     private fun mermaidFences(
         markdown: String,
         sourceLines: Map<String, Int>,
