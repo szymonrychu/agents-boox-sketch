@@ -176,8 +176,27 @@ class FreehandShapesTest {
     fun unrelated_later_strokes_are_not_taken_as_a_head() {
         val strokes = fixture("arrows_tick_head_device_v0195")
         val tick = strokes[6]
-        val away = tick.copy(points = tick.points.map { it.copy(x = it.x + 120f, y = it.y + 120f) })
-        assertThat(FreehandShapes.arrow(listOf(strokes[5], strokes[0], strokes[1], away), 0)).isNull()
+        // Control: the real tick still heads the shaft after two unrelated strokes in between.
+        assertThat(FreehandShapes.arrow(listOf(strokes[5], strokes[0], strokes[1], tick), 0)!!.strokeIds)
+            .containsExactly(strokes[5].id, tick.id)
+        // The same tick moved just past the touch distance is no head.
+        val near = tick.copy(points = tick.points.map { it.copy(x = it.x + 40f, y = it.y + 40f) })
+        assertThat(FreehandShapes.arrow(listOf(strokes[5], strokes[0], strokes[1], near), 0)).isNull()
+    }
+
+    @Test
+    fun later_strokes_next_to_a_shaft_end_that_are_not_heads_are_ignored() {
+        val shaft = pen("s", 100f, 500f, 250f, 500f, 400f, 500f)
+        val other = pen("o", 600f, 200f, 700f, 260f, 640f, 300f)
+        val later =
+            mapOf(
+                "tick with its vertex off the tip" to pen("t", 372f, 472f, 372f, 440f, 400f, 497f),
+                "handwritten v beside the end" to pen("t", 405f, 470f, 412f, 498f, 420f, 470f),
+                "handwritten L beside the end" to pen("t", 405f, 460f, 405f, 498f, 435f, 498f),
+            )
+        for ((name, s) in later) {
+            assertWithMessage(name).that(FreehandShapes.arrow(listOf(shaft, other, s), 0)).isNull()
+        }
     }
 
     @Test

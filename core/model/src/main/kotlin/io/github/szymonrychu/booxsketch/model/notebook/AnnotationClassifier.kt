@@ -202,9 +202,8 @@ class AnnotationClassifier(
         exclude: Set<String> = emptySet(),
         newId: () -> String,
     ): Classification {
-        val skip =
-            exclude + page.rejectedStrokes + page.pendingSegments.flatMap { it.strokeIds } +
-                page.pendingOps.flatMap { it.op.strokeIds }
+        val claimed = exclude + page.pendingSegments.flatMap { it.strokeIds } + page.pendingOps.flatMap { it.op.strokeIds }
+        val skip = claimed + page.rejectedStrokes
         val candidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in skip }
         val boxes = page.text.associateWith { WordBoxes.of(it, geometry, measure) }
         val ops = ArrayList<Pair<Placed, EditOp>>()
@@ -212,7 +211,7 @@ class AnnotationClassifier(
         if (boxes.isNotEmpty()) {
             // A note rejected on an earlier Send (no arrow found then) may be re-pointed by a new arrow: its rejected
             // strokes stay usable for an insert mark whose arrow is fresh ink.
-            val markSkip = skip - page.rejectedStrokes
+            val markSkip = claimed
             val markCandidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in markSkip }
             for (mark in finders.flatMap { it.find(page, markCandidates, geometry) }) {
                 if (mark.arrowStrokeIds.all { it in page.rejectedStrokes }) continue

@@ -361,6 +361,21 @@ class AnnotationClassifierTest {
     }
 
     @Test
+    fun a_rejected_stroke_in_a_pending_op_or_image_region_stays_skipped() {
+        val strokes = NotebookFixtures.freehand("arrow_redrawn_over_rejected_note_device_v0200")
+        val runs = listOf(run("L1", 1, "Test document :", 117f, 1))
+        val rejected = strokes.take(13).map { it.id }.toSet() + strokes[14].id
+        val base = Page(strokes, true, text = runs, rejectedStrokes = rejected)
+        // Control: with the head stroke free of other claims the arrow is fresh and pairs.
+        assertThat(classify(base.copy(rejectedStrokes = strokes.take(13).map { it.id }.toSet())).ops).hasSize(1)
+        val sent = EditOp("old", OpKind.DELETE, OpTarget("L1", 0, 4, "Test"), strokeIds = listOf(strokes[14].id))
+        val pending = classify(base.copy(pendingOps = listOf(PendingOp("c0", sent))))
+        assertThat(pending.ops.flatMap { it.strokeIds }).doesNotContain(strokes[14].id)
+        val r = classifier.classify(base, g, measure, exclude = setOf(strokes[14].id)) { "op-${++ids}" }
+        assertThat(r.ops.flatMap { it.strokeIds }).doesNotContain(strokes[14].id)
+    }
+
+    @Test
     fun rejected_ink_alone_is_never_reclassified() {
         val strokes = NotebookFixtures.freehand("arrow_redrawn_over_rejected_note_device_v0200")
         val runs = listOf(run("L1", 1, "Test document :", 117f, 1))
