@@ -1435,3 +1435,17 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
 - `AnnotationClassifier.classify` lets insert-mark finders see `Page.rejectedStrokes`, but accepts a mark only when at least one of its arrow strokes is not rejected (fresh ink). Why: the rejected bubble's strokes were skipped forever, so the user's redrawn arrow (upload 9016c633) could not pair with it. Rejected ink alone is still never reclassified (test). A rejected note applied later is consumed by the normal RunPlacer path.
 - Fixtures are the real device strokes, cropped to the bubble and arrow, under `core/model/src/test/resources/freehand/*_v0200.json`.
 - Review fixes (2026-11-09): rejected strokes are dropped from the skip set only when no region (`exclude`), pending segment or pending op claims them. An arrow whose shaft is rejected but whose head is fresh ink re-pairs with its note; this is by design (the fresh head makes it a new arrow). Later-stroke candidates for a head get a bounding-box pre-check before their points are scanned.
+
+## 2026-11-08 Full refresh after a parsed-text swap, not GU (T-78)
+
+- Why the GU invalidate (#77) did not work: `Epd.partialRefresh` is `EpdController.invalidate(rootView, GU)`, a deferred
+  invalidate of the window (decor view) layer. `UiRefresher.run` issued it and then released the hold in the same
+  main-thread task, so raw drawing was re-enabled before the GU draw ran (a refresh issued while raw drawing is on is
+  frozen, see 2026-11-03), and it targets the window layer, not the board's SurfaceView layer that `swapText` posted to.
+  The toolbox toggle worked because it ends in `Epd.fullRefresh` (`repaintEveryThing(GC)`), an immediate whole-screen
+  repaint issued before the release.
+- `NotebookSync.commit` and `StrikePreviewSync.refresh` now call `holds.ui?.chromeChanged()` (full refresh) after
+  `swapText`. Cost: one GC flash per parsed version, like a page switch. Tests now use a real `UiRefresher` to check the
+  mode and that the full refresh runs under the hold, after the swap, before the release.
+- `InkDiag` lines `text swap v=.. surface=.. ui=..` and `ui refresh full=.. held=..` show the order on the Diagnostics
+  tab. Not verified on a device yet. The swapText synchronous partialRefresh is left in place (optional removal).

@@ -82,6 +82,7 @@ class UiRefresher(
         hold()
         afterNextDraw {
             if (!closed) {
+                InkDiag.info("ui refresh full=$full held=$held")
                 if (full) fullRefresh() else partialRefresh()
                 inFlight = false
                 release()

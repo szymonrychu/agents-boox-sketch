@@ -14,6 +14,7 @@ import io.github.szymonrychu.booxsketch.model.notebook.Placement
 import io.github.szymonrychu.booxsketch.model.notebook.SpecLayoutModel
 import io.github.szymonrychu.booxsketch.model.notebook.SpecLineModel
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
+import io.github.szymonrychu.booxsketch.onyx.InkDiag
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -156,7 +157,10 @@ class NotebookSync(
             // The whole page is drawn again (null dirty rect), never only the changed rows over an earlier render.
             if (n.current in placed.changedRows || n.current != base.current) {
                 holds.surface?.swapText(shownStrokes(n), bitmap, null)
-                holds.ui?.uiChanged()
+                val surface = if (holds.surface != null) "set" else "null"
+                val ui = holds.ui?.javaClass?.simpleName ?: "None"
+                InkDiag.info("text swap v=${n.appliedSpecVersion} surface=$surface ui=$ui")
+                holds.ui?.chromeChanged()
             }
         }
         return true
