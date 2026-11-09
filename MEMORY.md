@@ -1432,3 +1432,17 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
 ## 2026-11-09 Pictures after mermaid blocks
 
 - `SendUseCase.regions` set a picture's `after_line` from typed-text runs only, but a mermaid fence has no run on the board, so a picture drawn below a diagram landed before it in the document. Now, when RECTANGLE ink (diagram boxes, consumed or not, region members excluded) lies between the nearest run above and the picture rect, `after_line` moves to the closing fence line id of the first mermaid block after that run in source order (`Base.fences`, from the base version's markdown and layout `source_line`). No fence, or no layout line for its closing fence: the run line is kept. Why: boxes are the only on-board trace of a diagram; consumed boxes still count because an applied diagram hides its ink. Added 2026-11-09 after review: the block must also close before the first run below the picture (by source line), so a stray box with the only diagram below the picture keeps the run line.
+
+## 2026-11-08 Full refresh after a parsed-text swap, not GU (T-78)
+
+- Why the GU invalidate (#77) did not work: `Epd.partialRefresh` is `EpdController.invalidate(rootView, GU)`, a deferred
+  invalidate of the window (decor view) layer. `UiRefresher.run` issued it and then released the hold in the same
+  main-thread task, so raw drawing was re-enabled before the GU draw ran (a refresh issued while raw drawing is on is
+  frozen, see 2026-11-03), and it targets the window layer, not the board's SurfaceView layer that `swapText` posted to.
+  The toolbox toggle worked because it ends in `Epd.fullRefresh` (`repaintEveryThing(GC)`), an immediate whole-screen
+  repaint issued before the release.
+- `NotebookSync.commit` and `StrikePreviewSync.refresh` now call `holds.ui?.chromeChanged()` (full refresh) after
+  `swapText`. Cost: one GC flash per parsed version, like a page switch. Tests now use a real `UiRefresher` to check the
+  mode and that the full refresh runs under the hold, after the swap, before the release.
+- `InkDiag` lines `text swap v=.. surface=.. ui=..` and `ui refresh full=.. held=..` show the order on the Diagnostics
+  tab. Not verified on a device yet. The swapText synchronous partialRefresh is left in place (optional removal).
