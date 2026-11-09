@@ -1434,3 +1434,17 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
 - `RunPlacer` shows a mermaid fenced block whose lines have stroke origins (drawn with the Box tool) as one typed line "Diagram: <node labels joined by ' -> '> (open in Documents)": the opening fence is placeable only then, one marker run lands at the first origin segment, and the label segments, the RECTANGLE strokes whose bbox contains them and the ARROW strokes whose bbox overlaps or lies within a quarter cell of any of those boxes go through the normal consume path (`Page.consumed`), so a revert restores them. Node labels come from the mermaid lines (`A[Label]`), ids when unlabelled.
 - Why a marker, not a rendered diagram: the board is a typed-text-plus-ink surface with no layout engine for graphs, and Documents already renders mermaid properly. Re-rendering boxes and arrows on e-ink would duplicate that and drift from the spec. Fences without origins stay unplaced with their ink kept (the old `fenced_lines_not_placed_ink_kept` behaviour).
 - 2026-11-09 follow-up: arrows are consumed on overlap or touch (quarter-cell margin) with any diagram box, not only when fully inside their union, so arrows reaching past the boxes no longer stay as raw ink; arrows touching no box are kept. Freehand arrows (non-shape strokes) are included by reusing `FreehandShapes.arrow` (cheap: one call per live stroke), but only when the recognised tail and tip end at two different diagram boxes, so handwriting that looks like a hook is not eaten. The marker is capped at 80 characters, ending in "..." (a long node list otherwise wraps over many board rows).
+
+## 2026-11-08 Full refresh after a parsed-text swap, not GU (T-78)
+
+- Why the GU invalidate (#77) did not work: `Epd.partialRefresh` is `EpdController.invalidate(rootView, GU)`, a deferred
+  invalidate of the window (decor view) layer. `UiRefresher.run` issued it and then released the hold in the same
+  main-thread task, so raw drawing was re-enabled before the GU draw ran (a refresh issued while raw drawing is on is
+  frozen, see 2026-11-03), and it targets the window layer, not the board's SurfaceView layer that `swapText` posted to.
+  The toolbox toggle worked because it ends in `Epd.fullRefresh` (`repaintEveryThing(GC)`), an immediate whole-screen
+  repaint issued before the release.
+- `NotebookSync.commit` and `StrikePreviewSync.refresh` now call `holds.ui?.chromeChanged()` (full refresh) after
+  `swapText`. Cost: one GC flash per parsed version, like a page switch. Tests now use a real `UiRefresher` to check the
+  mode and that the full refresh runs under the hold, after the swap, before the release.
+- `InkDiag` lines `text swap v=.. surface=.. ui=..` and `ui refresh full=.. held=..` show the order on the Diagnostics
+  tab. Not verified on a device yet. The swapText synchronous partialRefresh is left in place (optional removal).

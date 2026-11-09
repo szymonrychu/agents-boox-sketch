@@ -67,14 +67,19 @@ class StrikePreviewTest {
     private val strike =
         Stroke("s", Tool.BALLPOINT, 3f, (0..20).map { Point(60f + it * 15f, g.textBandTop(4) + 30f, 0.5f, it * 10L) })
 
-    /** Records each uiChanged with whether raw drawing was off and how many swaps had happened by then. */
+    /** Records each full refresh (chromeChanged) and partial one (uiChanged): raw drawing off, and swaps so far. */
     private class RecordingUi(
         private val input: FreezingInput,
         private val surface: RecordingSurface,
     ) : UiRefresh {
         val calls = mutableListOf<Pair<Boolean, Int>>()
+        val partial = mutableListOf<Pair<Boolean, Int>>()
 
         override fun uiChanged(settled: Boolean) {
+            partial += (input.held > 0) to surface.swaps.size
+        }
+
+        override fun chromeChanged() {
             calls += (input.held > 0) to surface.swaps.size
         }
     }
@@ -124,7 +129,7 @@ class StrikePreviewTest {
         }
 
     @Test
-    fun strike_swap_requests_ui_refresh_while_held() =
+    fun strike_swap_requests_full_refresh_while_held() =
         runTest {
             val vm = board()
             val input = FreezingInput()
@@ -136,8 +141,9 @@ class StrikePreviewTest {
             advanceTimeBy(1_000)
             vm.onStroke(strike)
             sync.refresh()
-            // One refresh request, made while raw drawing was held off and after the swap.
+            // One full refresh request (GU is deferred and frozen), made while held, after the swap.
             assertThat(ui.calls).containsExactly(true to 1)
+            assertThat(ui.partial).isEmpty()
         }
 
     @Test
