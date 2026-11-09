@@ -3,8 +3,10 @@ package io.github.szymonrychu.booxsketch.model.notebook
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
+import io.github.szymonrychu.booxsketch.model.Vec
 import io.github.szymonrychu.booxsketch.model.centreY
 import io.github.szymonrychu.booxsketch.model.shiftCentres
 import io.github.szymonrychu.booxsketch.model.shiftStrokes
@@ -57,14 +59,15 @@ object RunPlacer {
         answeredUploads: Set<String>? = null,
     ): Placement {
         val source = markdown.split('\n').map { it.removeSuffix("\r") }
-        val placeable = placeableLines(source)
         val work = Work(notebook, geometry, measure, undo)
+        val revert = layout.revertedFrom != null
+        val diagrams = DiagramBlocks.find(source, layout.lines, revert, work::hasRun)
+        val placeable = placeableLines(source, diagrams.keys)
         val shown =
             layout.lines
                 .filter { placeable.getOrElse(it.sourceLine - 1) { false } }
                 .map { it.lineId }
                 .toSet()
-        val revert = layout.revertedFrom != null
         work.dropRuns(shown, unconsume = revert)
         layout.revertedFrom?.let { work.restoreOpStrokes(it) }
         val referenced = ImageRegions.referencedIds(markdown).toSet()
@@ -73,7 +76,19 @@ object RunPlacer {
         work.dropUnreferencedRegions(referenced)
 
         // A revert copies the old version's origins: its segment ids may match new, unanswered handwriting.
-        fun segmentsOf(line: SpecLineModel) = if (revert) emptyList() else (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
+        val bySourceLine = layout.lines.associateBy { it.sourceLine }
+
+        fun ownSegments(line: SpecLineModel) = (line.origin as? LineOrigin.Segments)?.ids.orEmpty()
+
+        // A diagram's opening fence also takes the segments of the other lines of its block (the labels).
+        fun segmentsOf(line: SpecLineModel): List<String> {
+            val block = diagrams[line.sourceLine]
+            return when {
+                revert -> emptyList()
+                block != null -> block.lines.flatMap { bySourceLine[it]?.let(::ownSegments).orEmpty() }
+                else -> ownSegments(line)
+            }
+        }
         val ordered = layout.lines.sortedBy { it.sourceLine }
         val answered = work.answeredClients(ordered.flatMap(::segmentsOf))
         var prev: String? = null
@@ -83,12 +98,11 @@ object RunPlacer {
                 work.dropSegments(answered, segments)
                 continue
             }
-            val stripped = SourceMap.stripWithColours(source[line.sourceLine - 1])
-            val text =
-                Text(source[line.sourceLine - 1], stripped, HEADING.containsMatchIn(source[line.sourceLine - 1]), version, line.sourceLine)
+            val diagram = diagrams[line.sourceLine]
+            val text = textOf(source[line.sourceLine - 1], diagram?.marker, version, line.sourceLine)
             when {
                 work.hasRun(line.lineId) -> work.update(line.lineId, text)
-                work.hasSegments(answered, segments) -> work.placeAtSegments(line.lineId, text, answered, segments)
+                work.hasSegments(answered, segments) -> work.placeAtSegments(line.lineId, text, answered, segments, diagram != null)
                 prev != null -> work.placeAfter(line.lineId, text, prev)
                 else -> work.placeFirst(line.lineId, text, ordered.drop(k + 1).filter { it.lineId in shown }, answered, ::segmentsOf)
             }
@@ -98,6 +112,19 @@ object RunPlacer {
         work.release(version, answeredUploads)
         return Placement(work.n.copy(appliedSpecVersion = version), work.dirty.toMap())
     }
+
+    /** The run text of a source line, or of a diagram's [marker] (plain, no markup) when it is not null. */
+    private fun textOf(
+        line: String,
+        marker: String?,
+        version: Int,
+        sourceLine: Int,
+    ): Text =
+        if (marker != null) {
+            Text(marker, StrippedLine(marker, SourceMap(IntArray(marker.length + 1) { it }), emptyList()), false, version, sourceLine)
+        } else {
+            Text(line, SourceMap.stripWithColours(line), HEADING.containsMatchIn(line), version, sourceLine)
+        }
 
     /** True when a saved run was laid out at another scale than [TEXT_SCALE] (an older build shrank it to fit). */
     fun needsRelayout(notebook: Notebook): Boolean = notebook.pages.any { p -> p.text.any { it.scale != TEXT_SCALE } }
@@ -180,14 +207,21 @@ object RunPlacer {
     /** A line that is only an image reference: on the board the image region itself stands for it. */
     private val IMAGE_LINE = Regex("^\\s*!\\[[^\\]]*]\\([^)]*\\)\\s*$")
 
-    /** False for fence lines and the lines between them, table rows, image-only lines and blank lines. */
-    private fun placeableLines(source: List<String>): List<Boolean> {
+    /**
+     * False for fence lines (except the opening fence of a diagram block in [diagramOpens], 1-based source lines) and
+     * the lines between them, table rows, image-only lines and blank lines.
+     */
+    private fun placeableLines(
+        source: List<String>,
+        diagramOpens: Set<Int>,
+    ): List<Boolean> {
         var fenced = false
-        return source.map { line ->
+        return source.mapIndexed { index, line ->
             when {
                 FENCE.containsMatchIn(line) -> {
+                    val opening = !fenced && index + 1 in diagramOpens
                     fenced = !fenced
-                    false
+                    opening
                 }
 
                 fenced -> {
@@ -498,12 +532,14 @@ object RunPlacer {
             text: Text,
             answered: Set<String>,
             ids: List<String>,
+            diagram: Boolean = false,
         ) {
             val found = segmentsOf(answered, ids)
             val (i, first) = found.minWith(compareBy({ it.first }, { it.second.row }, { it.second.x0 }))
             val mine = found.filter { it.first == i }.map { it.second }
-            val strokes = mine.flatMap { it.strokeIds }
             val p = page(i)
+            val labels = mine.flatMap { it.strokeIds }
+            val strokes = if (diagram) labels + DiagramBlocks.ink(p, labels) else labels
             setPage(i, p.copy(pendingSegments = p.pendingSegments - mine.toSet(), consumed = p.consumed + strokes))
             put(i, newRun(lineId, text, first.row, first.x0, strokes), replacing = null)
         }
@@ -707,4 +743,129 @@ object RunPlacer {
             return at
         }
     }
+}
+
+/** A mermaid block the board shows as one typed [marker] line; [lines] are the 1-based source lines of the block. */
+private class DiagramBlock(
+    val marker: String,
+    val lines: List<Int>,
+)
+
+/**
+ * Mermaid fenced blocks drawn on the board with the Box tool: the opening fence has segment origins (the handwritten
+ * labels) or already carries a marker run. The board shows one typed line instead of the boxes, arrows and labels (the
+ * diagram itself renders in Documents).
+ */
+private object DiagramBlocks {
+    private val OPEN = Regex("^\\s*(```|~~~)\\s*mermaid\\b", RegexOption.IGNORE_CASE)
+    private val FENCE = Regex("^\\s*(```|~~~)")
+    private val EDGE_LABEL = Regex("(--+>|==+>|--+|==+|-\\.+->)\\s*\\|[^|]*\\|")
+    private val SKIP_LINE = Regex("^\\s*(subgraph|end|style|classDef|class|linkStyle|click|direction|%%)\\b.*|^\\s*%%.*")
+    private val NODE =
+        Regex(
+            "([A-Za-z_][\\w\\-]*)(?:\\s*(?:\\[\\s*\"([^\"]*)\"\\s*\\]|" +
+                "\\[([^\\]\"]*)\\]|\\(\\(?\"?([^)\"]*)\"?\\)?\\)|\\{\"?([^\\}\"]*)\"?\\}))?",
+        )
+    private const val MAX_MARKER = 80
+    private const val ARROW_MARGIN = NotebookGeometry.CELL / 4f
+    private val REWRITE = Regex("\\[\\[\\?([^|\\]]*)(?:\\|[^\\]]*)?\\]\\]")
+
+    /** Diagram blocks by the 1-based source line of their opening fence. */
+    fun find(
+        source: List<String>,
+        lines: List<SpecLineModel>,
+        revert: Boolean,
+        hasRun: (String) -> Boolean,
+    ): Map<Int, DiagramBlock> {
+        val bySource = lines.associateBy { it.sourceLine }
+        val found = HashMap<Int, DiagramBlock>()
+        var i = 0
+        while (i < source.size) {
+            if (!OPEN.containsMatchIn(source[i])) {
+                i++
+                continue
+            }
+            val close = (i + 1 until source.size).firstOrNull { FENCE.containsMatchIn(source[it]) } ?: source.size
+            val block = (i + 1)..minOf(close + 1, source.size)
+            val origins =
+                !revert && block.any { n -> ((bySource[n]?.origin as? LineOrigin.Segments)?.ids ?: emptyList()).isNotEmpty() }
+            val kept = bySource[i + 1]?.let { hasRun(it.lineId) } == true
+            if (origins || kept) found[i + 1] = DiagramBlock(marker(source.subList(i + 1, close)), block.toList())
+            i = close + 1
+        }
+        return found
+    }
+
+    /** "Diagram: A -> B (open in Documents)" from the node labels of the block body (ids when a node has no label). */
+    private fun marker(body: List<String>): String {
+        val nodes = LinkedHashMap<String, String?>()
+        for (raw in body.drop(1)) {
+            if (SKIP_LINE.matches(raw)) continue
+            for (m in NODE.findAll(EDGE_LABEL.replace(raw, "$1"))) {
+                val id = m.groupValues[1]
+                val label = (2..5).map { m.groupValues[it] }.firstOrNull { it.isNotBlank() }?.let(::clean)
+                if (id !in nodes || (nodes[id] == null && label != null)) nodes[id] = label
+            }
+        }
+        val names = nodes.map { (id, label) -> label?.takeIf { it.isNotBlank() } ?: id }
+        if (names.isEmpty()) return "Diagram (open in Documents)"
+        val text = "Diagram: ${names.joinToString(" -> ")} (open in Documents)"
+        return if (text.length <= MAX_MARKER) text else text.take(MAX_MARKER - 3) + "..."
+    }
+
+    private fun clean(label: String) = SourceMap.stripWithColours(REWRITE.replace(label, "$1")).display.trim()
+
+    /** Ink of page [p] that belongs to the diagram whose label strokes are [labels]: the boxes around them and the arrows between boxes. */
+    fun ink(
+        p: Page,
+        labels: List<String>,
+    ): List<String> {
+        val live = p.visibleStrokes.filter { it.points.isNotEmpty() }
+        val inks = live.filter { it.id in labels }.map(::bounds)
+        val boxes =
+            live
+                .filter { it.tool == Tool.RECTANGLE && it.points.size >= 2 }
+                .map { it to bounds(it) }
+                .filter { (_, b) -> inks.any { l -> b.contains((l.l + l.r) / 2, (l.t + l.b) / 2) } }
+        if (boxes.isEmpty()) return emptyList()
+        val boxBounds = boxes.map { it.second }
+        val arrows = live.filter { it.tool == Tool.ARROW && it.points.size >= 2 && boxBounds.any { b -> b.near(bounds(it)) } }
+        val freehand =
+            live.indices
+                .filter { live[it].id !in labels }
+                .mapNotNull { FreehandShapes.arrow(live, it) }
+                .filter { a -> a.strokeIds.none { it in labels } && joinsTwoBoxes(a, boxBounds) }
+                .flatMap { it.strokeIds }
+        return ((boxes.map { it.first } + arrows).map { it.id } + freehand).distinct().filter { it !in labels }
+    }
+
+    private fun bounds(s: Stroke) =
+        Bounds(s.points.minOf { it.x }, s.points.minOf { it.y }, s.points.maxOf { it.x }, s.points.maxOf { it.y })
+
+    private fun Bounds.contains(
+        x: Float,
+        y: Float,
+    ) = x in l..r && y in t..b
+
+    /** True when [o] overlaps or lies within [ARROW_MARGIN] of this box. */
+    private fun Bounds.near(o: Bounds) =
+        o.r >= l - ARROW_MARGIN && o.l <= r + ARROW_MARGIN && o.b >= t - ARROW_MARGIN && o.t <= b + ARROW_MARGIN
+
+    /** A recognised freehand arrow whose tail and tip end at two different boxes. */
+    private fun joinsTwoBoxes(
+        a: FreehandArrow,
+        boxes: List<Bounds>,
+    ): Boolean {
+        fun at(v: Vec) = boxes.indices.filter { boxes[it].near(Bounds(v.x, v.y, v.x, v.y)) }
+        val tail = at(a.tail)
+        val tip = at(a.tip)
+        return tail.any { t -> tip.any { it != t } }
+    }
+
+    private class Bounds(
+        val l: Float,
+        val t: Float,
+        val r: Float,
+        val b: Float,
+    )
 }

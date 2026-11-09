@@ -319,7 +319,7 @@ class RunPlacerTest {
                     pendingSegments = listOf(pending("p0-r4-0", 4, "a"), pending("p0-r6-0", 6, "t")),
                 ),
             )
-        val md = "```mermaid\ngraph TD\n```\n| a | b |"
+        val md = "```text\ngraph TD\n```\n| a | b |"
         val p =
             apply(
                 n,
