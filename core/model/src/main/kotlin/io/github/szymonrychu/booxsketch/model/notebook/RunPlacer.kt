@@ -6,6 +6,7 @@ import io.github.szymonrychu.booxsketch.model.Page
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.UndoStack
+import io.github.szymonrychu.booxsketch.model.Vec
 import io.github.szymonrychu.booxsketch.model.centreY
 import io.github.szymonrychu.booxsketch.model.shiftCentres
 import io.github.szymonrychu.booxsketch.model.shiftStrokes
@@ -764,6 +765,8 @@ private object DiagramBlocks {
         Regex(
             "([A-Za-z_][\\w-]*)(?:\\s*(?:\\[\\s*\"([^\"]*)\"\\s*]|\\[([^\\]\"]*)]|\\(\\(?\"?([^)\"]*)\"?\\)?\\)|\\{\"?([^}\"]*)\"?}))?",
         )
+    private const val MAX_MARKER = 80
+    private const val ARROW_MARGIN = NotebookGeometry.CELL / 4f
     private val REWRITE = Regex("\\[\\[\\?([^|\\]]*)(?:\\|[^\\]]*)?]]")
 
     /** Diagram blocks by the 1-based source line of their opening fence. */
@@ -804,7 +807,9 @@ private object DiagramBlocks {
             }
         }
         val names = nodes.map { (id, label) -> label?.takeIf { it.isNotBlank() } ?: id }
-        return if (names.isEmpty()) "Diagram (open in Documents)" else "Diagram: ${names.joinToString(" -> ")} (open in Documents)"
+        if (names.isEmpty()) return "Diagram (open in Documents)"
+        val text = "Diagram: ${names.joinToString(" -> ")} (open in Documents)"
+        return if (text.length <= MAX_MARKER) text else text.take(MAX_MARKER - 3) + "..."
     }
 
     private fun clean(label: String) = SourceMap.stripWithColours(REWRITE.replace(label, "$1")).display.trim()
@@ -822,10 +827,15 @@ private object DiagramBlocks {
                 .map { it to bounds(it) }
                 .filter { (_, b) -> inks.any { l -> b.contains((l.l + l.r) / 2, (l.t + l.b) / 2) } }
         if (boxes.isEmpty()) return emptyList()
-        val union =
-            Bounds(boxes.minOf { it.second.l }, boxes.minOf { it.second.t }, boxes.maxOf { it.second.r }, boxes.maxOf { it.second.b })
-        val arrows = live.filter { it.tool == Tool.ARROW && it.points.size >= 2 && union.containsAll(bounds(it)) }
-        return (boxes.map { it.first } + arrows).map { it.id }.filter { it !in labels }
+        val boxBounds = boxes.map { it.second }
+        val arrows = live.filter { it.tool == Tool.ARROW && it.points.size >= 2 && boxBounds.any { b -> b.near(bounds(it)) } }
+        val freehand =
+            live.indices
+                .filter { live[it].id !in labels }
+                .mapNotNull { FreehandShapes.arrow(live, it) }
+                .filter { a -> a.strokeIds.none { it in labels } && joinsTwoBoxes(a, boxBounds) }
+                .flatMap { it.strokeIds }
+        return ((boxes.map { it.first } + arrows).map { it.id } + freehand).distinct().filter { it !in labels }
     }
 
     private fun bounds(s: Stroke) =
@@ -836,7 +846,20 @@ private object DiagramBlocks {
         y: Float,
     ) = x in l..r && y in t..b
 
-    private fun Bounds.containsAll(o: Bounds) = o.l >= l && o.t >= t && o.r <= r && o.b <= b
+    /** True when [o] overlaps or lies within [ARROW_MARGIN] of this box. */
+    private fun Bounds.near(o: Bounds) =
+        o.r >= l - ARROW_MARGIN && o.l <= r + ARROW_MARGIN && o.b >= t - ARROW_MARGIN && o.t <= b + ARROW_MARGIN
+
+    /** A recognised freehand arrow whose tail and tip end at two different boxes. */
+    private fun joinsTwoBoxes(
+        a: FreehandArrow,
+        boxes: List<Bounds>,
+    ): Boolean {
+        fun at(v: Vec) = boxes.indices.filter { boxes[it].near(Bounds(v.x, v.y, v.x, v.y)) }
+        val tail = at(a.tail)
+        val tip = at(a.tip)
+        return tail.any { t -> tip.any { it != t } }
+    }
 
     private class Bounds(
         val l: Float,

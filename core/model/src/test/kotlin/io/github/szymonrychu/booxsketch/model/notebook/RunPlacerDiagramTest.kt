@@ -142,4 +142,111 @@ class RunPlacerDiagramTest {
                 .display,
         ).isEqualTo("Diagram: A -> B -> Done (open in Documents)")
     }
+
+    private fun diagramPageWith(vararg extra: Stroke): Page {
+        val base = diagramPage()
+        return base.copy(strokes = base.strokes + extra)
+    }
+
+    private fun placedPage(page: Page) = apply(notebook(page), diagramMd, *diagramLines()).notebook.pages[0]
+
+    private fun poly(
+        id: String,
+        vararg xy: Float,
+    ) = Stroke(id, Tool.BALLPOINT, 2f, xy.toList().chunked(2).mapIndexed { i, (x, y) -> Point(x, y, 0.5f, i * 10L) })
+
+    @Test
+    fun arrow_extending_past_the_boxes_is_consumed() {
+        val y = g.rowTop(4) + 80f
+        val page = placedPage(diagramPageWith(shape("long", Tool.ARROW, 300f, y + 30f, 1200f, y + 30f)))
+        assertThat(page.consumed).contains("long")
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("far")
+    }
+
+    @Test
+    fun unrelated_arrow_away_from_the_boxes_is_kept() {
+        val y = g.rowTop(8).toFloat()
+        val page = placedPage(diagramPageWith(shape("stray", Tool.ARROW, 100f, y, 500f, y)))
+        assertThat(page.consumed).doesNotContain("stray")
+        assertThat(page.visibleStrokes.map { it.id }).containsExactly("far", "stray")
+    }
+
+    @Test
+    fun freehand_arrow_between_two_boxes_is_consumed() {
+        val y = g.rowTop(4) + 120f
+        val page =
+            placedPage(
+                diagramPageWith(
+                    poly("fh0", 360f, y, 440f, y, 520f, y, 600f, y, 640f, y),
+                    poly("fh1", 625f, y - 15f, 640f, y),
+                    poly("fh2", 625f, y + 15f, 640f, y),
+                ),
+            )
+        assertThat(page.consumed).containsAtLeast("fh0", "fh1", "fh2")
+    }
+
+    @Test
+    fun freehand_arrow_away_from_the_boxes_is_kept() {
+        val y = g.rowTop(8) + 20f
+        val page =
+            placedPage(
+                diagramPageWith(
+                    poly("fh0", 360f, y, 440f, y, 520f, y, 600f, y, 640f, y),
+                    poly("fh1", 625f, y - 15f, 640f, y),
+                    poly("fh2", 625f, y + 15f, 640f, y),
+                ),
+            )
+        assertThat(page.consumed).containsNoneOf("fh0", "fh1", "fh2")
+    }
+
+    @Test
+    fun long_label_set_truncates_the_marker() {
+        val names = (1..30).joinToString(" --> ") { "N$it[\"Label number $it\"]" }
+        val md = "```mermaid\ngraph TD\n  $names\n```"
+        val p =
+            apply(
+                notebook(diagramPage()),
+                md,
+                line("L2", 1, LineOrigin.Segments(listOf("p0-r4-0"))),
+                line("L3", 2, null),
+                line("L4", 3, null),
+                line("L5", 4, null),
+            )
+        val display =
+            p.notebook.pages[0]
+                .text
+                .single()
+                .display
+        assertThat(display.length).isAtMost(80)
+        assertThat(display).endsWith("...")
+        assertThat(display).startsWith("Diagram: Label number 1")
+    }
+
+    @Test
+    fun mermaid_fence_without_origins_keeps_ink_and_places_no_marker() {
+        val p =
+            apply(
+                notebook(diagramPage()),
+                diagramMd,
+                line("L1", 1, LineOrigin.Kept("L1")),
+                line("L2", 2, null),
+                line("L3", 3, null),
+                line("L4", 4, null),
+                line("L5", 5, null),
+            )
+        val page = p.notebook.pages[0]
+        assertThat(page.text.none { it.display.startsWith("Diagram") }).isTrue()
+        assertThat(page.consumed).isEmpty()
+        assertThat(page.visibleStrokes.map { it.id }).containsAtLeast("boxA", "boxB", "arrow", "far")
+    }
+
+    @Test
+    fun page_without_diagrams_is_unchanged() {
+        val box = shape("box", Tool.RECTANGLE, 50f, g.rowTop(4).toFloat(), 350f, g.rowTop(4) + 160f)
+        val page = Page(listOf(box, shape("ar", Tool.ARROW, 360f, 300f, 640f, 300f)), false)
+        val p = apply(notebook(page), "intro\ntext", line("L1", 1, LineOrigin.Kept("L1")), line("L2", 2, null))
+        val out = p.notebook.pages[0]
+        assertThat(out.consumed).isEmpty()
+        assertThat(out.visibleStrokes.map { it.id }).containsExactly("box", "ar")
+    }
 }
