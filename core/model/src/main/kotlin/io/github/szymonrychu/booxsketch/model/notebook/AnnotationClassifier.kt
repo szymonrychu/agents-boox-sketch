@@ -210,7 +210,12 @@ class AnnotationClassifier(
         val ops = ArrayList<Pair<Placed, EditOp>>()
         val used = HashSet<String>()
         if (boxes.isNotEmpty()) {
-            for (mark in finders.flatMap { it.find(page, candidates, geometry) }) {
+            // A note rejected on an earlier Send (no arrow found then) may be re-pointed by a new arrow: its rejected
+            // strokes stay usable for an insert mark whose arrow is fresh ink.
+            val markSkip = skip - page.rejectedStrokes
+            val markCandidates = page.visibleStrokes.filter { it.points.isNotEmpty() && it.id !in markSkip }
+            for (mark in finders.flatMap { it.find(page, markCandidates, geometry) }) {
+                if (mark.arrowStrokeIds.all { it in page.rejectedStrokes }) continue
                 val ids = mark.noteStrokeIds + mark.boxStrokeId + mark.arrowStrokeIds
                 val resolved = if (ids.none { it in used }) resolveTip(mark.tip, boxes, geometry) else null
                 if (resolved != null) {

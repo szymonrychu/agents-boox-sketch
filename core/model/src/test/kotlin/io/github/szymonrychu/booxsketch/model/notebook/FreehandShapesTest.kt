@@ -164,6 +164,23 @@ class FreehandShapesTest {
     }
 
     @Test
+    fun tick_head_drawn_after_the_note_loop_still_belongs_to_the_shaft() {
+        // v0.20.0 device upload: note text, shaft (12), loop around the note (13), then the tick head (14).
+        val strokes = fixture("arrow_head_after_loop_device_v0200")
+        val arrow = FreehandShapes.arrow(strokes, 12)
+        assertThat(arrow).isNotNull()
+        assertThat(arrow!!.strokeIds).containsExactly(strokes[12].id, strokes[14].id)
+    }
+
+    @Test
+    fun unrelated_later_strokes_are_not_taken_as_a_head() {
+        val strokes = fixture("arrows_tick_head_device_v0195")
+        val tick = strokes[6]
+        val away = tick.copy(points = tick.points.map { it.copy(x = it.x + 120f, y = it.y + 120f) })
+        assertThat(FreehandShapes.arrow(listOf(strokes[5], strokes[0], strokes[1], away), 0)).isNull()
+    }
+
+    @Test
     fun straight_continuation_of_the_shaft_is_not_a_tick_head() {
         val shaft = pen("s", 100f, 500f, 400f, 500f)
         val extension = pen("e", 380f, 500f, 400f, 500f, 440f, 500f)

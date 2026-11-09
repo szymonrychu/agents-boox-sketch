@@ -142,7 +142,12 @@ object FreehandShapes {
         val shaftStroke = strokes[startIndex]
         val shaft = shaftStroke.points.map { Vec(it.x, it.y) }
         if (!isStraightShaft(shaft)) return null
-        val rest = strokes.drop(startIndex + 1)
+        // Head strokes may be drawn after other ink (the note's loop, say): keep only later strokes touching a shaft end.
+        val tips = listOf(shaft.first(), shaft.last())
+        val rest =
+            strokes.drop(startIndex + 1).filter { s ->
+                !s.tool.isShape && s.points.any { p -> tips.any { dist(Vec(p.x, p.y), it) <= HEAD_TOUCH } }
+            }
         val ends = listOf(shaft.last() to shaft.first(), shaft.first() to shaft.last())
         for (count in 1..MAX_HEAD_STROKES) {
             for ((tip, tail) in ends) {
@@ -152,12 +157,13 @@ object FreehandShapes {
                 return FreehandArrow(listOf(shaftStroke.id) + (heads + second.orEmpty()).map { it.id }, tail, tip, second != null)
             }
         }
-        val next = rest.firstOrNull() ?: return null
-        return ends.firstNotNullOfOrNull { (tip, tail) ->
-            // Walk the shaft from the tip so a curved shaft is judged by its direction at the tip, not by its chord.
-            val fromTip = if (tip == shaft.last()) shaft.asReversed() else shaft
-            val back = fromTip.firstOrNull { dist(it, tip) >= TICK_BACK_REACH } ?: tail
-            FreehandArrow(listOf(shaftStroke.id, next.id), tail, tip).takeIf { isTickHead(next, tip, back) }
+        return rest.firstNotNullOfOrNull { next ->
+            ends.firstNotNullOfOrNull { (tip, tail) ->
+                // Walk the shaft from the tip so a curved shaft is judged by its direction at the tip, not by its chord.
+                val fromTip = if (tip == shaft.last()) shaft.asReversed() else shaft
+                val back = fromTip.firstOrNull { dist(it, tip) >= TICK_BACK_REACH } ?: tail
+                FreehandArrow(listOf(shaftStroke.id, next.id), tail, tip).takeIf { isTickHead(next, tip, back) }
+            }
         }
     }
 
