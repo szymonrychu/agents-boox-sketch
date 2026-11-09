@@ -1429,6 +1429,13 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
 
 - `FreehandShapes.separateHeadArrow` falls back to a one-stroke tick or caret head when no V head matches: path at most 2 cells, sharp interior vertex within `HEAD_TOUCH` of a shaft end, both arms at least 0.1 cell, angle between them under 120 degrees, and the arm bisector within 60 degrees of the direction from the tip back along the shaft (shaft point 0.5 cell behind the tip, so curved shafts use their local direction; chord direction failed the device fixture). Added 2026-11-08 after review: separate L, v and check-mark strokes touching a shaft end must not become arrows. Why: the user's four curved arrows (v0.19.5 upload) had tick heads that the V rules rejected (head path over the limit, arms opening upward), so the arrows fell to REPLACE ops, were rejected and stayed drawn. A looser rule without the vertex check broke 10 existing tests, so the vertex check stays.
 
+## 2026-11-08 Arrow head in any stroke order, rejected notes re-pair (T-78)
+
+- `FreehandShapes.separateHeadArrow` now takes the head candidates from all later strokes that touch a shaft end (within `HEAD_TOUCH`, shapes excluded), not only the next one or two strokes. The V rules and the tick fallback run over that filtered list. Why: v0.20.0 upload 1ccc0f34 drew shaft, loop around the note, then the tick head; the loop sat between them, so no arrow was found, the note had no tip and the agent rejected it. Strokes that do not touch a shaft end are never a head (negative test).
+- `AnnotationClassifier.classify` lets insert-mark finders see `Page.rejectedStrokes`, but accepts a mark only when at least one of its arrow strokes is not rejected (fresh ink). Why: the rejected bubble's strokes were skipped forever, so the user's redrawn arrow (upload 9016c633) could not pair with it. Rejected ink alone is still never reclassified (test). A rejected note applied later is consumed by the normal RunPlacer path.
+- Fixtures are the real device strokes, cropped to the bubble and arrow, under `core/model/src/test/resources/freehand/*_v0200.json`.
+- Review fixes (2026-11-09): rejected strokes are dropped from the skip set only when no region (`exclude`), pending segment or pending op claims them. An arrow whose shaft is rejected but whose head is fresh ink re-pairs with its note; this is by design (the fresh head makes it a new arrow). Later-stroke candidates for a head get a bounding-box pre-check before their points are scanned.
+
 ## 2026-11-08 Full refresh after a parsed-text swap, not GU (T-78)
 
 - Why the GU invalidate (#77) did not work: `Epd.partialRefresh` is `EpdController.invalidate(rootView, GU)`, a deferred

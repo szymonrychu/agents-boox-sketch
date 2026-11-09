@@ -334,6 +334,57 @@ class AnnotationClassifierTest {
     }
 
     @Test
+    fun loop_drawn_between_shaft_and_head_is_an_inline_insert() {
+        // v0.20.0 device upload: bubble text, shaft, loop, then the tick head at the tip.
+        val strokes = NotebookFixtures.freehand("arrow_head_after_loop_device_v0200")
+        val r = classify(Page(strokes, true, text = listOf(run("L1", 1, "Test document : AWESOME", 117f, 1))))
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.INSERT)
+        assertThat(op.at!!.lineId).isEqualTo("L1")
+        assertThat(op.at!!.mode).isEqualTo(AtMode.INLINE)
+        assertThat(op.strokeIds).containsAtLeastElementsIn(strokes.map { it.id })
+        assertThat(r.notes).isEmpty()
+    }
+
+    @Test
+    fun a_new_arrow_re_points_a_rejected_note() {
+        // v0.20.0 device upload: the bubble (0-12) was rejected on an earlier Send; the arrow (13, 14) is new ink.
+        val strokes = NotebookFixtures.freehand("arrow_redrawn_over_rejected_note_device_v0200")
+        val rejected = strokes.take(13).map { it.id }.toSet()
+        val runs = listOf(run("L1", 1, "Test document :", 117f, 1))
+        val r = classify(Page(strokes, true, text = runs, rejectedStrokes = rejected))
+        val op = r.ops.single()
+        assertThat(op.kind).isEqualTo(OpKind.INSERT)
+        assertThat(op.at!!.lineId).isEqualTo("L1")
+        assertThat(op.at!!.mode).isEqualTo(AtMode.INLINE)
+        assertThat(op.strokeIds).containsAtLeastElementsIn(strokes.map { it.id })
+    }
+
+    @Test
+    fun a_rejected_stroke_in_a_pending_op_or_image_region_stays_skipped() {
+        val strokes = NotebookFixtures.freehand("arrow_redrawn_over_rejected_note_device_v0200")
+        val runs = listOf(run("L1", 1, "Test document :", 117f, 1))
+        val rejected = strokes.take(13).map { it.id }.toSet() + strokes[14].id
+        val base = Page(strokes, true, text = runs, rejectedStrokes = rejected)
+        // Control: with the head stroke free of other claims the arrow is fresh and pairs.
+        assertThat(classify(base.copy(rejectedStrokes = strokes.take(13).map { it.id }.toSet())).ops).hasSize(1)
+        val sent = EditOp("old", OpKind.DELETE, OpTarget("L1", 0, 4, "Test"), strokeIds = listOf(strokes[14].id))
+        val pending = classify(base.copy(pendingOps = listOf(PendingOp("c0", sent))))
+        assertThat(pending.ops.flatMap { it.strokeIds }).doesNotContain(strokes[14].id)
+        val r = classifier.classify(base, g, measure, exclude = setOf(strokes[14].id)) { "op-${++ids}" }
+        assertThat(r.ops.flatMap { it.strokeIds }).doesNotContain(strokes[14].id)
+    }
+
+    @Test
+    fun rejected_ink_alone_is_never_reclassified() {
+        val strokes = NotebookFixtures.freehand("arrow_redrawn_over_rejected_note_device_v0200")
+        val runs = listOf(run("L1", 1, "Test document :", 117f, 1))
+        val r = classify(Page(strokes, true, text = runs, rejectedStrokes = strokes.map { it.id }.toSet()))
+        assertThat(r.ops).isEmpty()
+        assertThat(r.notes).isEmpty()
+    }
+
+    @Test
     fun tool_rect_with_freehand_arrow_makes_insert() {
         val r =
             classify(
