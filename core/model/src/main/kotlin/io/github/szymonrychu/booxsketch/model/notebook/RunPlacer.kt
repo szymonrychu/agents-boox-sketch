@@ -763,11 +763,11 @@ private object DiagramBlocks {
     private val SKIP_LINE = Regex("^\\s*(subgraph|end|style|classDef|class|linkStyle|click|direction|%%)\\b.*|^\\s*%%.*")
     private val NODE =
         Regex(
-            "([A-Za-z_][\\w-]*)(?:\\s*(?:\\[\\s*\"([^\"]*)\"\\s*]|\\[([^\\]\"]*)]|\\(\\(?\"?([^)\"]*)\"?\\)?\\)|\\{\"?([^}\"]*)\"?}))?",
+            "([A-Za-z_][\\w\\-]*)(?:\\s*(?:\\[\\s*\"([^\"]*)\"\\s*\\]|\\[([^\\]\"]*)\\]|\\(\\(?\"?([^)\"]*)\"?\\)?\\)|\\{\"?([^\\}\"]*)\"?\\}))?",
         )
     private const val MAX_MARKER = 80
     private const val ARROW_MARGIN = NotebookGeometry.CELL / 4f
-    private val REWRITE = Regex("\\[\\[\\?([^|\\]]*)(?:\\|[^\\]]*)?]]")
+    private val REWRITE = Regex("\\[\\[\\?([^|\\]]*)(?:\\|[^\\]]*)?\\]\\]")
 
     /** Diagram blocks by the 1-based source line of their opening fence. */
     fun find(
