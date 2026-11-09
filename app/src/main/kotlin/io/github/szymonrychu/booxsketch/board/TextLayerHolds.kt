@@ -37,7 +37,10 @@ class TextLayerHolds(
 
     @Volatile var surface: TextLayerSurface? = null
 
-    /** Asked, inside a hold after a swap, to get the swap onto the frozen panel (the refresh waits for a draw). */
+    /**
+     * Asked, inside a hold after a swap, for a full refresh ([UiRefresh.chromeChanged]) to get the swap onto the frozen
+     * panel: a GU invalidate is deferred past the raw drawing release and misses the surface layer.
+     */
     @Volatile var ui: UiRefresh? = null
 
     @Volatile private var lastActivity: Long? = null
