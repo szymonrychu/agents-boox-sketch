@@ -29,6 +29,7 @@ import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.RegionRef
 import io.github.szymonrychu.booxsketch.model.notebook.SourceMap
 import io.github.szymonrychu.booxsketch.model.notebook.TextRun
+import io.github.szymonrychu.booxsketch.onyx.UiRefresher
 import io.github.szymonrychu.booxsketch.testing.FreezingInput
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -79,14 +80,19 @@ class NotebookSyncTest {
         }
     }
 
-    /** Records each uiChanged with whether raw drawing was off and how many swaps had happened by then. */
+    /** Records each full refresh (chromeChanged) and partial one (uiChanged): raw drawing off, and swaps so far. */
     private class RecordingUi(
         private val input: FreezingInput,
         private val surface: RecordingSurface,
     ) : UiRefresh {
         val calls = mutableListOf<Pair<Boolean, Int>>()
+        val partial = mutableListOf<Pair<Boolean, Int>>()
 
         override fun uiChanged(settled: Boolean) {
+            partial += (input.held > 0) to surface.swaps.size
+        }
+
+        override fun chromeChanged() {
             calls += (input.held > 0) to surface.swaps.size
         }
     }
@@ -151,7 +157,7 @@ class NotebookSyncTest {
         }
 
     @Test
-    fun version_swap_requests_ui_refresh_while_held() =
+    fun version_swap_requests_full_refresh_while_held() =
         runTest {
             storeVersion()
             val vm = board()
@@ -163,8 +169,54 @@ class NotebookSyncTest {
             val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
             advanceTimeBy(1_000)
             sync.onVersion("srv", "local", 1)
-            // One refresh request, made while raw drawing was held off and after the swap.
+            // One full refresh request (GU is deferred and frozen), made while held, after the swap.
             assertThat(ui.calls).containsExactly(true to 1)
+            assertThat(ui.partial).isEmpty()
+        }
+
+    @Test
+    fun version_swap_reaches_the_real_refresher_as_a_full_refresh_before_the_release() =
+        runTest {
+            storeVersion()
+            val vm = board()
+            val input = FreezingInput()
+            val holds = TextLayerHolds(clock = { testScheduler.currentTime }).also { it.input = input }
+            val events = mutableListOf<String>()
+            holds.surface =
+                object : TextLayerSurface {
+                    override fun swapText(
+                        strokes: List<Stroke>,
+                        textLayer: Bitmap?,
+                        dirtyPage: RectF?,
+                    ) {
+                        events += "swap held=${input.held}"
+                    }
+                }
+            val draws = ArrayDeque<Runnable>()
+            holds.ui =
+                UiRefresher(
+                    input = input,
+                    afterNextDraw = { draws.addLast(it) },
+                    postDelayed = { _, _ -> },
+                    cancel = {},
+                    now = { testScheduler.currentTime },
+                    partialRefresh = { events += "partial held=${input.held}" },
+                    fullRefresh = { events += "full held=${input.held}" },
+                )
+            // The first frame: full refresh, then raw drawing is enabled for the first time.
+            draws.removeFirst().run()
+            events.clear()
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val sync = NotebookSync(db.specDao(), vm, holds, main = dispatcher, worker = dispatcher)
+            advanceTimeBy(1_000)
+            sync.onVersion("srv", "local", 1)
+            // The refresher waits for the next draw with raw drawing still held off.
+            assertThat(events).containsExactly("swap held=1")
+            assertThat(input.held).isEqualTo(1)
+            draws.removeFirst().run()
+            // The full refresh runs under the refresher's hold, after the swap and before the release.
+            assertThat(events).containsExactly("swap held=1", "full held=1").inOrder()
+            assertThat(input.held).isEqualTo(0)
         }
 
     @Test
