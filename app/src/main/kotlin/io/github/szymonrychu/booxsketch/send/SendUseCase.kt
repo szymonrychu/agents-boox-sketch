@@ -21,9 +21,11 @@ import io.github.szymonrychu.booxsketch.model.Canvas
 import io.github.szymonrychu.booxsketch.model.Notebook
 import io.github.szymonrychu.booxsketch.model.NotebookGeometry
 import io.github.szymonrychu.booxsketch.model.Page
+import io.github.szymonrychu.booxsketch.model.RectF
 import io.github.szymonrychu.booxsketch.model.SendSelection
 import io.github.szymonrychu.booxsketch.model.Stroke
 import io.github.szymonrychu.booxsketch.model.StrokesCodec
+import io.github.szymonrychu.booxsketch.model.Tool
 import io.github.szymonrychu.booxsketch.model.notebook.AnnotationClassifier
 import io.github.szymonrychu.booxsketch.model.notebook.EditOp
 import io.github.szymonrychu.booxsketch.model.notebook.FreehandInsertMarks
@@ -35,6 +37,7 @@ import io.github.szymonrychu.booxsketch.model.notebook.PendingSegment
 import io.github.szymonrychu.booxsketch.model.notebook.RegionRef
 import io.github.szymonrychu.booxsketch.model.notebook.Segmenter
 import io.github.szymonrychu.booxsketch.model.notebook.TextMeasure
+import io.github.szymonrychu.booxsketch.model.notebook.TextRun
 import io.github.szymonrychu.booxsketch.model.notebook.ToolInsertMarks
 import io.github.szymonrychu.booxsketch.model.rectOf
 import io.github.szymonrychu.booxsketch.model.selectPagesForSend
@@ -324,7 +327,7 @@ class SendUseCase(
                     // both the regions cannot be image ops and go as pictures in the page meta.
                     val asOps = kept != null && base != null
                     val images =
-                        regions(page, n, if (asOps) base!!.lines else emptySet(), layer, notebook.canvas, cfg)
+                        regions(page, n, base.takeIf { asOps }, layer, notebook.canvas, cfg)
                             ?: return Prepared.Failed(SendOutcome.ExportFailed(i, REGION_TOO_BIG))
                     val notebookPart =
                         kept?.let {
@@ -355,20 +358,23 @@ class SendUseCase(
 
     /**
      * One image op per region of [page] not sent yet (spec 4.3 rule 1) with its crop: the region's rect `[x, y, w, h]`
-     * in page px, its members as strokes, part `region.<part>.<k>.png` and, as `after_line`, the run of a [baseLines]
-     * line ending nearest above the rect (none for a picture: the caller passes no lines).
+     * in page px, its members as strokes, part `region.<part>.<k>.png` and, as `after_line`, the run of a [base]
+     * line ending nearest above the rect (none for a picture: the caller passes no base). When box ink (a diagram)
+     * lies between that run and the rect, the line moves to the closing fence of the first mermaid block after the
+     * run, because a fence has no run on the board.
      * Null when a region is degenerate or its crop cannot fit the PNG cap.
      */
     @Suppress("LongParameterList")
     private suspend fun regions(
         page: Page,
         part: Int,
-        baseLines: Set<String>,
+        base: Base?,
         layer: Bitmap?,
         canvas: Canvas,
         cfg: ConfigDto,
     ): List<Pair<EditOp, ByteArray>>? {
         val geometry = NotebookGeometry(canvas.w, canvas.h)
+        val baseLines = base?.lines.orEmpty()
         return ImageRegions.unsent(page).mapIndexed { k, region ->
             val r = rectOf(region)
             if (r.r <= r.l || r.b <= r.t) return null
@@ -376,16 +382,42 @@ class SendUseCase(
                 page.text
                     .filter { it.lineId in baseLines && geometry.rowTop(it.row + it.wrapRows) <= r.t + geometry.rowPitch / 2f }
                     .maxByOrNull { it.row + it.wrapRows }
+            val afterLine = base?.let { diagramEnd(page, region, r, above, geometry, it) } ?: above?.lineId
             val op =
                 EditOp(
                     id = newId(),
                     kind = OpKind.IMAGE,
                     strokeIds = ImageRegions.members(page, region),
                     rect = listOf(r.l, r.t, r.r - r.l, r.b - r.t),
-                    region = RegionRef(newId(), "region.$part.$k.png", above?.lineId),
+                    region = RegionRef(newId(), "region.$part.$k.png", afterLine),
                 )
             op to (withContext(worker) { cropRegion(page, region, layer, canvas, cfg) } ?: return null)
         }
+    }
+
+    /**
+     * The closing fence line id of the first mermaid block after [above] in source order when box ink of a diagram
+     * lies between [above] and the region rect [r]; null when there is none (the caller keeps the run line).
+     */
+    @Suppress("LongParameterList")
+    private fun diagramEnd(
+        page: Page,
+        region: Stroke,
+        r: RectF,
+        above: TextRun?,
+        geometry: NotebookGeometry,
+        base: Base,
+    ): String? {
+        val from = above?.let { base.sourceLines[it.lineId] } ?: 0
+        val fence = base.fences.firstOrNull { it.first > from } ?: return null
+        val top = above?.let { geometry.rowTop(it.row + it.wrapRows).toFloat() } ?: Float.NEGATIVE_INFINITY
+        val members = ImageRegions.members(page, region).toSet()
+        val boxAbove =
+            page.strokes.any {
+                it.tool == Tool.RECTANGLE && it.points.size >= 2 && it.id !in members &&
+                    rectOf(it).let { b -> b.t >= top && b.b <= r.t }
+            }
+        return fence.second.takeIf { boxAbove }
     }
 
     private fun exportBoardPage(
@@ -598,21 +630,38 @@ class SendUseCase(
      */
     private suspend fun base(serverId: String?): Base? {
         val latest = serverId?.let { db.specDao().latest(it) } ?: return null
-        val lines =
-            latest.layout
-                ?.let {
-                    NotebookSync
-                        .layoutModel(it)
-                        .lines
-                        .map { l -> l.lineId }
-                        .toSet()
-                }.orEmpty()
-        return Base(latest.version, lines)
+        val layoutLines = latest.layout?.let { NotebookSync.layoutModel(it).lines }.orEmpty()
+        val lines = layoutLines.map { l -> l.lineId }.toSet()
+        val sourceLines = layoutLines.associate { it.lineId to it.sourceLine }
+        return Base(latest.version, lines, sourceLines, mermaidFences(latest.markdown, sourceLines))
+    }
+
+    /** (opening source line, closing fence line id) of each mermaid block of [markdown] whose closing fence has a layout line. */
+    private fun mermaidFences(
+        markdown: String,
+        sourceLines: Map<String, Int>,
+    ): List<Pair<Int, String>> {
+        val idOf = sourceLines.entries.associate { it.value to it.key }
+        val fences = mutableListOf<Pair<Int, String>>()
+        var open = 0
+        markdown.lines().forEachIndexed { i, line ->
+            val t = line.trim()
+            if (open == 0 && t.startsWith("```mermaid")) {
+                open = i + 1
+            } else if (open != 0 && t.startsWith("```")) {
+                idOf[i + 1]?.let { fences += open to it }
+                open = 0
+            }
+        }
+        return fences
     }
 
     private class Base(
         val version: Int,
         val lines: Set<String>,
+        val sourceLines: Map<String, Int>,
+        /** (opening source line, closing fence line id) of each mermaid block, in source order. */
+        val fences: List<Pair<Int, String>>,
     )
 
     private class PagePart(
