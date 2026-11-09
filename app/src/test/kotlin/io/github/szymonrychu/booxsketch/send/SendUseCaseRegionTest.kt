@@ -346,6 +346,90 @@ class SendUseCaseRegionTest {
             ).isNull()
         }
 
+    private fun box(
+        id: String,
+        fromRow: Int,
+        toRow: Int,
+    ) = Stroke(
+        id,
+        Tool.RECTANGLE,
+        3f,
+        listOf(Point(100f, g.rowTop(fromRow).toFloat(), 1f, 0L), Point(400f, g.rowTop(toRow).toFloat(), 1f, 1L)),
+    )
+
+    /** L1 text (line 1), a mermaid block (lines 2-4, closing fence L4) and L5 text (line 5). */
+    private suspend fun diagramSpec() {
+        db.specDao().upsert(
+            SpecEntity(
+                "srv-1",
+                5,
+                "intro\n```mermaid\nA-->B\n```\noutro",
+                "2026-11-07T00:00:00Z",
+                layout =
+                    """{"lines":[{"line_id":"L1","source_line":1,"origin":null},{"line_id":"L2","source_line":2,"origin":null},""" +
+                        """{"line_id":"L3","source_line":3,"origin":null},{"line_id":"L4","source_line":4,"origin":null},""" +
+                        """{"line_id":"L5","source_line":5,"origin":null}]}""",
+            ),
+        )
+    }
+
+    private suspend fun afterLineOf(page: Page): String? {
+        board.notebook = Notebook(CANVAS, listOf(page), 0)
+        val clientId = (useCase.send(all = false, caption = null) as SendOutcome.Queued).clientId
+        val ops = layoutOf(clientId).ops
+        return ops.single { it.kind == "image" }.region!!.afterLine
+    }
+
+    @Test
+    fun picture_below_a_diagram_is_placed_after_the_fence() =
+        runBlocking<Unit> {
+            diagramSpec()
+            val page = Page(listOf(box("b", 5, 8), region("r", 12, 15)), true, text = listOf(run("L1", 2)))
+            assertThat(afterLineOf(page)).isEqualTo("L4")
+        }
+
+    @Test
+    fun picture_above_a_diagram_keeps_the_run_line() =
+        runBlocking<Unit> {
+            diagramSpec()
+            val page = Page(listOf(region("r", 5, 8), box("b", 12, 15)), true, text = listOf(run("L1", 2), run("L5", 18)))
+            assertThat(afterLineOf(page)).isEqualTo("L1")
+        }
+
+    @Test
+    fun a_stray_box_with_the_only_diagram_below_the_picture_keeps_the_run_line() =
+        runBlocking<Unit> {
+            db.specDao().upsert(
+                SpecEntity(
+                    "srv-1",
+                    5,
+                    "intro\noutro\n```mermaid\nA-->B\n```",
+                    "2026-11-07T00:00:00Z",
+                    layout =
+                        """{"lines":[{"line_id":"L1","source_line":1,"origin":null},{"line_id":"L2","source_line":2,"origin":null},""" +
+                            """{"line_id":"L3","source_line":3,"origin":null},{"line_id":"L4","source_line":4,"origin":null},""" +
+                            """{"line_id":"L5","source_line":5,"origin":null}]}""",
+                ),
+            )
+            val page = Page(listOf(box("b", 5, 8), region("r", 12, 15)), true, text = listOf(run("L1", 2), run("L2", 18)))
+            assertThat(afterLineOf(page)).isEqualTo("L1")
+        }
+
+    @Test
+    fun picture_between_text_lines_without_a_diagram_keeps_the_run_line() =
+        runBlocking<Unit> {
+            diagramSpec()
+            val page = Page(listOf(region("r", 8, 11)), true, text = listOf(run("L1", 2), run("L5", 14)))
+            assertThat(afterLineOf(page)).isEqualTo("L1")
+        }
+
+    @Test
+    fun picture_below_a_box_without_a_mermaid_block_keeps_the_run_line() =
+        runBlocking<Unit> {
+            val page = Page(listOf(box("b", 5, 8), region("r", 12, 15)), true, text = listOf(run("L1", 2)))
+            assertThat(afterLineOf(page)).isEqualTo("L1")
+        }
+
     @Test
     fun strokes_over_the_cap_send_the_region_as_a_meta_picture() =
         runBlocking<Unit> {
