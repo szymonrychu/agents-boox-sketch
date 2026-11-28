@@ -1458,3 +1458,11 @@ the per-region firmware config (`EpdController.setScreenHandWritingRegionConfig`
   mode and that the full refresh runs under the hold, after the swap, before the release.
 - `InkDiag` lines `text swap v=.. surface=.. ui=..` and `ui refresh full=.. held=..` show the order on the Diagnostics
   tab. Not verified on a device yet. The swapText synchronous partialRefresh is left in place (optional removal).
+
+## 2026-11-28 S-99 step 18: detekt cognitive complexity, shared next-version
+
+- Enabled detekt `CognitiveComplexMethod` (threshold 15, 1.23.x key names) and a per-subproject
+  `detekt-baseline.xml` for existing hits, so only new complex code fails lint.
+- The release job runs `next-version` from agents-common v0.23.0 through `pipx run`; the local
+  `scripts/next_version.py` and its identity test were deleted (the test asserted identity with the
+  deleted copy). Output was identical (empty on a tagged HEAD).

@@ -1,4 +1,3 @@
-import hashlib
 import os
 import subprocess
 import sys
@@ -7,7 +6,6 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]
-NEXT_VERSION_SHA256 = "ebe7f7a302fe15396fbc63fe222c9bd09d2d0a2bbeb7441810c90d60f57043e7"
 IDENTITY = {
     "GIT_AUTHOR_NAME": "t",
     "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -64,12 +62,6 @@ class ReleaseNotesTest(unittest.TestCase):
             git(repo, "commit", "-q", "--allow-empty", "-m", "chore: first")
             out = run("release_notes.py", "", cwd=repo).stdout
         self.assertIn("- chore: first", out.splitlines())
-
-
-class NextVersionTest(unittest.TestCase):
-    def test_next_version_identical_to_connector(self):
-        digest = hashlib.sha256((SCRIPTS / "next_version.py").read_bytes()).hexdigest()
-        self.assertEqual(digest, NEXT_VERSION_SHA256)
 
 
 if __name__ == "__main__":
