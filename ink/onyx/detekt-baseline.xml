@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CognitiveComplexMethod:OnyxStrokeInput.kt$OnyxStrokeInput$override fun start( view: View, limit: Rect, exclude: List&lt;Rect&gt;, )</ID>
+  </CurrentIssues>
+</SmellBaseline>

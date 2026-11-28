@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CognitiveComplexMethod:AnnotationClassifier.kt$AnnotationClassifier$fun classify( page: Page, geometry: NotebookGeometry, measure: TextMeasure, exclude: Set&lt;String&gt; = emptySet(), newId: () -&gt; String, ): Classification</ID>
+    <ID>CognitiveComplexMethod:RunPlacer.kt$RunPlacer$fun wrap( display: String, scale: Float, column: Float, measure: TextMeasure, bold: Boolean = false, ): List&lt;IntRange&gt;</ID>
+  </CurrentIssues>
+</SmellBaseline>

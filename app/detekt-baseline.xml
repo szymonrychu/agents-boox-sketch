@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CognitiveComplexMethod:BoardView.kt$@Suppress("LongParameterList", "LongMethod") // the view wiring is one block of callbacks @Composable fun BoardView( notebook: Notebook, input: StrokeInput, onStroke: (Stroke) -&gt; Unit, onErase: (x: Float, y: Float, radius: Float) -&gt; Unit, modifier: Modifier = Modifier, exclude: List&lt;Rect&gt; = emptyList(), preview: Stroke? = null, onShapeDrag: (Stroke) -&gt; Unit = {}, onShapeCancel: () -&gt; Unit = {}, background: Bitmap? = null, textLayer: Bitmap? = null, onSurface: (TextLayerSurface) -&gt; Unit = {}, onPenActivity: () -&gt; Unit = {}, onBoardTap: () -&gt; Unit = {}, dismissMode: Boolean = false, onDismiss: () -&gt; Unit = {}, )</ID>
+    <ID>CognitiveComplexMethod:DecisionCard.kt$@Composable private fun OpenDecision( decision: DecisionDto, answering: Boolean, onAnswer: (Long, Int?, String?, String?) -&gt; Unit, )</ID>
+    <ID>CognitiveComplexMethod:DocumentHost.kt$@Suppress("LongMethod") @Composable fun DocumentHost( container: AppContainer, row: DocumentRow, input: StrokeInput, )</ID>
+    <ID>CognitiveComplexMethod:DocumentScreen.kt$@Suppress("LongParameterList", "LongMethod") @Composable fun DocumentScreen( title: String, state: DocumentViewState, versions: List&lt;Int&gt;, onClose: () -&gt; Unit, onSelectVersion: (Int) -&gt; Unit, onShare: () -&gt; Unit, onSources: () -&gt; Unit, onPrev: () -&gt; Unit, onNext: () -&gt; Unit, modifier: Modifier = Modifier, feedback: List&lt;FeedbackEntity&gt; = emptyList(), /** Reverts to the shown older version; null hides the action. */ onRevert: ((version: Int) -&gt; Unit)? = null, pageArea: @Composable ( Modifier, ) -&gt; Unit = { m -&gt; DocumentPageView( state.pages .getOrNull(state.pageIndex) ?.file ?.path, emptyList(), m, ) }, )</ID>
+    <ID>CognitiveComplexMethod:DocumentScreen.kt$private fun Modifier.fingerSwipes( swipe: PageSwipe, onSwipe: (SwipeDir) -&gt; Unit, ): Modifier</ID>
+    <ID>CognitiveComplexMethod:NotebookSync.kt$NotebookSync$suspend fun onVersion( conversationServerId: String, conversationLocalId: String, version: Int, )</ID>
+    <ID>CognitiveComplexMethod:PanelShell.kt$@Composable fun PanelShell( modifier: Modifier = Modifier, title: String = "Conversations", )</ID>
+    <ID>CognitiveComplexMethod:SendUseCase.kt$SendUseCase$private suspend fun exportBoard( notebook: Notebook, indices: List&lt;Int&gt;, cfg: ConfigDto, clientId: String, base: Base?, ): Prepared</ID>
+    <ID>CognitiveComplexMethod:SendUseCase.kt$SendUseCase$suspend fun sendAnnotation( conversationLocalId: String, version: Int, latestVersion: Int, pages: List&lt;AnnotatedInput&gt;, caption: String?, ): SendOutcome</ID>
+    <ID>CognitiveComplexMethod:SourcesScreen.kt$@Composable private fun SourceRow(item: SourceItem)</ID>
+    <ID>CognitiveComplexMethod:ToolStrip.kt$@Suppress("LongMethod") @Composable fun ToolStrip( vm: BoardViewModel, state: ToolboxState, onHide: () -&gt; Unit, ui: UiRefresh, modifier: Modifier = Modifier, options: ToolbarOptions = ToolbarOptions(), )</ID>
+    <ID>CognitiveComplexMethod:ToolboxDock.kt$@Suppress("LongParameterList") @Composable fun BoxScope.ToolboxDock( visible: Boolean, onShow: () -&gt; Unit, ui: UiRefresh, onExcludeChange: (List&lt;Rect&gt;) -&gt; Unit, onPopupExcludeChange: (List&lt;Rect&gt;) -&gt; Unit, rememberedDockSize: IntSize?, onDockSize: (IntSize) -&gt; Unit, popup: ToolPopup?, popupAnchorY: Float, layoutEpoch: Int = 0, strip: @Composable () -&gt; Unit, popupContent: @Composable () -&gt; Unit, )</ID>
+    <ID>CognitiveComplexMethod:WebViewCapture.kt$WebViewCapture$@SuppressLint("SetJavaScriptEnabled") @Suppress("TooGenericExceptionCaught") // creating a web view fails in many ways when the system WebView is missing or broken override fun start( source: String, widthPx: Int, onDone: (CaptureResult) -&gt; Unit, )</ID>
+  </CurrentIssues>
+</SmellBaseline>

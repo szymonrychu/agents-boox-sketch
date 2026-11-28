@@ -7,6 +7,9 @@ style:
   ReturnCount:
     max: 4
 complexity:
+  CognitiveComplexMethod:
+    active: true
+    threshold: 15
   LongParameterList:
     functionThreshold: 8
     constructorThreshold: 10

@@ -22,6 +22,7 @@ subprojects {
     extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
         buildUponDefaultConfig = true
         config.setFrom(rootProject.file("config/detekt.yml"))
+        baseline = file("detekt-baseline.xml")
         source.setFrom("src/main/kotlin", "src/test/kotlin", "src/androidTest/kotlin")
     }
 }

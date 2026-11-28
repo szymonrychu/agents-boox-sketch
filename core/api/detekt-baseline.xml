@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CognitiveComplexMethod:EventSource.kt$ConversationEvents$fun stream(conversationId: String): Flow&lt;EventDto&gt;</ID>
+  </CurrentIssues>
+</SmellBaseline>
